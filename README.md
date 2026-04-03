@@ -2,6 +2,9 @@
 
 [English](/README.md) | [中文](/README.zh-CN.md)
 
+> [!TIP]
+> Adapting the English version. Multilingual support will be released in the next version.
+
 ## Installation
 
 In the MCDR console, use the following command to install the plugin:
