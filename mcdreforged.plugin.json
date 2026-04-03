@@ -7,7 +7,6 @@
         "en_us": "This plugin can combine MCDR with AI that supports OpenAI, allowing you to use AI in the game"},
     "author": "yello",
     "link": "https://github.com/PengZixuan30/Games_AI",
-    "dependency": {
         "mcdreforged": ">=2.0.0",
         "online_player_api": ">=1.0.0",
         "whitelist_api": ">=1.0.0"
