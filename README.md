@@ -3,7 +3,7 @@
 [English](/README.md) | [中文](/README.zh-CN.md)
 
 > [!TIP]
-> Adapting the English version. Multilingual support will be released in the next version.
+> English support will be released in the next version.
 
 ## Installation
 
