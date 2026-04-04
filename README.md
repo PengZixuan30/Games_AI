@@ -1,4 +1,4 @@
-# Game's AI
+# Games AI
 
 English | [中文](/README.zh-CN.md)
 
