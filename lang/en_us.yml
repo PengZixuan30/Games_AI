@@ -1,0 +1,39 @@
+games_ai:
+  mcdr_help_message: 
+    openai_help: "Show help message for GamesAI plugin and how to use GamesAI"
+    openai_clear: "Clear all conversation history for the current player"
+    openai_clearall: "Clear all history messages"
+    openai_ask: "Ask a question to the AI"
+  system_message:
+    default: "Answer in concise language with some emotion, always use en_us language. If you want to get the online player list, reply get_players; if you want to get the server whitelist (i.e., all member list), reply get_whitelist. You are a robot on the Minecraft server"
+  load_message: 
+    server_info: "Configuration file loaded"
+    client_info: "Welcome to use the GamesAI plugin!"
+  openai_help_message:
+    greeting: "Welcome to use the GamesAI plugin!"
+    ask_help_prefix: "Enter "
+    ask_help_suffix: " to ask the AI a question"
+    clear_help_prefix: "Enter "
+    clear_help_suffix: " to clear your chat history"
+    clearall_help_prefix: "Enter "
+    clearall_help_suffix: " to clear all chat history (requires level 3 or higher permission)"
+    ask_help_console: "Enter !!ask to ask the AI a question"
+    clear_help_console: "Enter !!openai clear to clear your chat history"
+    clearall_help_console: "Enter !!openai clearall to clear all chat history (requires level 3 or higher permission)"
+  user_message:
+    player: "Player"
+    username: "Username:"
+    message: "Player message:"
+    online_players: "Online player list:"
+    whitelist_players: "All member list:"
+    history:
+      prefix: "History message:"
+      user_message: "Player message:"
+      ai_reply: "AI reply:"
+    getting_online_players: "Getting online player list..."
+    getting_whitelist: "Getting all member list..."
+  clear_history_message:
+    success: "Cleared chat history for player {username}"
+    no_history: "Current player {username} has no messages to clear"
+    clearall_success: "Cleared all history messages, total {count} players' messages"
+    clearall_no_permission: "You do not have permission to use this command, requires admin level or higher"

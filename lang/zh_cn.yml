@@ -1,0 +1,39 @@
+games_ai:
+  mcdr_help_message: 
+    openai_help: "显示GamesAI插件的帮助信息以及使用GamesAI"
+    openai_clear: "清除当前玩家的所有对话历史"
+    openai_clearall: "清除所有历史消息"
+    openai_ask: "向AI提问"
+  system_message:
+    default: "使用简洁的语言回答,但请带有一定的情感,始终使用语言为zh_cn,如果你想获取在线玩家列表,请回复get_players;如果你想获取服务器白名单(既全体成员名单),请回复get_whitelist。你是Minecraft服务器的一名机器人"
+  load_message: 
+    server_info: "配置文件已加载"
+    client_info: "欢迎使用GamesAI插件!"
+  openai_help_message:
+    greeting: "欢迎使用GamesAI插件!"
+    ask_help_prefix: "输入"
+    ask_help_suffix: "以向AI提问"
+    clear_help_prefix: "输入"
+    clear_help_suffix: "以清除你的历史聊天记录"
+    clearall_help_prefix: "输入"
+    clearall_help_suffix: "以清除所有历史聊天记录(需要3级及以上权限)"
+    ask_help_console: "输入!!ask以向AI提问"
+    clear_help_console: "输入!!openai clear以清除你的历史聊天记录"
+    clearall_help_console: "输入!!openai clearall以清除所有历史聊天记录(需要3级及以上权限)"
+  user_message:
+    player: "玩家"
+    username: "用户名:"
+    message: "玩家消息:"
+    online_players: "在线玩家列表:"
+    whitelist_players: "全体成员列表:"
+    history:
+      prefix: "历史消息:"
+      user_message: "玩家消息:"
+      ai_reply: "AI回复:"
+    getting_online_players: "正在获取在线玩家列表..."
+    getting_whitelist: "正在获取全体成员列表..."
+  clear_history_message:
+    success: "已清除玩家{username}的历史聊天记录"
+    no_history: "当前玩家{username}没有可清除的消息"
+    clearall_success: "已清除所有历史消息,总计{count}个玩家的消息"
+    clearall_no_permission: "你没有权限使用此指令,需要权限等级达到admin或以上"

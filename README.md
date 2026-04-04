@@ -1,17 +1,19 @@
 # Game's AI
 
-[English](/README.md) | [中文](/README.zh-CN.md)
+English | [中文](/README.zh-CN.md)
 
-> [!TIP]
-> English support will be released in the next version.
+> [!NOTE]
+> Welcome to version 0.2.1. This version has updated English support and fixed many legacy issues.
+
+> [!IMPORTANT]
+> Optimizing tool selection...This update will help change the command from `!!openai` to `!!gamesai`.
 
 ## Installation
-
-In the MCDR console, use the following command to install the plugin:
+Use the following command in the MCDR console to install the plugin:
 
 `!!MCDR plugin install games_ai`
 
-Alternatively, you can download it from the [MCDR Plugin Repository](https://mcdreforged.com/en/plugins) and place it in your plugin directory.
+Alternatively, download it from the [MCDR Plugin Repository](https://mcdreforged.com/en/plugin/games_ai) and place it in your plugin directory.
 
 This plugin also requires some Python packages. Install them with:
 ```bash
@@ -19,71 +21,72 @@ pip install openai
 ```
 
 ## Usage
-Enter the command `!!openai` anywhere to display all available functions of this plugin.
+Enter the command `!!gamesai` anywhere to display all functions of this plugin.
 
-You can also use `!!ask` to directly ask questions or chat with the AI.
+You can also directly enter `!!ask` to ask questions or chat with the AI.
 
 ## Configuration
 The configuration file structure is as follows:
 
 ```json
 {
-    "system_message": "使用简洁的语言回答,但请带有一定的情感,始终使用语言为zh_cn,如果你想获取在线玩家列表,请回复get_players;如果你想获取服务器白名单(既全体成员名单),请回复get_whitelist。你是Minecraft服务器的一名机器人",
-    "prefix": "[OpenAI]",
-    "base_url":"https://api.deepseek.com",
-    "ai_model":"deepseek-chat",
+    "system_message": "Answer in concise language with some emotion, always use en_us language. If you want to get the online player list, reply get_players; if you want to get the server whitelist (i.e., all member list), reply get_whitelist. You are a robot on the Minecraft server",
+    "prefix": "[GamesAI]",
+    "base_url":"<Your API Base URL>",
+    "ai_model":"<Your AI Model>",
     "api_key":"<Your API Key>",
     "max_history": 10
 }
 ```
 
 Below is a description of each parameter:
-
-### 1. system_message
+### 1. system_message:
 Type: str
 
-Fill in your default system prompt. If left blank, the value shown in the configuration above will be used.
+Default: See the content in the file above
+
+Fill in your default prompt. If not filled, the default value above will be used.
 
 ### 2. prefix
 Type: str
 
-Default: "[OpenAI]"
+Default: "\[GamesAI\]"
 
-The name of the AI, which will be added as a prefix before the AI's replies.
+Fill in the name of this AI, which will be added as a prefix before the AI's replies.
 
 ### 3. base_url
 > [!WARNING]
-> This field is required. If missing, MCDR will unload the plugin immediately.
+> This must be filled in, otherwise MCDR will unload the plugin immediately.
 
 Type: str
 
 Default: "https://api.deepseek.com"
 
-The API server address.
+Fill in your API server address.
 
 ### 4. ai_model
 > [!WARNING]
-> This field is required. If missing, MCDR will unload the plugin immediately.
+> This must be filled in, otherwise MCDR will unload the plugin immediately.
 
 Type: str
 
 Default: "deepseek-chat"
 
-The AI model to be used.
+Fill in the AI model you want to use.
 
 ### 5. api_key
 > [!WARNING]
-> This field is required. If missing, MCDR will unload the plugin immediately.
+> This must be filled in, otherwise MCDR will unload the plugin immediately.
 
 Type: str
 
-Default: (none)
+Default: <none>
 
-Your API key.
+Fill in your API key.
 
 ### 6. max_history
 Type: int
 
 Default: 10
 
-The maximum number of conversation history entries to keep per player.
+Fill in the maximum number of history records to keep per player.
