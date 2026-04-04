@@ -6,7 +6,7 @@ English | [中文](/README.zh-CN.md)
 > Welcome to version 0.2.1. This version has updated English support and fixed many legacy issues.
 
 > [!IMPORTANT]
-> Optimizing tool selection...This update will help change the command from `!!openai` to `!!gamesai`.
+> This update will cause the command to switch from `!!openai` to `!!gamesai`.
 
 ## Installation
 Use the following command in the MCDR console to install the plugin:
