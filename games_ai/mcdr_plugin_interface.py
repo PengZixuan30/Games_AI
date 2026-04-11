@@ -1,6 +1,3 @@
-from whitelist_api import WhitelistException
-from online_player_api import get_player_list
-
 def get_whitelist_name_api(server):
     __whitelist_api = server.get_plugin_instance('whitelist_api')
     if __whitelist_api is None:
@@ -14,5 +11,8 @@ def get_whitelist_name_api(server):
         return "无白名单玩家"
 
 def get_online_players_to_init(server):
-    online_players_list = get_player_list()
+    __online_player_api = server.get_plugin_instance('online_player_api')
+    if __online_player_api is None:
+        return "无法获取在线玩家插件实例"
+    online_players_list = __online_player_api.get_player_list()
     return online_players_list

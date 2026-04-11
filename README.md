@@ -1,37 +1,59 @@
-# Games AI
+# GamesAI
 
 English | [中文](/README.zh-CN.md)
 
 > [!NOTE]
-> Welcome to version 0.2.1. This version has updated English support and fixed many legacy issues.
+> Welcome to version 0.3.0. This version introduces a public database and fixes some issues.
 
 > [!IMPORTANT]
-> This update will cause the command to switch from `!!openai` to `!!gamesai`.
+> Version 0.2.1 changes the help command from `!!openai` to `!!gamesai`.
 
 ## Installation
+
 Use the following command in the MCDR console to install the plugin:
 
 `!!MCDR plugin install games_ai`
 
-Alternatively, download it from the [MCDR Plugin Repository](https://mcdreforged.com/en/plugin/games_ai) and place it in your plugin directory.
+---
 
-This plugin also requires some Python packages. Install them with:
+Alternatively, get and install it from the [MCDR Plugin Repository](https://mcdreforged.com/en/plugin/games_ai) into your plugin directory.
+
+If you choose manual installation, please install the Python package OpenAI first using the following command:
+
 ```bash
 pip install openai
 ```
 
 ## Usage
-Enter the command `!!gamesai` anywhere to display all functions of this plugin.
+
+Enter the command `!!gamesai` anywhere to display all features of this plugin.
 
 You can also directly enter `!!ask` to ask questions or chat with the AI.
 
+---
+
+Enter `!!data` to get information about database commands.
+
+> [!TIP]
+> The database is automatically added when updating to the current version.
+
+The commands for `!!data` are as follows:
+
+|Command|Purpose|
+|---|---|
+|`!!data add <key> <value>`|Adds a piece of data to the public database, where key cannot contain spaces and value can be any string.|
+|`!!data del <key>`|Deletes a piece of data from the public database, regardless of whether the key exists.|
+|`!!data read <key>`|Reads the value corresponding to the key in the public database.|
+
 ## Configuration
-The configuration file structure is as follows:
+
+The default configuration file structure is as follows:
 
 ```json
 {
-    "system_message": "Answer in concise language with some emotion, always use en_us language. If you want to get the online player list, reply get_players; if you want to get the server whitelist (i.e., all member list), reply get_whitelist. You are a robot on the Minecraft server",
+    "system_message": "Use concise language to answer, but with a certain degree of emotion, always use language zh_cn. If you want to get a list of online players, reply get_players; if you want to get the server whitelist (i.e., the list of all members), reply get_whitelist. You are a bot on a Minecraft server.",
     "prefix": "[GamesAI]",
+    "permission": 3,
     "base_url":"<Your API Base URL>",
     "ai_model":"<Your AI Model>",
     "api_key":"<Your API Key>",
@@ -39,54 +61,62 @@ The configuration file structure is as follows:
 }
 ```
 
-Below is a description of each parameter:
-### 1. system_message:
-Type: str
+The following is a brief introduction to each parameter:
 
-Default: See the content in the file above
+### 1. system_message
+Value type: str
 
-Fill in your default prompt. If not filled, the default value above will be used.
+Default value: See the content in the file above
+
+Description: Enter your default prompt. If this item is left empty, the value in the file above will be used by default.
 
 ### 2. prefix
-Type: str
+Value type: str
 
-Default: "\[GamesAI\]"
+Default value: \[GamesAI\]
 
-Fill in the name of this AI, which will be added as a prefix before the AI's replies.
+Description: Enter the name of this AI to add a prefix before the AI's replies, which can contain Minecraft formatting codes.
 
-### 3. base_url
+### 3. permission
+Value type: int
+
+Default value: 3
+
+Description: The minimum permission level required to execute commands such as !!data. See MCDR Permission Documentation (https://docs.mcdreforged.com/zh-cn/latest/permission.html).
+
+### 4. base_url
 > [!WARNING]
-> This must be filled in, otherwise MCDR will unload the plugin immediately.
+> This item must be filled in, otherwise MCDR will unload the plugin directly.
 
-Type: str
+Value type: str
 
-Default: "https://api.deepseek.com"
+Default value: None
 
-Fill in your API server address.
+Description: Enter your API server address.
 
-### 4. ai_model
+### 5. ai_model
 > [!WARNING]
-> This must be filled in, otherwise MCDR will unload the plugin immediately.
+> This item must be filled in, otherwise MCDR will unload the plugin directly.
 
-Type: str
+Value type: str
 
-Default: "deepseek-chat"
+Default value: None
 
-Fill in the AI model you want to use.
+Description: Enter the AI model you wish to use.
 
-### 5. api_key
+### 6. api_key
 > [!WARNING]
-> This must be filled in, otherwise MCDR will unload the plugin immediately.
+> This item must be filled in, otherwise MCDR will unload the plugin directly.
 
-Type: str
+Value type: str
 
-Default: <none>
+Default value: None
 
-Fill in your API key.
+Description: Enter your API key.
 
-### 6. max_history
-Type: int
+### 7. max_history
+Value type: int
 
-Default: 10
+Default value: 10
 
-Fill in the maximum number of history records to keep per player.
+Description: Enter the maximum number of conversation history entries to retain per player. This is unrelated to the public database.
