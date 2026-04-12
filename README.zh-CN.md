@@ -112,7 +112,7 @@ pip install openai
 
 填入你的API密钥
 
-### 6.max_history
+### 7.max_history
 值的类型: int
 
 默认值: 10
