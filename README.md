@@ -86,7 +86,7 @@ Value type: int
 
 Default value: 3
 
-Description: The minimum permission level required to execute commands such as !!data. See MCDR Permission Documentation (https://docs.mcdreforged.com/zh-cn/latest/permission.html).
+Description: The minimum permission level required to execute commands such as !!data. See [MCDR Permission Documentation](https://docs.mcdreforged.com/en/latest/permission.html).
 
 ### 4. base_url
 > [!WARNING]
