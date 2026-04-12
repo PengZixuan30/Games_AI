@@ -1,0 +1,73 @@
+games_ai:
+  mcdr_help_message: 
+    gamesai_help: "顯示 GamesAI 插件的說明資訊以及使用 GamesAI"
+    gamesai_clear: "清除目前玩家的所有對話歷史記錄"
+    gamesai_clearall: "清除所有歷史訊息"
+    gamesai_ask: "向 AI 提問"
+    data_add: "新增一則公共資料，讓所有玩家存取 AI 時都可以使用這則資料"
+    data_del: "刪除一則公共資料"
+    data_read: "讀取一則公共資料"
+  
+  system_message:
+    default: "請使用簡潔的語言回答，但帶有適度的情感，始終使用語言為 zh_tw，若你想取得線上玩家列表，請回覆 get_players；若你想取得伺服器白名單（即全體成員名單），請回覆 get_whitelist。你是 Minecraft 伺服器的一名機器人"
+  
+  load_message: 
+    server_info: "設定檔已載入"
+    client_info: "歡迎使用 GamesAI 插件！目前版本：{v}"
+    server_create_data_dir: "已建立資料庫："
+  
+  gamesai_help_message:
+    greeting: "歡迎使用 GamesAI 插件！目前版本：{v}"
+    
+    help_prefix: "輸入"
+
+    ask_help: "以向 AI 提問"
+
+    clear_help: "以清除你的歷史聊天記錄"
+
+    clearall_help: "以清除所有歷史聊天記錄（需要 3 級或以上權限）"
+
+    data_help: "以取得公共資料庫的相關資訊"
+
+    data_add_help: "以新增一則公共資料，讓所有玩家存取 AI 時都可以使用這則資料"
+    
+    data_del_help: "以刪除一則公共資料"
+
+    data_read_help: "以讀取一則公共資料"
+
+    data_list_help: "以取得所有公共資料"
+
+    data_keys_help: "以取得所有鍵值"
+  
+  user_message:
+    player: "玩家"
+    username: "使用者名稱："
+    message: "玩家訊息："
+    get_data: "正在取得公共資料..."
+    online_players: "線上玩家列表："
+    whitelist_players: "全體成員列表："
+    data_list: "公共資料列表："
+    history:
+      prefix: "歷史訊息："
+      user_message: "玩家訊息："
+      ai_reply: "AI 回覆："
+    getting_online_players: "正在取得線上玩家列表..."
+    getting_whitelist: "正在取得全體成員列表..."
+  
+  clear_history_message:
+    success: "已清除玩家 {username} 的歷史聊天記錄"
+    no_history: "目前玩家 {username} 沒有可清除的訊息"
+    clearall_success: "已清除所有歷史訊息，總計 {count} 位玩家的訊息"
+
+  no_permission: "你沒有權限使用此指令，需要權限等級達到 {permission} 級或以上"
+
+  data:
+    add_message:
+      success: "已新增公共資料，key: {key}，value: {value}"
+    del_message:
+      success: "已刪除公共資料，key: {key}"
+    read_message:
+      success: "已讀取公共資料，key: {key}，value: {value}"
+      no_key: "未找到公共資料，key: {key}"
+    read_list_message: "以下是所有資料："
+    read_keys_message: "以下是所有 key："

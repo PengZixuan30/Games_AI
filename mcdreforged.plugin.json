@@ -1,6 +1,6 @@
 {
     "id": "games_ai",
-    "version": "0.3.0",
+    "version": "0.3.1",
     "name": "GamesAI",
     "description": {
         "zh_cn": "此插件可以将MCDR与支持OpenAI的AI进行结合，使得在游戏内也能使用AI",
@@ -16,6 +16,7 @@
         "lang",
         "LICENSE",
         "README.md",
-        "README.zh-CN.md"
+        "README.zh-CN.md",
+        "README.zh-TW.md"
     ]
 }

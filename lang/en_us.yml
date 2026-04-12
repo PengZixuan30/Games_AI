@@ -1,68 +1,73 @@
 games_ai:
   mcdr_help_message: 
-    gamesai_help: "Display help information for the GamesAI plugin and how to use GamesAI"
+    gamesai_help: "Display help information for the GamesAI plugin and usage of GamesAI"
     gamesai_clear: "Clear all conversation history for the current player"
     gamesai_clearall: "Clear all history messages"
-    gamesai_ask: "Ask a question to the AI"
-    data_add: "Add a public data entry, making it available to all players when accessing AI"
+    gamesai_ask: "Ask AI a question"
+    data_add: "Add a public data entry, making it accessible to all players when interacting with the AI"
     data_del: "Delete a public data entry"
     data_read: "Read a public data entry"
   
   system_message:
-    default: "Answer in concise language with some emotion, always use en_us language. If you want to get the online player list, reply get_players; if you want to get the server whitelist (i.e., all member list), reply get_whitelist. You are a robot on the Minecraft server"
+    default: "Answer concisely but with a touch of emotion. Always use language zh_cn. If you want to get the list of online players, reply with get_players; if you want to get the server whitelist (i.e., the full member list), reply with get_whitelist. You are a bot on a Minecraft server."
   
   load_message: 
     server_info: "Configuration file loaded"
-    client_info: "Welcome to use the GamesAI plugin! Current version: {v}"
-    server_create_data_dir: "The database has been created:"
+    client_info: "Welcome to the GamesAI plugin! Current version: {v}"
+    server_create_data_dir: "Database created:"
   
   gamesai_help_message:
-    greeting: "Welcome to use the GamesAI plugin! Current version: {v}"
-    ask_help_prefix: "Enter "
-    ask_help_suffix: " to ask the AI a question"
-
-    clear_help_prefix: "Enter "
-    clear_help_suffix: " to clear your chat history"
-
-    clearall_help_prefix: "Enter "
-    clearall_help_suffix: " to clear all chat history (requires level 3 or higher permission)"
+    greeting: "Welcome to the GamesAI plugin! Current version: {v}"
     
-    data_add_help_prefix: "Enter "
-    data_add_help_suffix: " to add a public data entry, making it available to all players when accessing AI"
-    
-    data_del_help_prefix: "Enter "
-    data_del_help_suffix: " to delete a public data entry"
+    help_prefix: "Type"
 
-    data_read_help_prefix: "Enter "
-    data_read_help_suffix: " to read a public data entry"
+    ask_help: "to ask the AI a question"
+
+    clear_help: "to clear your chat history"
+
+    clearall_help: "to clear all chat history (requires permission level 3 or higher)"
+
+    data_help: "to get information about the public database"
+
+    data_add_help: "to add a public data entry that all players can use when accessing the AI"
+    
+    data_del_help: "to delete a public data entry"
+
+    data_read_help: "to read a public data entry"
+
+    data_list_help: "to list all public data entries"
+
+    data_keys_help: "to list all keys"
   
   user_message:
     player: "Player"
     username: "Username:"
     message: "Player message:"
-    get_data: "Getting public data..."
-    online_players: "Online player list:"
-    whitelist_players: "All member list:"
+    get_data: "Retrieving public data..."
+    online_players: "Online players list:"
+    whitelist_players: "Full member list:"
     data_list: "Public data list:"
     history:
-      prefix: "History messages:"
-      user_message: "Player messages:"
+      prefix: "History:"
+      user_message: "Player message:"
       ai_reply: "AI reply:"
-    getting_online_players: "Getting online player list..."
-    getting_whitelist: "Getting all member list..."
+    getting_online_players: "Fetching online players list..."
+    getting_whitelist: "Fetching full member list..."
   
   clear_history_message:
     success: "Cleared chat history for player {username}"
-    no_history: "Current player {username} has no messages to clear"
-    clearall_success: "Cleared all history messages, total {count} players' messages"
+    no_history: "No messages to clear for player {username}"
+    clearall_success: "Cleared all history messages for {count} player(s)"
 
-  no_permission: "You do not have permission to use this command, requires admin level or higher"
+  no_permission: "You do not have permission to use this command. Permission level {permission} or higher is required."
 
   data:
     add_message:
-      success: "Added public data entry with key '{key}' and value '{value}'"
+      success: "Public data added. Key: {key}, Value: {value}"
     del_message:
-      success: "Deleted public data entry with key '{key}'"
+      success: "Public data deleted. Key: {key}"
     read_message:
-      success: "Value for public data entry with key '{key}' is '{value}'"
-      no_key: "Public data entry with key '{key}' not found"
+      success: "Public data read. Key: {key}, Value: {value}"
+      no_key: "No public data found for key: {key}"
+    read_list_message: "All data entries:"
+    read_keys_message: "All keys:"

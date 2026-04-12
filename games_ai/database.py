@@ -43,3 +43,10 @@ class PublicDatabase:
         conn.close()
         return result
     
+    def get_all_key(self) -> list[str]:
+        conn, cursor = self._connect()
+        cursor.execute("SELECT key FROM public_data")
+        keys = [row[0] for row in cursor.fetchall()]
+        conn.close()
+        return keys
+    

@@ -1,9 +1,9 @@
 # GamesAI
 
-[English](/README.md) | 中文
+[English](/README.md) | 简中 | [繁中](/README.zh-TW.md)
 
 > [!NOTE]
-> 欢迎使用版本0.3.0，当前版本加入了公共数据库，修复了一些问题
+> 欢迎使用版本0.3.1，当前版本修复了一些问题，加入了查询公共数据库key列表和value列表的功能，加入了繁体中文\(台湾\)支持
 
 > [!IMPORTANT]
 > 0.2.1版本更新将帮助命令由`!!openai`转为`!!gamesai`
@@ -34,7 +34,7 @@ pip install openai
 输入`!!data`获取有关数据库指令的信息
 
 > [!TIP]
-> 更新到当前版本时会自动添加数据库
+> 更新到0.3.0及以上版本时会自动添加数据库
 
 `!!data`的指令如下:
 |指令|用途|
@@ -42,6 +42,8 @@ pip install openai
 |`!!data add <key> <value>`|在公共数据库内添加一条数据，其中key不能包含空格，value可以是任意字符串|
 |`!!data del <key>`|在公共数据库内删除一条数据，无论key是否存在|
 |`!!data read <key>`|读取公共数据库中key对应的value|
+|`!!data list`|读取公共数据库中的所有内容|
+|`!!data list keys`|读取公共数据库中的所有key|
 
 ## 配置
 
@@ -58,6 +60,8 @@ pip install openai
     "max_history": 10
 }
 ```
+
+---
 
 以下是每个参数的简介:
 

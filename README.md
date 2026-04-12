@@ -1,9 +1,9 @@
 # GamesAI
 
-English | [中文](/README.zh-CN.md)
+English | [简中](/README.zh-CN.md) | [繁中](/README.zh-TW.md)
 
 > [!NOTE]
-> Welcome to version 0.3.0. This version introduces a public database and fixes some issues.
+> Welcome to version 0.3.1. This release fixes several issues, adds the ability to query key lists and value lists from public databases, and introduces support for Traditional Chinese \(Taiwan\).
 
 > [!IMPORTANT]
 > Version 0.2.1 changes the help command from `!!openai` to `!!gamesai`.
@@ -35,7 +35,7 @@ You can also directly enter `!!ask` to ask questions or chat with the AI.
 Enter `!!data` to get information about database commands.
 
 > [!TIP]
-> The database is automatically added when updating to the current version.
+> When updating to version 0.3.0 or higher, the database will be automatically added.
 
 The commands for `!!data` are as follows:
 
@@ -44,6 +44,8 @@ The commands for `!!data` are as follows:
 |`!!data add <key> <value>`|Adds a piece of data to the public database, where key cannot contain spaces and value can be any string.|
 |`!!data del <key>`|Deletes a piece of data from the public database, regardless of whether the key exists.|
 |`!!data read <key>`|Reads the value corresponding to the key in the public database.|
+|`!!data list`|Read all contents from the public database.|
+|`!!data list keys`|Read all keys from the public database.|
 
 ## Configuration
 
@@ -60,6 +62,8 @@ The default configuration file structure is as follows:
     "max_history": 10
 }
 ```
+
+---
 
 The following is a brief introduction to each parameter:
 

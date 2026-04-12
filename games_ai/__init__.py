@@ -6,7 +6,7 @@ from .database import PublicDatabase
 
 PLUGIN_METADATA = {
     "id": "games_ai",
-    "version": "0.3.0",
+    "version": "0.3.1",
     "name": "Games AI",
     "description": {
         "zh_cn": "此插件可以将MCDR与支持OpenAI的AI进行结合，使得在游戏内也能使用AI",
@@ -93,6 +93,9 @@ def on_load(server: PluginServerInterface, old):
     builder.command('!!data read', helper.data_read_help)
     builder.command('!!data read <key>', data_manager.read_data)
 
+    builder.command('!!data list', data_manager.read_data_list)
+    builder.command('!!data list keys', data_manager.read_all_keys)
+
     builder.arg('content',GreedyText)
     builder.arg('key', Text)
     builder.arg('value', GreedyText)
@@ -101,6 +104,10 @@ def on_load(server: PluginServerInterface, old):
 
 def on_server_startup(server: PluginServerInterface):
     server.say(f'{prefix}{server.rtr("games_ai.load_message.client_info", v=PLUGIN_METADATA.get('version'))}')
+
+def on_unload(server: PluginServerInterface):
+    server.logger.info(f'{prefix}Bye!')
+    server.say(f'{prefix}Bye!')
 
 class gamesai_help:
     @staticmethod
@@ -111,9 +118,9 @@ class gamesai_help:
             server.rtr("games_ai.gamesai_help_message.greeting",v=PLUGIN_METADATA.get("version")),
             "\n",
             prefix,
-            server.rtr("games_ai.gamesai_help_message.ask_help_prefix"),
+            server.rtr("games_ai.gamesai_help_message.help_prefix"),
             RText("!!ask <content>", RColor.gray).c(RAction.suggest_command,'!!ask '),
-            server.rtr("games_ai.gamesai_help_message.ask_help_suffix"),
+            server.rtr("games_ai.gamesai_help_message.ask_help"),
         )
         source.reply(ask_help_part)
 
@@ -125,19 +132,29 @@ class gamesai_help:
             server.rtr("games_ai.gamesai_help_message.greeting",v=PLUGIN_METADATA.get("version")),
             "\n",
             prefix,
-            server.rtr("games_ai.gamesai_help_message.data_add_help_prefix"),
+            server.rtr("games_ai.gamesai_help_message.help_prefix"),
             RText("!!data add <key> <value>", RColor.gray).c(RAction.suggest_command,'!!data add '),
-            server.rtr("games_ai.gamesai_help_message.data_add_help_suffix"),
+            server.rtr("games_ai.gamesai_help_message.data_add_help"),
             "\n",
             prefix,
-            server.rtr("games_ai.gamesai_help_message.data_del_help_prefix"),
+            server.rtr("games_ai.gamesai_help_message.help_prefix"),
             RText("!!data del <key>", RColor.gray).c(RAction.suggest_command,'!!data del '),
-            server.rtr("games_ai.gamesai_help_message.data_del_help_suffix"),
+            server.rtr("games_ai.gamesai_help_message.data_del_help"),
             "\n",
             prefix,
-            server.rtr("games_ai.gamesai_help_message.data_read_help_prefix"),
+            server.rtr("games_ai.gamesai_help_message.help_prefix"),
             RText("!!data read <key>", RColor.gray).c(RAction.suggest_command,'!!data read '),
-            server.rtr("games_ai.gamesai_help_message.data_read_help_suffix"),
+            server.rtr("games_ai.gamesai_help_message.data_read_help"),
+            "\n",
+            prefix,
+            server.rtr("games_ai.gamesai_help_message.help_prefix"),
+            RText("!!data list", RColor.gray).c(RAction.suggest_command,"!!data list"),
+            server.rtr("games_ai.gamesai_help_message.data_list_help"),
+            "\n",
+            prefix,
+            server.rtr("games_ai.gamesai_help_message.help_prefix"),
+            RText("!!data list keys", RColor.gray).c(RAction.suggest_command, '!!data list keys'),
+            server.rtr("games_ai.gamesai_help_message.data_keys_help"),
         )
         source.reply(data_help_part)
 
@@ -149,9 +166,9 @@ class gamesai_help:
             server.rtr("games_ai.gamesai_help_message.greeting",v=PLUGIN_METADATA.get("version")),
             "\n",
             prefix,
-            server.rtr("games_ai.gamesai_help_message.data_add_help_prefix"),
+            server.rtr("games_ai.gamesai_help_message.help_prefix"),
             RText("!!data add <key> <value>", RColor.gray).c(RAction.suggest_command,'!!data add '),
-            server.rtr("games_ai.gamesai_help_message.data_add_help_suffix"),
+            server.rtr("games_ai.gamesai_help_message.data_add_help"),
         )
         source.reply(data_add_help_part)
 
@@ -163,9 +180,9 @@ class gamesai_help:
             server.rtr("games_ai.gamesai_help_message.greeting",v=PLUGIN_METADATA.get("version")),
             "\n",
             prefix,
-            server.rtr("games_ai.gamesai_help_message.data_del_help_prefix"),
+            server.rtr("games_ai.gamesai_help_message.help_prefix"),
             RText("!!data del <key>", RColor.gray).c(RAction.suggest_command,'!!data del '),
-            server.rtr("games_ai.gamesai_help_message.data_del_help_suffix"),
+            server.rtr("games_ai.gamesai_help_message.data_del_help"),
         )
         source.reply(data_del_help_part)
 
@@ -177,9 +194,9 @@ class gamesai_help:
             server.rtr("games_ai.gamesai_help_message.greeting",v=PLUGIN_METADATA.get("version")),
             "\n",
             prefix,
-            server.rtr("games_ai.gamesai_help_message.data_read_help_prefix"),
+            server.rtr("games_ai.gamesai_help_message.help_prefix"),
             RText("!!data read <key>", RColor.gray).c(RAction.suggest_command,'!!data read '),
-            server.rtr("games_ai.gamesai_help_message.data_read_help_suffix"),
+            server.rtr("games_ai.gamesai_help_message.data_read_help"),
         )
         source.reply(data_read_help_part)
 
@@ -191,34 +208,24 @@ class gamesai_help:
             server.rtr("games_ai.gamesai_help_message.greeting",v=PLUGIN_METADATA.get("version")),
             "\n",
             prefix,
-            server.rtr("games_ai.gamesai_help_message.ask_help_prefix"),
+            server.rtr("games_ai.gamesai_help_message.help_prefix"),
             RText("!!ask <content>", RColor.gray).c(RAction.suggest_command,'!!ask '),
-            server.rtr("games_ai.gamesai_help_message.ask_help_suffix"),
+            server.rtr("games_ai.gamesai_help_message.ask_help"),
             "\n",
             prefix,
-            server.rtr("games_ai.gamesai_help_message.clear_help_prefix"),
+            server.rtr("games_ai.gamesai_help_message.help_prefix"),
             RText("!!gamesai clear", RColor.gray).c(RAction.suggest_command,'!!gamesai clear'),
-            server.rtr("games_ai.gamesai_help_message.clear_help_suffix"),
+            server.rtr("games_ai.gamesai_help_message.clear_help"),
             "\n",
             prefix,
-            server.rtr("games_ai.gamesai_help_message.clearall_help_prefix"),
+            server.rtr("games_ai.gamesai_help_message.help_prefix"),
             RText("!!gamesai clearall", RColor.gray).c(RAction.suggest_command,'!!gamesai clearall'),
-            server.rtr("games_ai.gamesai_help_message.clearall_help_suffix"),
+            server.rtr("games_ai.gamesai_help_message.clearall_help"),
             "\n",
             prefix,
-            server.rtr("games_ai.gamesai_help_message.data_add_help_prefix"),
-            RText("!!data add <key> <value>", RColor.gray).c(RAction.suggest_command,'!!data add '),
-            server.rtr("games_ai.gamesai_help_message.data_add_help_suffix"),
-            "\n",
-            prefix,
-            server.rtr("games_ai.gamesai_help_message.data_del_help_prefix"),
-            RText("!!data del <key>", RColor.gray).c(RAction.suggest_command,'!!data del '),
-            server.rtr("games_ai.gamesai_help_message.data_del_help_suffix"),
-            "\n",
-            prefix,
-            server.rtr("games_ai.gamesai_help_message.data_read_help_prefix"),
-            RText("!!data read <key>", RColor.gray).c(RAction.suggest_command,'!!data read '),
-            server.rtr("games_ai.gamesai_help_message.data_read_help_suffix"),
+            server.rtr("games_ai.gamesai_help_message.help_prefix"),
+            RText("!!data", RColor.gray).c(RAction.suggest_command, '!!data'),
+            server.rtr("games_ai.gamesai_help_message.data_help"),
         )
         source.reply(all_help_part)
 
@@ -286,7 +293,7 @@ def clear_history(source: CommandSource,context: dict):
 def clear_history_all(source: CommandSource,context: dict):
     server = source.get_server()
     if source.get_permission_level() < allow_permission:
-        source.reply(f'{prefix}{server.rtr("games_ai.no_permission")}')
+        source.reply(f'{prefix}{server.rtr("games_ai.no_permission",permission=allow_permission)}')
     else:
         count = len(history_conversation)
         history_conversation.clear()
@@ -303,7 +310,7 @@ class DataManager:
     def add_data(self, source: CommandSource, context: dict):
         server = source.get_server()
         if source.get_permission_level() < allow_permission:
-            return source.reply(f'{prefix}{server.rtr("games_ai.no_permission")}')
+            return source.reply(f'{prefix}{server.rtr("games_ai.no_permission",permission = allow_permission)}')
         else:
             key = context.get("key")
             value = context.get("value")
@@ -314,7 +321,7 @@ class DataManager:
     def del_data(self, source: CommandSource, context: dict):
         server = source.get_server()
         if source.get_permission_level() < allow_permission:
-            return source.reply(f'{prefix}{server.rtr("games_ai.no_permission")}')
+            return source.reply(f'{prefix}{server.rtr("games_ai.no_permission",permission = allow_permission)}')
         else:
             key = context.get("key")
             self.db.delete_data(key)
@@ -324,13 +331,31 @@ class DataManager:
     def read_data(self, source: CommandSource, context: dict):
         server = source.get_server()
         if source.get_permission_level() < allow_permission:
-            return source.reply(f'{prefix}{server.rtr("games_ai.no_permission")}')
+            return source.reply(f'{prefix}{server.rtr("games_ai.no_permission",permission = allow_permission)}')
         else:
             key = context.get("key")
             value = self.db.read_data(key)
             if value is None:
                 return source.reply(f'{prefix}{server.rtr("games_ai.data.read_message.no_key",key=key)}')
             return source.reply(f'{prefix}{server.rtr("games_ai.data.read_message.success",key=key,value=value)}')
+
+    @new_thread("data_manager@list")
+    def read_data_list(self, source: CommandSource, context: dict):
+        server = source.get_server()
+        if source.get_permission_level() < allow_permission:
+            return source.reply(f'{prefix}{server.rtr("games_ai.no_permission",permission = allow_permission)}')
+        else:
+            value = self.db.data_list()
+            return source.reply(f'{prefix}{server.rtr("games_ai.data.read_list_message")}\n{value}')
+
+    @new_thread("data_manager@keys")
+    def read_all_keys(self, source: CommandSource, context: dict):
+        server = source.get_server()
+        if source.get_permission_level() < allow_permission:
+            return source.reply(f'{prefix}{server.rtr("games_ai.no_permission",permission = allow_permission)}')
+        else:
+            keys = self.db.get_all_key()
+            return source.reply(f'{prefix}{server.rtr("games_ai.data.read_keys_message")}\n{keys}')
 
     def ask_ai_read_data(self):
         value = self.db.data_list()
