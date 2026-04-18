@@ -1,12 +1,37 @@
+<div align="center">
+
 # GamesAI
 
-English | [简中](/README.zh-CN.md) | [繁中](/README.zh-TW.md)
+English  |  [简体中文](/README.zh-CN.md)  |  [繁體中文](/README.zh-TW.md)
+
+[Report Issue](https://github.com/PengZixuan30/Games_AI/issues/new)  |  [Share Ideas](https://github.com/PengZixuan30/Games_AI/issues/new)
+
+</div>
 
 > [!NOTE]
-> Welcome to version 0.3.1. This release fixes several issues, adds the ability to query key lists and value lists from public databases, and introduces support for Traditional Chinese \(Taiwan\).
+> Welcome to version 0.3.2. This version fixes several issues and splits the command for adding data to the public database into two modes: overwrite and append. See [This Update](#this-update).
 
 > [!IMPORTANT]
 > Version 0.2.1 changes the help command from `!!openai` to `!!gamesai`.
+
+<details>
+<summary>Table of Contents (click to expand)</summary>
+
+- [GamesAI](#gamesai)
+  - [Installation](#installation)
+  - [Usage](#usage)
+  - [Configuration](#configuration)
+    - [1. system\_message:](#1-system_message)
+    - [2. prefix](#2-prefix)
+    - [3. permission](#3-permission)
+    - [4. base\_url](#4-base_url)
+    - [5. ai\_model](#5-ai_model)
+    - [6. api\_key](#6-api_key)
+    - [7. max\_history](#7-max_history)
+  - [Acknowledgements and Disclaimer](#acknowledgements-and-disclaimer)
+  - [This Update](#this-update)
+
+</details>
 
 ## Installation
 
@@ -16,36 +41,35 @@ Use the following command in the MCDR console to install the plugin:
 
 ---
 
-Alternatively, get and install it from the [MCDR Plugin Repository](https://mcdreforged.com/en/plugin/games_ai) into your plugin directory.
+Alternatively, get it from the [MCDR Plugin Repository](https://mcdreforged.com/en/plugin/games_ai) and install it into your plugin directory.
 
-If you choose manual installation, please install the Python package OpenAI first using the following command:
-
+If you choose to install manually, first install the Python package OpenAI using the following command:
 ```bash
 pip install openai
 ```
 
 ## Usage
 
-Enter the command `!!gamesai` anywhere to display all features of this plugin.
+Enter the command `!!gamesai` anywhere to display all functions of this plugin.
 
-You can also directly enter `!!ask` to ask questions or chat with the AI.
+You can also directly type `!!ask` to ask the AI questions or chat.
 
 ---
 
-Enter `!!data` to get information about database commands.
+Type `!!data` to get information about database commands.
 
 > [!TIP]
-> When updating to version 0.3.0 or higher, the database will be automatically added.
+> When updating to version 0.3.0 or above, the database will be added automatically.
 
-The commands for `!!data` are as follows:
-
-|Command|Purpose|
-|---|---|
-|`!!data add <key> <value>`|Adds a piece of data to the public database, where key cannot contain spaces and value can be any string.|
-|`!!data del <key>`|Deletes a piece of data from the public database, regardless of whether the key exists.|
-|`!!data read <key>`|Reads the value corresponding to the key in the public database.|
-|`!!data list`|Read all contents from the public database.|
-|`!!data list keys`|Read all keys from the public database.|
+`!!data` commands are as follows:
+| Command | Description |
+|---------|-------------|
+| `!!data write <key> <value>` | Add a piece of data to the public database. The key cannot contain spaces; the value can be any string. |
+| `!!data add <key> <value>` | Append the value to an existing key in the public database. If the key does not exist, a new key is created automatically. |
+| `!!data del <key>` | Delete a piece of data from the public database, regardless of whether the key exists. |
+| `!!data read <key>` | Read the value corresponding to the key in the public database. |
+| `!!data list` | Read all contents of the public database. |
+| `!!data list keys` | Read all keys in the public database. |
 
 ## Configuration
 
@@ -53,7 +77,7 @@ The default configuration file structure is as follows:
 
 ```json
 {
-    "system_message": "Use concise language to answer, but with a certain degree of emotion, always use language zh_cn. If you want to get a list of online players, reply get_players; if you want to get the server whitelist (i.e., the list of all members), reply get_whitelist. You are a bot on a Minecraft server.",
+    "system_message": "Respond concisely but with a touch of emotion. If you want to obtain the list of online players, reply get_players; if you want to obtain the server whitelist (i.e., the full member list), reply get_whitelist. You are a bot on a Minecraft server.",
     "prefix": "[GamesAI]",
     "permission": 3,
     "base_url":"<Your API Base URL>",
@@ -65,62 +89,72 @@ The default configuration file structure is as follows:
 
 ---
 
-The following is a brief introduction to each parameter:
+Below is a brief description of each parameter:
 
-### 1. system_message
-Value type: str
+### 1. system_message:
+Type: str
 
-Default value: See the content in the file above
+Default value: See the content in the file above.
 
-Description: Enter your default prompt. If this item is left empty, the value in the file above will be used by default.
+Enter your default prompt. If left blank, the default value from the file above will be used.
 
 ### 2. prefix
-Value type: str
+Type: str
 
 Default value: \[GamesAI\]
 
-Description: Enter the name of this AI to add a prefix before the AI's replies, which can contain Minecraft formatting codes.
+Enter the name of this AI to add a prefix before the AI's replies. Minecraft formatting codes can be included.
 
 ### 3. permission
-Value type: int
+Type: int
 
 Default value: 3
 
-Description: The minimum permission level required to execute commands such as !!data. See [MCDR Permission Documentation](https://docs.mcdreforged.com/en/latest/permission.html).
+The permission level required to execute commands such as `!!data`. See the [MCDR permission documentation](https://docs.mcdreforged.com/en/latest/permission.html).
 
 ### 4. base_url
 > [!WARNING]
-> This item must be filled in, otherwise MCDR will unload the plugin directly.
+> This field must be filled in; otherwise, an error will occur.
 
-Value type: str
+Type: str
 
-Default value: None
+Default value: none
 
-Description: Enter your API server address.
+Enter your API server address.
 
 ### 5. ai_model
 > [!WARNING]
-> This item must be filled in, otherwise MCDR will unload the plugin directly.
+> This field must be filled in; otherwise, an error will occur.
 
-Value type: str
+Type: str
 
-Default value: None
+Default value: none
 
-Description: Enter the AI model you wish to use.
+Enter the AI model you wish to use.
 
 ### 6. api_key
 > [!WARNING]
-> This item must be filled in, otherwise MCDR will unload the plugin directly.
+> This field must be filled in; otherwise, an error will occur.
 
-Value type: str
+Type: str
 
-Default value: None
+Default value: none
 
-Description: Enter your API key.
+Enter your API key.
 
 ### 7. max_history
-Value type: int
+Type: int
 
 Default value: 10
 
-Description: Enter the maximum number of conversation history entries to retain per player. This is unrelated to the public database.
+Enter the maximum number of chat history records to keep per player. This is independent of the public database.
+
+## Acknowledgements and Disclaimer
+Special thanks to Wanghai Commune Server for providing the foundation for testing this plugin.
+
+All content generated by the AI (LLM) model is unrelated to this plugin.
+
+## This Update
+This update mainly distinguishes between the `!!data write` and `!!data add` commands: one for overwriting and one for appending.
+
+Additionally, after reading data (`!!data read`), this update adds the ability to copy the command `!!data write` to the input box (e.g., if the key is `test` and the value is `test`, the text copied to the input box would be `!!data write test test`). However, if the data is too long, copying may not be possible. The ability to copy to the clipboard has also been added.

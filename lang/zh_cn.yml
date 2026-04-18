@@ -1,16 +1,13 @@
 games_ai:
   mcdr_help_message: 
     gamesai_help: "显示GamesAI插件的帮助信息以及使用GamesAI"
-    gamesai_clear: "清除当前玩家的所有对话历史"
-    gamesai_clearall: "清除所有历史消息"
     gamesai_ask: "向AI提问"
-    data_add: "添加一条公共数据,使得所有玩家访问AI时都可以使用这条数据"
-    data_del: "删除一条公共数据"
-    data_read: "读取一条公共数据"
+    data: "修改数据库"
   
   system_message:
-    default: "使用简洁的语言回答,但请带有一定的情感,始终使用语言为zh_cn,如果你想获取在线玩家列表,请回复get_players;如果你想获取服务器白名单(既全体成员名单),请回复get_whitelist。你是Minecraft服务器的一名机器人"
-  
+    default: "使用简洁的语言回答,但请带有一定的情感,如果你想获取在线玩家列表,请回复get_players;如果你想获取服务器白名单(既全体成员名单),请回复get_whitelist。你是Minecraft服务器的一名机器人"
+    lang: "请使用语言{lang}。"
+
   load_message: 
     server_info: "配置文件已加载"
     client_info: "欢迎使用GamesAI插件!当前版本:{v}"
@@ -25,11 +22,13 @@ games_ai:
 
     clear_help: "以清除你的历史聊天记录"
 
-    clearall_help: "以清除所有历史聊天记录(需要3级及以上权限)"
+    clearall_help: "以清除所有历史聊天记录(需要{pms}级及以上权限)"
 
     data_help: "以获取公共数据库的有关信息"
 
-    data_add_help: "以添加一条公共数据,使得所有玩家访问AI时都可以使用这条数据"
+    data_write_help: "以添加一条公共数据(覆写),使得所有玩家访问AI时都可以使用这条数据"
+
+    data_add_help: "以将数据追加到原值的后方"
     
     data_del_help: "以删除一条公共数据"
 
@@ -62,11 +61,15 @@ games_ai:
   no_permission: "你没有权限使用此指令,需要权限等级达到{permission}级或以上"
 
   data:
-    add_message:
+    write_message:
       success: "已添加公共数据, key: {key}, value: {value}"
+    add_message:
+      success: "已追加公共数据, key: {key}, new value: {value}"
     del_message:
       success: "已删除公共数据, key: {key}"
     read_message:
+      write_message: "点击以填充到对话框(覆写模式)(过长无法填充)"
+      copy_message: "点击以复制到剪贴板(仅复制value)"
       success: "已读取公共数据, key: {key}, value: {value}"
       no_key: "未找到公共数据, key: {key}"
     read_list_message: "以下是所有数据："

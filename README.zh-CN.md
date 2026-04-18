@@ -1,12 +1,37 @@
+<div align="center">
+
 # GamesAI
 
-[English](/README.md) | 简中 | [繁中](/README.zh-TW.md)
+[English](/README.md)  |  简体中文  |  [繁體中文](/README.zh-TW.md)
+
+[反馈问题](https://github.com/PengZixuan30/Games_AI/issues/new)  |  [反馈想法](https://github.com/PengZixuan30/Games_AI/issues/new)
+
+</div>
 
 > [!NOTE]
-> 欢迎使用版本0.3.1，当前版本修复了一些问题，加入了查询公共数据库key列表和value列表的功能，加入了繁体中文\(台湾\)支持
+> 欢迎使用版本0.3.2，当前版本修复了一些问题，将公共数据库的添加数据指令分为覆写和追加两个模式。见[本次更新](#本次更新)
 
 > [!IMPORTANT]
 > 0.2.1版本更新将帮助命令由`!!openai`转为`!!gamesai`
+
+<details>
+<summary>目录(点击展示)</summary>
+
+- [GamesAI](#gamesai)
+  - [安装](#安装)
+  - [使用](#使用)
+  - [配置](#配置)
+    - [1.system\_message:](#1system_message)
+    - [2.prefix](#2prefix)
+    - [3.permission](#3permission)
+    - [4.base\_url](#4base_url)
+    - [5.ai\_model](#5ai_model)
+    - [6.api\_key](#6api_key)
+    - [7.max\_history](#7max_history)
+  - [鸣谢与声明](#鸣谢与声明)
+  - [本次更新](#本次更新)
+
+</details>
 
 ## 安装
 
@@ -39,7 +64,8 @@ pip install openai
 `!!data`的指令如下:
 |指令|用途|
 |---|---|
-|`!!data add <key> <value>`|在公共数据库内添加一条数据，其中key不能包含空格，value可以是任意字符串|
+|`!!data write <key> <value>`|在公共数据库内添加一条数据，其中key不能包含空格，value可以是任意字符串|
+|`!!data add <key> <value>`|将value追加到公共数据库中的key中，不存在时自动创建新key|
 |`!!data del <key>`|在公共数据库内删除一条数据，无论key是否存在|
 |`!!data read <key>`|读取公共数据库中key对应的value|
 |`!!data list`|读取公共数据库中的所有内容|
@@ -51,7 +77,7 @@ pip install openai
 
 ```json
 {
-    "system_message": "使用简洁的语言回答,但请带有一定的情感,始终使用语言为zh_cn,如果你想获取在线玩家列表,请回复get_players;如果你想获取服务器白名单(既全体成员名单),请回复get_whitelist。你是Minecraft服务器的一名机器人",
+    "system_message": "使用简洁的语言回答,但请带有一定的情感,如果你想获取在线玩家列表,请回复get_players;如果你想获取服务器白名单(既全体成员名单),请回复get_whitelist。你是Minecraft服务器的一名机器人",
     "prefix": "[GamesAI]",
     "permission": 3,
     "base_url":"<Your API Base URL>",
@@ -88,7 +114,7 @@ pip install openai
 
 ### 4.base_url
 > [!WARNING]
-> 必须填入此项，否则MCDR将会直接卸载插件
+> 必须填入此项，否则会导致报错
 
 值的类型: str
 
@@ -98,7 +124,7 @@ pip install openai
 
 ### 5.ai_model
 > [!WARNING]
-> 必须填入此项，否则MCDR将会直接卸载插件
+> 必须填入此项，否则会导致报错
 
 值的类型: str
 
@@ -108,7 +134,7 @@ pip install openai
 
 ### 6.api_key
 > [!WARNING]
-> 必须填入此项，否则MCDR将会直接卸载插件
+> 必须填入此项，否则会导致报错
 
 值的类型: str
 
@@ -122,3 +148,13 @@ pip install openai
 默认值: 10
 
 填入每个玩家最大可的保留历史记录，与公共数据库无关
+
+## 鸣谢与声明
+特别感谢望海公社服务器为此插件的测试提供了基础
+
+AI\(LLM\)模型生成的一切内容与此插件无关
+
+## 本次更新
+本次更新主要区分了`!!data write`和`!!data add`指令，一个用于覆写，一个用于追加。
+
+本次更新还在读取数据\(`!!data read`\)之后添加了使用`!!data write`指令复制到输入框的功能\(例如：key为test，value为test，则复制到输入框的文本为`!!data write test test`\)，但如果数据过长，可能无法复制；同时也添加了复制到剪贴板的功能

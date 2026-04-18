@@ -14,7 +14,3 @@ def response_chat(model,url,message):
     )
 
     return response.choices[0].message.content
-
-if __name__ == "__main__":
-    print("Test:\n")
-    print(response_chat(model="deepseek-chat",message="test message"))

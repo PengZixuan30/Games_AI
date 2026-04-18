@@ -1,21 +1,18 @@
 games_ai:
   mcdr_help_message: 
-    gamesai_help: "Display help information for the GamesAI plugin and usage of GamesAI"
-    gamesai_clear: "Clear all conversation history for the current player"
-    gamesai_clearall: "Clear all history messages"
+    gamesai_help: "Display help information for the GamesAI plugin and how to use GamesAI"
     gamesai_ask: "Ask AI a question"
-    data_add: "Add a public data entry, making it accessible to all players when interacting with the AI"
-    data_del: "Delete a public data entry"
-    data_read: "Read a public data entry"
+    data: "Modify the database"
   
   system_message:
-    default: "Answer concisely but with a touch of emotion. Always use language zh_cn. If you want to get the list of online players, reply with get_players; if you want to get the server whitelist (i.e., the full member list), reply with get_whitelist. You are a bot on a Minecraft server."
-  
+    default: "Respond concisely but with a touch of emotion. If you want to obtain the list of online players, reply get_players; if you want to obtain the server whitelist (i.e., the full member list), reply get_whitelist. You are a bot on a Minecraft server."
+    lang: "Please use the language {lang}."
+
   load_message: 
     server_info: "Configuration file loaded"
     client_info: "Welcome to the GamesAI plugin! Current version: {v}"
     server_create_data_dir: "Database created:"
-  
+
   gamesai_help_message:
     greeting: "Welcome to the GamesAI plugin! Current version: {v}"
     
@@ -25,11 +22,13 @@ games_ai:
 
     clear_help: "to clear your chat history"
 
-    clearall_help: "to clear all chat history (requires permission level 3 or higher)"
+    clearall_help: "to clear all chat history (requires permission level {pms} or higher)"
 
     data_help: "to get information about the public database"
 
-    data_add_help: "to add a public data entry that all players can use when accessing the AI"
+    data_write_help: "to add a public data entry (overwrite), making this data available to the AI for all players"
+
+    data_add_help: "to append data to the end of an existing value"
     
     data_del_help: "to delete a public data entry"
 
@@ -48,7 +47,7 @@ games_ai:
     whitelist_players: "Full member list:"
     data_list: "Public data list:"
     history:
-      prefix: "History:"
+      prefix: "Chat history:"
       user_message: "Player message:"
       ai_reply: "AI reply:"
     getting_online_players: "Fetching online players list..."
@@ -56,18 +55,22 @@ games_ai:
   
   clear_history_message:
     success: "Cleared chat history for player {username}"
-    no_history: "No messages to clear for player {username}"
-    clearall_success: "Cleared all history messages for {count} player(s)"
+    no_history: "Player {username} has no history to clear"
+    clearall_success: "Cleared all chat history, total {count} player(s)"
 
-  no_permission: "You do not have permission to use this command. Permission level {permission} or higher is required."
+  no_permission: "You do not have permission to use this command. Required permission level: {permission} or higher"
 
   data:
+    write_message:
+      success: "Public data added, key: {key}, value: {value}"
     add_message:
-      success: "Public data added. Key: {key}, Value: {value}"
+      success: "Public data appended, key: {key}, new value: {value}"
     del_message:
-      success: "Public data deleted. Key: {key}"
+      success: "Public data deleted, key: {key}"
     read_message:
-      success: "Public data read. Key: {key}, Value: {value}"
-      no_key: "No public data found for key: {key}"
+      write_message: "Click to fill into dialog box (overwrite mode) (too long to fill)"
+      copy_message: "Click to copy to clipboard (copy value only)"
+      success: "Public data read, key: {key}, value: {value}"
+      no_key: "Public data not found, key: {key}"
     read_list_message: "All data entries:"
     read_keys_message: "All keys:"

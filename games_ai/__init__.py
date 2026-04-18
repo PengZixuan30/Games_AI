@@ -6,7 +6,7 @@ from .database import PublicDatabase
 
 PLUGIN_METADATA = {
     "id": "games_ai",
-    "version": "0.3.1",
+    "version": "0.3.2",
     "name": "Games AI",
     "description": {
         "zh_cn": "此插件可以将MCDR与支持OpenAI的AI进行结合，使得在游戏内也能使用AI",
@@ -23,15 +23,10 @@ PLUGIN_METADATA = {
 history_conversation = {}
 
 def on_load(server: PluginServerInterface, old):
-    global ai_model,base_url,system_message,max_history,prefix,data_path,allow_permission
+    global ai_model,base_url,system_message,max_history,prefix,data_path,allow_permission,mcdr_lang
     
     server.register_help_message(prefix="!!gamesai",message=server.rtr("games_ai.mcdr_help_message.gamesai_help"))
-    server.register_help_message(prefix="!!gamesai clear",message=server.rtr("games_ai.mcdr_help_message.gamesai_clear"))
-    server.register_help_message(prefix="!!gamesai clearall",message=server.rtr("games_ai.mcdr_help_message.gamesai_clearall"),permission=3)
     server.register_help_message(prefix="!!ask <content>",message=server.rtr("games_ai.mcdr_help_message.gamesai_ask"))
-    server.register_help_message(prefix="!!data add <key> <value>",message=server.rtr("games_ai.mcdr_help_message.data_add"),permission=3)
-    server.register_help_message(prefix="!!data del <key>",message=server.rtr("games_ai.mcdr_help_message.data_del"),permission=3)
-    server.register_help_message(prefix="!!data read <key>",message=server.rtr("games_ai.mcdr_help_message.data_read"),permission=3)
 
     config = server.load_config_simple(
         file_name='config.json',
@@ -57,6 +52,10 @@ def on_load(server: PluginServerInterface, old):
     if base_url == "<Your API Base URL>" or ai_model == "<Your AI Model>" or api_key == "<Your API Key>":
         server.logger.error(f"{prefix}ERROR!Please modify the base_url, ai_model, and api_key items in the configuration file before using the plugin!")
     os.environ["OPENAI_API_KEY"] = api_key
+    mcdr_lang = str(server.rtr("games_ai.system_message.lang", lang=server.get_mcdr_language()))
+
+    
+    server.register_help_message(prefix="!!data",message=server.rtr("games_ai.mcdr_help_message.data"),permission=allow_permission)
 
     server.logger.info(f'{prefix}{server.rtr("games_ai.load_message.server_info")}')
     server.say(f'{prefix}{server.rtr("games_ai.load_message.client_info",v=PLUGIN_METADATA.get("version"))}')
@@ -82,6 +81,10 @@ def on_load(server: PluginServerInterface, old):
     builder.command('!!ask <content>',ask_ai)
 
     builder.command('!!data', helper.data_help)
+
+    builder.command('!!data write', helper.data_write_help)
+    builder.command('!!data write <key>', helper.data_write_help)
+    builder.command('!!data write <key> <value>', data_manager.write_data)
 
     builder.command('!!data add', helper.data_add_help)
     builder.command('!!data add <key>', helper.data_add_help)
@@ -133,6 +136,11 @@ class gamesai_help:
             "\n",
             prefix,
             server.rtr("games_ai.gamesai_help_message.help_prefix"),
+            RText("!!data write <key> <value>", RColor.gray).c(RAction.suggest_command,'!!data write '),
+            server.rtr("games_ai.gamesai_help_message.data_write_help"),
+            "\n",
+            prefix,
+            server.rtr("games_ai.gamesai_help_message.help_prefix"),
             RText("!!data add <key> <value>", RColor.gray).c(RAction.suggest_command,'!!data add '),
             server.rtr("games_ai.gamesai_help_message.data_add_help"),
             "\n",
@@ -156,10 +164,13 @@ class gamesai_help:
             RText("!!data list keys", RColor.gray).c(RAction.suggest_command, '!!data list keys'),
             server.rtr("games_ai.gamesai_help_message.data_keys_help"),
         )
-        source.reply(data_help_part)
+        if source.get_permission_level() < allow_permission:
+            source.reply(server.rtr("games_ai.no_permission", permission = allow_permission))
+        else:
+            source.reply(data_help_part)
 
     @staticmethod
-    def data_add_help(source: CommandSource):
+    def data_write_help(source: CommandSource):
         server = source.get_server()
         data_add_help_part = RTextList(
             prefix,
@@ -167,10 +178,13 @@ class gamesai_help:
             "\n",
             prefix,
             server.rtr("games_ai.gamesai_help_message.help_prefix"),
-            RText("!!data add <key> <value>", RColor.gray).c(RAction.suggest_command,'!!data add '),
-            server.rtr("games_ai.gamesai_help_message.data_add_help"),
+            RText("!!data write <key> <value>", RColor.gray).c(RAction.suggest_command,'!!data write '),
+            server.rtr("games_ai.gamesai_help_message.data_write_help"),
         )
-        source.reply(data_add_help_part)
+        if source.get_permission_level() < allow_permission:
+            source.reply(server.rtr("games_ai.no_permission", permission = allow_permission))
+        else:
+            source.reply(data_add_help_part)
 
     @staticmethod
     def data_del_help(source: CommandSource):
@@ -184,7 +198,10 @@ class gamesai_help:
             RText("!!data del <key>", RColor.gray).c(RAction.suggest_command,'!!data del '),
             server.rtr("games_ai.gamesai_help_message.data_del_help"),
         )
-        source.reply(data_del_help_part)
+        if source.get_permission_level() < allow_permission:
+            source.reply(server.rtr("games_ai.no_permission", permission = allow_permission))
+        else:
+            source.reply(data_del_help_part)
 
     @staticmethod
     def data_read_help(source: CommandSource):
@@ -198,7 +215,27 @@ class gamesai_help:
             RText("!!data read <key>", RColor.gray).c(RAction.suggest_command,'!!data read '),
             server.rtr("games_ai.gamesai_help_message.data_read_help"),
         )
-        source.reply(data_read_help_part)
+        if source.get_permission_level() < allow_permission:
+            source.reply(server.rtr("games_ai.no_permission", permission = allow_permission))
+        else:
+            source.reply(data_read_help_part)
+
+    @staticmethod
+    def data_add_help(source: CommandSource):
+        server = source.get_server()
+        data_add_help_part = RTextList(
+            prefix,
+            server.rtr("games_ai.gamesai_help_message.greeting", v=PLUGIN_METADATA.get("version")),
+            "\n",
+            prefix,
+            server.rtr("games_ai.gamesai_help_message.help_prefix"),
+            RText("!!data add <key> <value>", RColor.gray).c(RAction.suggest_command,'!!data add '),
+            server.rtr("games_ai.gamesai_help_message.data_add_help"),
+        )
+        if source.get_permission_level() < allow_permission:
+            source.reply(server.rtr("games_ai.no_permission", permission = allow_permission))
+        else:
+            source.reply(data_add_help_part)
 
     @staticmethod
     def all_help(source: CommandSource):
@@ -220,7 +257,7 @@ class gamesai_help:
             prefix,
             server.rtr("games_ai.gamesai_help_message.help_prefix"),
             RText("!!gamesai clearall", RColor.gray).c(RAction.suggest_command,'!!gamesai clearall'),
-            server.rtr("games_ai.gamesai_help_message.clearall_help"),
+            server.rtr("games_ai.gamesai_help_message.clearall_help", pms=allow_permission),
             "\n",
             prefix,
             server.rtr("games_ai.gamesai_help_message.help_prefix"),
@@ -241,7 +278,7 @@ def ask_ai(source: CommandSource,context: dict):
         user_name = "Server Control Panel"
     user_message = {"role": "user","content": f'{server.rtr("games_ai.user_message.username")}{user_name}\n{server.rtr("games_ai.user_message.message")}{content}'}
     response_message = [
-        {"role": "system","content": system_message},
+        {"role": "system","content": mcdr_lang + system_message},
     ]
     data = DataManager(data_path).ask_ai_read_data()
     source.reply(f'{prefix}{server.rtr("games_ai.user_message.get_data")}')
@@ -306,6 +343,17 @@ class DataManager:
         else:
             self.db = PublicDatabase(db_path + "/public_database.db")
 
+    @new_thread("data_manager@write")
+    def write_data(self, source: CommandSource, context: dict):
+        server = source.get_server()
+        if source.get_permission_level() < allow_permission:
+            return source.reply(f'{prefix}{server.rtr("games_ai.no_permission",permission = allow_permission)}')
+        else:
+            key = context.get("key")
+            value = context.get("value")
+            self.db.write_data(key, value)
+            return source.reply(f'{prefix}{server.rtr("games_ai.data.write_message.success",key=key,value=value)}')
+        
     @new_thread("data_manager@add")
     def add_data(self, source: CommandSource, context: dict):
         server = source.get_server()
@@ -314,8 +362,13 @@ class DataManager:
         else:
             key = context.get("key")
             value = context.get("value")
-            self.db.write_data(key, value)
-            return source.reply(f'{prefix}{server.rtr("games_ai.data.add_message.success",key=key,value=value)}')
+            old_value = self.db.read_data(key)
+            if old_value == None:
+                new_value = value
+            else:
+                new_value = old_value + value
+            self.db.write_data(key, new_value)
+            return source.reply(f'{prefix}{server.rtr("games_ai.data.add_message.success", key=key, value=new_value)}')
 
     @new_thread("data_manager@del")
     def del_data(self, source: CommandSource, context: dict):
@@ -335,9 +388,17 @@ class DataManager:
         else:
             key = context.get("key")
             value = self.db.read_data(key)
+            message_part = RTextList(
+                prefix,
+                server.rtr("games_ai.data.read_message.success",key=key,value=value),
+                "\n",
+                RText(server.rtr("games_ai.data.read_message.write_message"), RColor.gray).c(RAction.suggest_command, f"!!data write {key} {value}"),
+                "  OR  ",
+                RText(server.rtr("games_ai.data.read_message.copy_message"), RColor.blue).c(RAction.copy_to_clipboard, value)
+            )
             if value is None:
                 return source.reply(f'{prefix}{server.rtr("games_ai.data.read_message.no_key",key=key)}')
-            return source.reply(f'{prefix}{server.rtr("games_ai.data.read_message.success",key=key,value=value)}')
+            return source.reply(message_part)
 
     @new_thread("data_manager@list")
     def read_data_list(self, source: CommandSource, context: dict):
@@ -357,6 +418,6 @@ class DataManager:
             keys = self.db.get_all_key()
             return source.reply(f'{prefix}{server.rtr("games_ai.data.read_keys_message")}\n{keys}')
 
-    def ask_ai_read_data(self):
+    def ask_ai_read_data(self) -> list[tuple[str, str]]:
         value = self.db.data_list()
         return value
