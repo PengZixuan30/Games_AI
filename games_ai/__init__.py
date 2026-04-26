@@ -517,12 +517,14 @@ def check_update(source: CommandSource, context: dict):
     try:
         update(server)
     except Exception as e:
-        source.reply(f"{prefix}ERROR!\n{e}")
+        server.say(f"{prefix}{server.rtr("games_ai.update.no_metadata")}")
 
 def cyclic_check_updates(server: PluginServerInterface):
     global _timer
     try:
         update(server)
+    except Exception as e:
+        server.say(f"{prefix}{server.rtr("games_ai.update.no_metadata")}")
     finally:
         _timer = threading.Timer(86400, cyclic_check_updates, args=(server,))
         _timer.daemon = True
