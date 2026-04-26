@@ -1,6 +1,6 @@
 {
     "id": "games_ai",
-    "version": "0.3.2",
+    "version": "0.4.0",
     "name": "GamesAI",
     "description": {
         "zh_cn": "此插件可以将MCDR与支持OpenAI的AI进行结合，使得在游戏内也能使用AI",
@@ -8,7 +8,7 @@
     "author": "yello",
     "link": "https://github.com/PengZixuan30/Games_AI",
     "dependencies": {
-        "mcdreforged": ">=2.14.0",
+        "mcdreforged": ">=2.15.0",
         "online_player_api": ">=1.0.0",
         "whitelist_api": ">=1.0.0"
     },

@@ -1,62 +1,76 @@
 games_ai:
   mcdr_help_message: 
-    gamesai_help: "Display help information for the GamesAI plugin and how to use GamesAI"
+    gamesai_help: "Display help information for GamesAI plugin and use GamesAI"
     gamesai_ask: "Ask AI a question"
     data: "Modify the database"
   
   system_message:
-    default: "Respond concisely but with a touch of emotion. If you want to obtain the list of online players, reply get_players; if you want to obtain the server whitelist (i.e., the full member list), reply get_whitelist. You are a bot on a Minecraft server."
-    lang: "Please use the language {lang}."
+    default: "Answer concisely but with some emotion. If you want to get the online player list, respond with get_players; if you want to get the server whitelist (i.e., the full member list), respond with get_whitelist. You are a bot in a Minecraft server."
+    lang: "Please use language {lang}."
 
   load_message: 
     server_info: "Configuration file loaded"
-    client_info: "Welcome to the GamesAI plugin! Current version: {v}"
+    client_info: "Welcome to GamesAI plugin! Current version: {v}"
     server_create_data_dir: "Database created:"
 
+  unload_message:
+    server_info: "Plugin unloaded, timer terminated!"
+
   gamesai_help_message:
-    greeting: "Welcome to the GamesAI plugin! Current version: {v}"
+    greeting: "Welcome to GamesAI plugin! Current version: {v}"
+
+    all_ai_model: "Available AI models: "
     
-    help_prefix: "Type"
+    help_prefix: "Enter"
 
     ask_help: "to ask the AI a question"
 
     clear_help: "to clear your chat history"
 
-    clearall_help: "to clear all chat history (requires permission level {pms} or higher)"
+    clearall_help: "to clear all chat histories"
+
+    check_update_help: "to check for plugin updates"
 
     data_help: "to get information about the public database"
 
-    data_write_help: "to add a public data entry (overwrite), making this data available to the AI for all players"
+    data_write_help: "to add a public data entry (overwrite mode), so that all players can use this data when accessing the AI"
 
-    data_add_help: "to append data to the end of an existing value"
+    data_add_help: "to append data to the end of the original value"
     
     data_del_help: "to delete a public data entry"
 
     data_read_help: "to read a public data entry"
 
-    data_list_help: "to list all public data entries"
+    data_list_help: "to get all public data"
 
-    data_keys_help: "to list all keys"
+    data_keys_help: "to get all keys"
   
   user_message:
     player: "Player"
     username: "Username:"
     message: "Player message:"
-    get_data: "Retrieving public data..."
-    online_players: "Online players list:"
-    whitelist_players: "Full member list:"
+
+    model_error: "Invalid AI model! Available AI models: "
+    model_more: "Unable to match exactly! The following AI models were matched: "
+
+    get_data: "Fetching public data..."
     data_list: "Public data list:"
+
+    online_players: "Online players:"
+    whitelist_players: "Full member list:"
+
     history:
       prefix: "Chat history:"
       user_message: "Player message:"
       ai_reply: "AI reply:"
-    getting_online_players: "Fetching online players list..."
+
+    getting_online_players: "Fetching online player list..."
     getting_whitelist: "Fetching full member list..."
   
   clear_history_message:
     success: "Cleared chat history for player {username}"
-    no_history: "Player {username} has no history to clear"
-    clearall_success: "Cleared all chat history, total {count} player(s)"
+    no_history: "No chat history to clear for player {username}"
+    clearall_success: "Cleared all chat histories, total of {count} players' histories cleared"
 
   no_permission: "You do not have permission to use this command. Required permission level: {permission} or higher"
 
@@ -68,9 +82,19 @@ games_ai:
     del_message:
       success: "Public data deleted, key: {key}"
     read_message:
-      write_message: "Click to fill into dialog box (overwrite mode) (too long to fill)"
-      copy_message: "Click to copy to clipboard (copy value only)"
-      success: "Public data read, key: {key}, value: {value}"
+      write_hover: "Click to fill into dialog box (overwrite mode) (will not fill if too long)"
+      copy_hover: "Click to copy to clipboard (copies value only)"
+      write_button: "Fill"
+      copy_button: "Copy"
+      success: "Public data retrieved, key: {key}, value: {value}"
       no_key: "Public data not found, key: {key}"
-    read_list_message: "All data entries:"
+    read_list_message: "All data:"
     read_keys_message: "All keys:"
+
+  update:
+    no_update: "§6No new version available!§r"
+    new_update: "§6New version available: {version}! Auto-updating in 5 seconds!§r"
+    no_metadata: "§6Failed to retrieve plugin metadata!§r"
+    update_ok: "New version installed successfully! Plugin will restart"
+    after_update_restart_msg: "Plugin updated, restarting now!"
+    checking_update: "§6Checking for plugin updates!§r"
