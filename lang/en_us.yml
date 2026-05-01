@@ -5,13 +5,13 @@ games_ai:
     data: "Modify the database"
   
   system_message:
-    default: "Answer concisely but with some emotion. If you want to get the online player list, respond with get_players; if you want to get the server whitelist (i.e., the full member list), respond with get_whitelist. You are a bot in a Minecraft server."
+    default: "Answer concisely but with some emotion. You are a bot in a Minecraft server."
     lang: "Please use language {lang}."
 
   load_message: 
     server_info: "Configuration file loaded"
     client_info: "Welcome to GamesAI plugin! Current version: {v}"
-    server_create_data_dir: "Database created:"
+    server_create_data_dir: "Database created: "
 
   unload_message:
     server_info: "Plugin unloaded, timer terminated!"
@@ -21,51 +21,45 @@ games_ai:
 
     all_ai_model: "Available AI models: "
     
-    help_prefix: "Enter"
+    help_prefix: "Enter "
 
-    ask_help: "to ask the AI a question"
+    ask_help: " to ask the AI a question"
 
-    clear_help: "to clear your chat history"
+    clear_help: " to clear your chat history"
 
-    clearall_help: "to clear all chat histories"
+    clearall_help: " to clear all chat histories"
 
-    check_update_help: "to check for plugin updates"
+    check_update_help: " to check for plugin updates"
 
-    data_help: "to get information about the public database"
+    data_help: " to get information about the public database"
 
-    data_write_help: "to add a public data entry (overwrite mode), so that all players can use this data when accessing the AI"
+    data_write_help: " to add a public data entry (overwrite), so that all players can use this data when accessing the AI"
 
-    data_add_help: "to append data to the end of the original value"
+    data_add_help: " to append data to the end of the original value"
     
-    data_del_help: "to delete a public data entry"
+    data_del_help: " to delete a public data entry"
 
-    data_read_help: "to read a public data entry"
+    data_read_help: " to read a public data entry"
 
-    data_list_help: "to get all public data"
+    data_list_help: " to get all public data"
 
-    data_keys_help: "to get all keys"
+    data_keys_help: " to get all keys"
   
   user_message:
-    player: "Player"
-    username: "Username:"
-    message: "Player message:"
+    username: "Username: "
+    message: "Message: "
 
     model_error: "Invalid AI model! Available AI models: "
     model_more: "Unable to match exactly! The following AI models were matched: "
 
     get_data: "Fetching public data..."
-    data_list: "Public data list:"
+    data_list: "Public data list: "
 
-    online_players: "Online players:"
-    whitelist_players: "Full member list:"
-
-    history:
-      prefix: "Chat history:"
-      user_message: "Player message:"
-      ai_reply: "AI reply:"
-
+  tools:
     getting_online_players: "Fetching online player list..."
-    getting_whitelist: "Fetching full member list..."
+    getting_whitelist: "Fetching whitelist..."
+    adding_whitelist: "Adding to whitelist..."
+    removing_whitelist: "Removing from whitelist..."
   
   clear_history_message:
     success: "Cleared chat history for player {username}"
@@ -88,8 +82,8 @@ games_ai:
       copy_button: "Copy"
       success: "Public data retrieved, key: {key}, value: {value}"
       no_key: "Public data not found, key: {key}"
-    read_list_message: "All data:"
-    read_keys_message: "All keys:"
+    read_list_message: "All data: "
+    read_keys_message: "All keys: "
 
   update:
     no_update: "§6No new version available!§r"
@@ -98,3 +92,7 @@ games_ai:
     update_ok: "New version installed successfully! Plugin will restart"
     after_update_restart_msg: "Plugin updated, restarting now!"
     checking_update: "§6Checking for plugin updates!§r"
+  
+  debug:
+    enable: "Debug mode enabled"
+    disable: "Debug mode disabled"

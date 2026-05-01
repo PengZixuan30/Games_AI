@@ -9,10 +9,10 @@ English  |  [简体中文](/README.zh-CN.md)  |  [繁體中文](/README.zh-TW.md
 </div>
 
 > [!NOTE]
-> Welcome to version 0.4.0. This release fixes several issues, adds multi-model support, and introduces automatic update checking. See [this update](#this-update) for details.
+> Welcome to version 0.4.1. This release fixes issues with automatic update checking, adds two new AI skills, and refactors the code structure for accessing AI. See [this update](#this-update) for details.
 
 > [!IMPORTANT]
-> Due to the addition of multi-model support, the configuration file has undergone major changes. Please update your configuration accordingly.
+> Due to the addition of multi-model support starting from version 0.4.0, the configuration file has undergone major changes. Please update your configuration file accordingly.
 
 <details>
 <summary>Table of Contents (click to expand)</summary>
@@ -27,8 +27,8 @@ English  |  [简体中文](/README.zh-CN.md)  |  [繁體中文](/README.zh-TW.md
     - [4. all\_ai](#4-all_ai)
     - [5. default\_ai](#5-default_ai)
   - [This Update](#this-update)
-    - [1. Added automatic update checking](#1-added-automatic-update-checking)
-    - [2. Added multi-model support](#2-added-multi-model-support)
+    - [1. Fixed automatic update checking](#1-fixed-automatic-update-checking)
+    - [2. Added two new skills](#2-added-two-new-skills)
   - [Acknowledgements \& Disclaimer](#acknowledgements--disclaimer)
   - [License](#license)
 
@@ -84,11 +84,12 @@ The default configuration file structure is as follows:
   "max_history": 10,
   "all_ai": {
       "<Your AI ID>": {
-          "prompt": "Answer concisely but with some emotion. If you want to get the online player list, respond with get_players; if you want to get the server whitelist (i.e., the full member list), respond with get_whitelist. You are a bot in a Minecraft server.",
-          "ai_name": "[ServerAI]",
+          "prompt": "Answer concisely but with some emotion. You are a bot in a Minecraft server.",
+          "ai_name": "[GamesAI]",
           "base_url": "<Your API Base URL>",
           "ai_model": "<Your AI Model>",
-          "api_key": "<Your API Key>"
+          "api_key": "<Your API Key>",
+          "thinking": false
       }
     },
   "default_ai": "<Your AI ID>"
@@ -118,7 +119,7 @@ Type: int
 
 Default: 10
 
-The maximum number of chat history entries to keep per player. This is independent of the public database. Each player's chat history is now shared across **all models**.
+The maximum number of chat history entries to keep per player. This is independent of the public database.
 
 ### 4. all_ai
 Type: dict
@@ -127,25 +128,27 @@ Default: As shown in the file.
 
 Contains information for all AI models. It consists of multiple dictionaries, each representing an AI model. The key of each dictionary is the internal **AI_ID** used by the plugin.
 
-**prompt**: This option serves the same function as the previous **system_message**, but you now need to set it separately for each model.
+**prompt**: This option is used to write system prompts for each AI model.
 
-**ai_name**: This option serves a similar function as the previous **prefix**, but you now need to set it separately for each model. Minecraft formatting codes are allowed.
+**ai_name**: This option is similar to the prefix function, but you now need to set it separately for each model. Minecraft formatting codes are allowed.
 
 **base_url**, **ai_model**, **api_key**: Same functionality as previous related settings, but you now need to set them separately for each model.
+
+**thinking**: This option is used to enable/disable the model's thinking mode. If not specified, it defaults to false. Do not enable this for models that do not support thinking mode, as it may cause errors.
 
 ### 5. default_ai
 Type: str
 
-Default: \<\Your AI ID\>
+Default: \<Your AI ID\>
 
 The model used when a user simply types `!!ask` (without specifying a model). This should be one of the keys inside the `all_ai` dictionary (i.e., an internal `AI_ID`). If set incorrectly, the `!!ask` command will not function properly.
 
 ## This Update
-### 1. Added automatic update checking
-This version introduces automatic update checking, which runs every 24 hours (non-configurable). If an update is available, the MCDR plugin manager will be used to perform the update.
+### 1. Fixed automatic update checking
+Fixed a critical issue with automatic update checking in the previous version.
 
-### 2. Added multi-model support
-This version adds support for multiple AI models. Users can now use the `!!ask -m <model> <content>` command to switch between models, while the simple `!!ask` command continues to use the default model. The `<model>` parameter supports fuzzy matching: even if the user enters an incomplete AI_ID or AI name, the plugin can still recognize it.
+### 2. Added two new skills
+Added the ability to add/remove players from the whitelist, and established a code foundation for adding custom skills in the future.
 
 ## Acknowledgements & Disclaimer
 Special thanks to Wanghai Commune Server for providing the foundation for testing this plugin.
@@ -153,4 +156,4 @@ Special thanks to Wanghai Commune Server for providing the foundation for testin
 Any content generated by AI (LLM) models is independent of this plugin.
 
 ## License
-This plugin is licensed under the MIT License. Copyright (c) yello.
+This plugin is licensed under the MIT License, held by yello.

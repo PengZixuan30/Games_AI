@@ -5,7 +5,7 @@ games_ai:
     data: "修改数据库"
   
   system_message:
-    default: "使用简洁的语言回答,但请带有一定的情感,如果你想获取在线玩家列表,请回复get_players;如果你想获取服务器白名单(既全体成员名单),请回复get_whitelist。你是Minecraft服务器的一名机器人"
+    default: "使用简洁的语言回答,但请带有一定的情感,你是Minecraft服务器的一名机器人"
     lang: "请使用语言{lang}。"
 
   load_message: 
@@ -46,9 +46,8 @@ games_ai:
     data_keys_help: "以获取所有键"
   
   user_message:
-    player: "玩家"
     username: "用户名:"
-    message: "玩家消息:"
+    message: "消息:"
 
     model_error: "错误的AI模型!当前有这些AI模型: "
     model_more: "无法正确匹配!现在匹配到了如下AI模型: "
@@ -56,16 +55,11 @@ games_ai:
     get_data: "正在获取公共数据..."
     data_list: "公共数据列表:"
 
-    online_players: "在线玩家列表:"
-    whitelist_players: "全体成员列表:"
-
-    history:
-      prefix: "历史消息:"
-      user_message: "玩家消息:"
-      ai_reply: "AI回复:"
-
+  tools:
     getting_online_players: "正在获取在线玩家列表..."
-    getting_whitelist: "正在获取全体成员列表..."
+    getting_whitelist: "正在获取白名单列表..."
+    adding_whitelist: "正在添加白名单..."
+    removing_whitelist: "正在移除白名单..."
   
   clear_history_message:
     success: "已清除玩家{username}的历史聊天记录"
@@ -98,3 +92,7 @@ games_ai:
     update_ok: "新版本安装成功!插件准备重启"
     after_update_restart_msg: "插件更新,现在重启!"
     checking_update: "§6正在检查插件更新!§r"
+  
+  debug:
+    enable: "已启用调试模式"
+    disable: "已禁用调试模式"

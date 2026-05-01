@@ -1,71 +1,65 @@
 games_ai:
   mcdr_help_message: 
-    gamesai_help: "顯示GamesAI插件的幫助資訊以及使用GamesAI"
-    gamesai_ask: "向AI提問"
+    gamesai_help: "顯示 GamesAI 插件的說明資訊以及使用 GamesAI"
+    gamesai_ask: "向 AI 提問"
     data: "修改資料庫"
   
   system_message:
-    default: "使用簡潔的語言回答，但請帶有一定的情感。如果你想獲取線上玩家列表，請回覆 get_players；如果你想獲取伺服器白名單（即全體成員名單），請回覆 get_whitelist。你是Minecraft伺服器的一個機器人"
+    default: "使用簡潔的語言回答，但請帶有一定的情感。你是 Minecraft 伺服器的一個機器人。"
     lang: "請使用語言 {lang}。"
 
   load_message: 
     server_info: "設定檔已載入"
-    client_info: "歡迎使用GamesAI插件！目前版本：{v}"
+    client_info: "歡迎使用 GamesAI 插件！目前版本：{v}"
     server_create_data_dir: "已建立資料庫："
 
   unload_message:
     server_info: "插件已卸載，計時器終止！"
 
   gamesai_help_message:
-    greeting: "歡迎使用GamesAI插件！目前版本：{v}"
+    greeting: "歡迎使用 GamesAI 插件！目前版本：{v}"
 
-    all_ai_model: "目前有以下AI模型："
+    all_ai_model: "目前有以下 AI 模型："
     
-    help_prefix: "輸入"
+    help_prefix: "輸入 "
 
-    ask_help: "以向AI提問"
+    ask_help: " 以向 AI 提問"
 
-    clear_help: "以清除你的歷史聊天記錄"
+    clear_help: " 以清除你的歷史聊天記錄"
 
-    clearall_help: "以清除所有歷史聊天記錄"
+    clearall_help: " 以清除所有歷史聊天記錄"
 
-    check_update_help: "以檢查插件更新狀態"
+    check_update_help: " 以檢查插件更新狀態"
 
-    data_help: "以取得公共資料庫的相關資訊"
+    data_help: " 以取得公共資料庫的相關資訊"
 
-    data_write_help: "以新增一筆公共資料（覆寫），讓所有玩家存取AI時都可以使用這筆資料"
+    data_write_help: " 以新增一筆公共資料（覆寫），讓所有玩家存取 AI 時都可以使用這筆資料"
 
-    data_add_help: "以將資料附加到原值的後方"
+    data_add_help: " 以將資料附加到原值的後方"
     
-    data_del_help: "以刪除一筆公共資料"
+    data_del_help: " 以刪除一筆公共資料"
 
-    data_read_help: "以讀取一筆公共資料"
+    data_read_help: " 以讀取一筆公共資料"
 
-    data_list_help: "以取得所有公共資料"
+    data_list_help: " 以取得所有公共資料"
 
-    data_keys_help: "以取得所有鍵"
+    data_keys_help: " 以取得所有鍵"
   
   user_message:
-    player: "玩家"
     username: "使用者名稱："
-    message: "玩家訊息："
+    message: "訊息："
 
-    model_error: "錯誤的AI模型！目前有以下AI模型："
-    model_more: "無法正確匹配！現在匹配到了以下AI模型："
+    model_error: "錯誤的 AI 模型！目前有以下 AI 模型："
+    model_more: "無法正確匹配！現在匹配到了以下 AI 模型："
 
     get_data: "正在取得公共資料..."
     data_list: "公共資料列表："
 
-    online_players: "線上玩家列表："
-    whitelist_players: "全體成員列表："
-
-    history:
-      prefix: "歷史訊息："
-      user_message: "玩家訊息："
-      ai_reply: "AI回覆："
-
+  tools:
     getting_online_players: "正在取得線上玩家列表..."
-    getting_whitelist: "正在取得全體成員列表..."
+    getting_whitelist: "正在取得白名單列表..."
+    adding_whitelist: "正在加入白名單..."
+    removing_whitelist: "正在移除白名單..."
   
   clear_history_message:
     success: "已清除玩家 {username} 的歷史聊天記錄"
@@ -93,8 +87,12 @@ games_ai:
 
   update:
     no_update: "§6目前沒有可用的新版本！§r"
-    new_update: "§6目前有可用的新版本：{version} ！5秒後自動更新！§r"
+    new_update: "§6目前有可用的新版本：{version}！5 秒後自動更新！§r"
     no_metadata: "§6取得插件元資料失敗！§r"
     update_ok: "新版本安裝成功！插件準備重啟"
     after_update_restart_msg: "插件更新，現在重啟！"
     checking_update: "§6正在檢查插件更新！§r"
+  
+  debug:
+    enable: "已啟用除錯模式"
+    disable: "已停用除錯模式"

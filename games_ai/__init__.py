@@ -1,14 +1,14 @@
 from mcdreforged.api.all import *
 
 from .openai_api import response_chat
-from .mcdr_plugin_interface import get_whitelist_name_api,get_online_players_to_init
+from .games_ai_tool import TOOL_SCHEMAS, get_tool_handler
 from .database import PublicDatabase
 
 import time,os,requests,lzma,json,threading
 
 PLUGIN_METADATA = {
     "id": "games_ai",
-    "version": "0.4.0",
+    "version": "0.4.1",
     "name": "Games AI",
     "description": {
         "zh_cn": "此插件可以将MCDR与支持OpenAI的AI进行结合，使得在游戏内也能使用AI",
@@ -24,6 +24,7 @@ PLUGIN_METADATA = {
 
 history_conversation = {}
 update_status_code = 0
+debug_mode = False
 
 def on_load(server: PluginServerInterface, old):
     global max_history,prefix,data_path,allow_permission,mcdr_lang,_timer,ai_dict,default_ai,name_to_id
@@ -36,10 +37,11 @@ def on_load(server: PluginServerInterface, old):
         "all_ai": {
             "<Your AI ID>":{
                 "prompt": server.rtr("games_ai.system_message.default"),
-                "ai_name": "[ServerAI]",
+                "ai_name": "[GamesAI]",
                 "base_url": "<Your API Base URL>",
                 "ai_model": "<Your AI Model>",
-                "api_key": "<Your API Key>"
+                "api_key": "<Your API Key>",
+                "thinking": False
             }
         },
         "default_ai": "<Your AI ID>"
@@ -65,11 +67,12 @@ def on_load(server: PluginServerInterface, old):
         if not isinstance(ai_config, dict):
             continue
         ai_info = {
-            "prompt": ai_config.get("prompt", ""),
-            "ai_name": ai_config.get("ai_name", ""),
+            "prompt": ai_config.get("prompt", server.rtr("games_ai.system_message.default")),
+            "ai_name": ai_config.get("ai_name", "[GamesAI]"),
             "base_url": ai_config.get("base_url", ""),
             "ai_model": ai_config.get("ai_model", ""),
-            "api_key": ai_config.get("api_key", "")
+            "api_key": ai_config.get("api_key", ""),
+            "thinking": ai_config.get("thinking", False)
         }
         ai_dict[ai_id] = ai_info
 
@@ -107,6 +110,8 @@ def on_load(server: PluginServerInterface, old):
     builder.command('!!gamesai clearall',clear_history_all)
     
     builder.command('!!gamesai check', check_update)
+
+    builder.command('!!gamesai debug', debug)
 
     builder.command('!!ask', helper.ask_help)
     builder.command('!!ask <content>', ask_ai)
@@ -304,7 +309,7 @@ class gamesai_help:
             server.rtr("games_ai.gamesai_help_message.help_prefix"),
             RText("!!gamesai clear", RColor.gray).c(RAction.suggest_command,'!!gamesai clear'),
             server.rtr("games_ai.gamesai_help_message.clear_help"),
-            "\n",)
+            )
         per_help_part = RTextList(
             prefix,
             server.rtr("games_ai.gamesai_help_message.help_prefix"),
@@ -324,7 +329,7 @@ class gamesai_help:
         if source.get_permission_level() < allow_permission:
             source.reply(basic_help_part)
         else:
-            all_help_part = RTextList(basic_help_part, per_help_part)
+            all_help_part = RTextList(basic_help_part, "\n", per_help_part)
             source.reply(all_help_part)
 
 @new_thread("games_ai@request_ai")
@@ -337,8 +342,8 @@ def ask_ai(source: CommandSource,context: dict):
     may_user_ai = []
     if ai_info is None:
         for ai_id,ai_config in ai_dict.items():
-            name = ai_config.get("ai_name")
-            if user_input.lower() in name.lower():
+            name = ai_config.get("ai_name", "")
+            if user_input.lower() in name.lower() or user_input.lower() in ai_id.lower():
                 may_user_ai.append(ai_id)
         if len(may_user_ai) == 1:
             ai_info = ai_dict.get(may_user_ai[0])
@@ -354,14 +359,19 @@ def ask_ai(source: CommandSource,context: dict):
     base_url = ai_info.get("base_url")
     api_key = ai_info.get("api_key")
     prompt = ai_info.get("prompt")
+    config_thinking = ai_info.get("thinking", False)
+    if config_thinking:
+        thinking = "enabled"
+    else:
+        thinking = "disabled"
 
     os.environ["OPENAI_API_KEY"] = api_key
 
     username = get_username(source)
-    history = history_conversation.get(username,[])
+    history = history_conversation.get(username, {}).get(ai_prefix, [])
     content = context['content']
     if source.is_player:
-        user_name = f'{username}({server.rtr("games_ai.user_message.player")})'
+        user_name = f'{username}'
     else:
         user_name = "Server Control Panel"
     user_message = {"role": "user","content": f'{server.rtr("games_ai.user_message.username")}{user_name}\n{server.rtr("games_ai.user_message.message")}{content}'}
@@ -375,31 +385,52 @@ def ask_ai(source: CommandSource,context: dict):
     response_message.append(data_message)
     response_message.append(user_message)
 
+    if debug_mode:
+        source.reply(f"[DEBUG]{response_message}")
+
     while True:
         try:
-            ai_reply = response_chat(model=ai_model,url=base_url,message=response_message)
-            if ai_reply.find("get_players") >= 0:
-                source.reply(f'{ai_prefix}{server.rtr("games_ai.user_message.getting_online_players")}')
-                online_players_list = {"role": "assistant","content": f'{server.rtr("games_ai.user_message.online_players")}{get_online_players_to_init(source.get_server())}'}
-                response_message.append(online_players_list)
-                continue
-            elif ai_reply.find("get_whitelist") >= 0:
-                source.reply(f'{ai_prefix}{server.rtr("games_ai.user_message.getting_whitelist")}')
-                all_players_list = {"role": "assistant","content": f'{server.rtr("games_ai.user_message.whitelist_players")}{get_whitelist_name_api(source.get_server())}'}
-                response_message.append(all_players_list)
+            ai_reply = response_chat(model=ai_model,url=base_url,message=response_message,tools=TOOL_SCHEMAS,thinking=thinking)
+            if ai_reply.tool_calls is not None:
+                response_message.append(ai_reply)
+
+                if debug_mode:
+                    source.reply(f"[DEBUG]{ai_reply.tool_calls}")
+
+                for tool_call in ai_reply.tool_calls:
+                    func_name = tool_call.function.name
+                    handler = get_tool_handler(func_name)
+
+                    if handler is None:
+                        result = f"未知函数: {func_name}"
+                    else:
+                        try:
+                            func_args = json.loads(tool_call.function.arguments) if tool_call.function.arguments else {}
+                            result = handler.func(source, **func_args)
+                            source.reply(f'{ai_prefix}{server.rtr(f"games_ai.tools.{handler.tr_key}")}')
+                        except Exception as ex:
+                            result = f"函数 {func_name} 执行出错: {ex}"
+                            raise ex
+
+                    response_message.append({
+                        "role": "tool",
+                        "tool_call_id": tool_call.id,
+                        "content": result,
+                    })
                 continue
             else:
-                message = f'{ai_prefix}{ai_reply}'
-                history.append({"role": "assistant","content": f'{server.rtr("games_ai.user_message.history.prefix")}{server.rtr("games_ai.user_message.history.user_message")}{user_message["content"]}\n{server.rtr("games_ai.user_message.history.ai_reply")}{ai_reply}'})
-                max_len = max_history
+                message = f'{ai_prefix}{ai_reply.content}'
+                history.append(user_message)
+                history.append(ai_reply)
+                max_len = max_history * 2
                 if len(history) > max_len:
                     history = history[-max_len:]
-                history_conversation[username] = history
+                history_conversation.setdefault(username, {})[ai_prefix] = history
                 source.reply(message)
                 break
         except Exception as e:
-            source.reply(f'{ai_prefix}ERROR!\n{e}')
-            break
+            source.reply(f'{ai_prefix}ERROR!\n{ai_prefix}{e}')
+            raise e
 
 def get_username(source: CommandSource):
     if source.is_player:
@@ -549,9 +580,7 @@ def update(server: PluginServerInterface):
         else:
             server.say(f"{prefix}{server.rtr("games_ai.update.new_update",version = new_version)}")
             time.sleep(5)
-            server.execute_command("!!MCDR plugin install -U games_ai")
-            time.sleep(59)
-            server.execute_command("!!MCDR confirm")
+            server.execute_command("!!MCDR plugin install -U -y games_ai")
             server.say(f"{prefix}{server.rtr("games_ai.update.update_ok")}")
             update_status_code = 1
             return
@@ -560,4 +589,17 @@ def update(server: PluginServerInterface):
         return
     
 def get_main_version(ver: str):
-    return tuple(int(x) for x in ver.split('-')[0].split('.'))
+    main_part = ver.split('-')[0]
+    major, minor, patch = main_part.split('.')
+    is_release = 1 if ver == main_part else 0
+    return (int(major), int(minor), int(patch), is_release)
+
+def debug(source: CommandSource, context: dict):
+    server = source.get_server()
+    global debug_mode
+    if debug_mode:
+        debug_mode = False
+        source.reply(f"{prefix}{server.rtr("games_ai.debug.disable")}")
+    else:
+        debug_mode = True
+        source.reply(f"{prefix}{server.rtr("games_ai.debug.enable")}")
