@@ -15,6 +15,8 @@ games_ai:
 
   unload_message:
     server_info: "Plugin unloaded, timer terminated!"
+    after_update_restart_msg: "Plugin updated, restarting now!"
+    reloader_msg: "Plugin reloaded!"
 
   gamesai_help_message:
     greeting: "Welcome to GamesAI plugin! Current version: {v}"
@@ -56,10 +58,14 @@ games_ai:
     data_list: "Public data list: "
 
   tools:
+    execution_error: "Function {func_name} execution error! Reason: {ex}"
+    unknown_function: "AI executed unknown function: {func_name}"
+
     getting_online_players: "Fetching online player list..."
     getting_whitelist: "Fetching whitelist..."
     adding_whitelist: "Adding to whitelist..."
     removing_whitelist: "Removing from whitelist..."
+    searching_minecraft_wiki: "Searching Minecraft Wiki for: {query}"
   
   clear_history_message:
     success: "Cleared chat history for player {username}"
@@ -89,8 +95,7 @@ games_ai:
     no_update: "§6No new version available!§r"
     new_update: "§6New version available: {version}! Auto-updating in 5 seconds!§r"
     no_metadata: "§6Failed to retrieve plugin metadata!§r"
-    update_ok: "New version installed successfully! Plugin will restart"
-    after_update_restart_msg: "Plugin updated, restarting now!"
+    update_ok: "Installing new version!"
     checking_update: "§6Checking for plugin updates!§r"
   
   debug:

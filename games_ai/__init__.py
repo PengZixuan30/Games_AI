@@ -3,12 +3,13 @@ from mcdreforged.api.all import *
 from .openai_api import response_chat
 from .games_ai_tool import TOOL_SCHEMAS, get_tool_handler
 from .database import PublicDatabase
+from .config import plugin_config
 
 import time,os,requests,lzma,json,threading
 
 PLUGIN_METADATA = {
     "id": "games_ai",
-    "version": "0.4.1",
+    "version": "0.4.2",
     "name": "Games AI",
     "description": {
         "zh_cn": "此插件可以将MCDR与支持OpenAI的AI进行结合，使得在游戏内也能使用AI",
@@ -16,18 +17,16 @@ PLUGIN_METADATA = {
     "author": "yello",
     "link": "https://github.com/PengZixuan30/Games_AI",
     "dependencies": {
-        "mcdreforged": ">=2.15.0",
-        "online_player_api": ">=1.0.0",
-        "whitelist_api": ">=1.0.0"
+        "mcdreforged": ">=2.15.0"
     }
 }
 
 history_conversation = {}
-update_status_code = 0
+unload_status_code = 0
 debug_mode = False
 
 def on_load(server: PluginServerInterface, old):
-    global max_history,prefix,data_path,allow_permission,mcdr_lang,_timer,ai_dict,default_ai,name_to_id
+    global prefix,allow_permission,max_history,data_path,allow_permission,mcdr_lang,_timer,ai_dict,default_ai,name_to_id
     _timer = None
     
     DEFAULT_CONFIG = {
@@ -59,6 +58,10 @@ def on_load(server: PluginServerInterface, old):
     prefix = config.get('prefix','[GamesAI]')
     max_history = config.get('max_history',10)
     allow_permission = config.get('permission',3)
+
+    plugin_config.prefix = prefix
+    plugin_config.allow_permission = allow_permission
+    plugin_config.max_history = max_history
 
     ai_dict = {}
 
@@ -113,6 +116,8 @@ def on_load(server: PluginServerInterface, old):
 
     builder.command('!!gamesai debug', debug)
 
+    builder.command('!!gamesai reload', reloader)
+
     builder.command('!!ask', helper.ask_help)
     builder.command('!!ask <content>', ask_ai)
     builder.command('!!ask -m <model> <content>', ask_ai)
@@ -152,12 +157,13 @@ def on_server_startup(server: PluginServerInterface):
 
 def on_unload(server: PluginServerInterface):
     _timer.cancel()
-    if update_status_code == 0:
-        server.logger.info(f'{prefix}{server.rtr("games_ai.unload_message.server_info")}')
+    server.logger.info(f"{prefix}{server.rtr("games_ai.unload_message.server_info")}")
+    if unload_status_code == 0:
         server.say(f'{prefix}Bye!')
+    elif unload_status_code == 1:
+        server.say(f'{prefix}{server.rtr("games_ai.unload_message.after_update_restart_msg")}')
     else:
-        server.logger.info(f'{prefix}{server.rtr("games_ai.update.after_update_restart_msg")}')
-        server.say(f'{prefix}{server.rtr("games_ai.update.after_update_restart_msg")}')
+        server.say(f'{prefix}{server.rtr("games_ai.unload_message.reloader_msg")}')
 
 class gamesai_help:
     @staticmethod
@@ -403,14 +409,18 @@ def ask_ai(source: CommandSource,context: dict):
 
                     if handler is None:
                         result = f"未知函数: {func_name}"
+                        source.reply(f'{ai_prefix}{server.rtr("games_ai.tools.unknown_function",func_name=func_name)}')
                     else:
                         try:
                             func_args = json.loads(tool_call.function.arguments) if tool_call.function.arguments else {}
-                            result = handler.func(source, **func_args)
-                            source.reply(f'{ai_prefix}{server.rtr(f"games_ai.tools.{handler.tr_key}")}')
-                        except Exception as ex:
-                            result = f"函数 {func_name} 执行出错: {ex}"
-                            raise ex
+                            result = handler.func(source, ai_prefix, **func_args)
+                        except Exception as e:
+                            result = f"函数 {func_name} 执行出错: {e}"
+                            source.reply(f'{ai_prefix}{server.rtr("games_ai.tools.execution_error",func_name=func_name,ex=e)}')
+                            raise e
+                        
+                    if debug_mode:
+                        source.reply(f"[DEBUG] Tool call result: \n{result}")
 
                     response_message.append({
                         "role": "tool",
@@ -549,6 +559,7 @@ def check_update(source: CommandSource, context: dict):
         update(server)
     except Exception as e:
         server.say(f"{prefix}{server.rtr("games_ai.update.no_metadata")}")
+        server.logger.warning(f"{prefix}{server.rtr("games_ai.update.no_metadata")}")
 
 def cyclic_check_updates(server: PluginServerInterface):
     global _timer
@@ -556,15 +567,17 @@ def cyclic_check_updates(server: PluginServerInterface):
         update(server)
     except Exception as e:
         server.say(f"{prefix}{server.rtr("games_ai.update.no_metadata")}")
+        server.logger.warning(f"{prefix}{server.rtr("games_ai.update.no_metadata")}")
     finally:
         _timer = threading.Timer(86400, cyclic_check_updates, args=(server,))
         _timer.daemon = True
         _timer.start()
 
 def update(server: PluginServerInterface):
-    global update_status_code
-    update_status_code = 0
+    global unload_status_code
+    unload_status_code = 0
     server.say(f"{prefix}{server.rtr("games_ai.update.checking_update")}")
+    server.logger.info(f"{prefix}{server.rtr("games_ai.update.checking_update")}")
     response = requests.get("https://api.mcdreforged.com/catalogue/everything_slim.json.xz")
     if response.status_code == 200:
         compress_data = response.content
@@ -574,18 +587,21 @@ def update(server: PluginServerInterface):
             new_version = json_data.get("plugins").get("games_ai").get("release").get("releases")[0].get("meta").get("version")
         except (KeyError, IndexError, TypeError, AttributeError) as e:
             server.say(f"{prefix}{server.rtr("games_ai.update.no_metadata")}")
+            server.logger.warning(f"{prefix}{server.rtr("games_ai.update.no_metadata")}")
             return e
         if get_main_version(new_version) <= get_main_version(PLUGIN_METADATA["version"]):
             return server.say(f"{prefix}{server.rtr("games_ai.update.no_update")}")
         else:
             server.say(f"{prefix}{server.rtr("games_ai.update.new_update",version = new_version)}")
+            server.logger.info(f"{prefix}{server.rtr("games_ai.update.new_update",version = new_version)}")
             time.sleep(5)
             server.execute_command("!!MCDR plugin install -U -y games_ai")
             server.say(f"{prefix}{server.rtr("games_ai.update.update_ok")}")
-            update_status_code = 1
+            unload_status_code = 1
             return
     else:
         server.say(f"{prefix}{server.rtr("games_ai.update.no_metadata")}")
+        server.logger.warning(f"{prefix}{server.rtr("games_ai.update.no_metadata")}")
         return
     
 def get_main_version(ver: str):
@@ -599,7 +615,21 @@ def debug(source: CommandSource, context: dict):
     global debug_mode
     if debug_mode:
         debug_mode = False
-        source.reply(f"{prefix}{server.rtr("games_ai.debug.disable")}")
+        server.say(f"{prefix}{server.rtr("games_ai.debug.disable")}")
+        return
     else:
         debug_mode = True
-        source.reply(f"{prefix}{server.rtr("games_ai.debug.enable")}")
+        server.say(f"{prefix}{server.rtr("games_ai.debug.enable")}")
+        return
+
+@new_thread("games_ai@reloader")
+def reloader(source: CommandSource, context: dict):
+    global unload_status_code
+    unload_status_code = 2
+    server = source.get_server()
+    server.execute_command("!!MCDR plugin unload games_ai")
+    while True:
+        if server.get_plugin_metadata("games_ai") is None:
+            break
+    server.execute_command(f"!!MCDR plugin load GamesAI-v{PLUGIN_METADATA.get('version')}.mcdr")
+    return

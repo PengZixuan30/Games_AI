@@ -9,7 +9,7 @@ English  |  [简体中文](/README.zh-CN.md)  |  [繁體中文](/README.zh-TW.md
 </div>
 
 > [!NOTE]
-> Welcome to version 0.4.1. This release fixes issues with automatic update checking, adds two new AI skills, and refactors the code structure for accessing AI. See [this update](#this-update) for details.
+> Welcome to version 0.4.2. This release fixes some issues, adds AI auto-query Minecraft Wiki functionality, and refactors part of the code structure. See [This Update](#this-update) for details.
 
 > [!IMPORTANT]
 > Due to the addition of multi-model support starting from version 0.4.0, the configuration file has undergone major changes. Please update your configuration file accordingly.
@@ -27,8 +27,9 @@ English  |  [简体中文](/README.zh-CN.md)  |  [繁體中文](/README.zh-TW.md
     - [4. all\_ai](#4-all_ai)
     - [5. default\_ai](#5-default_ai)
   - [This Update](#this-update)
-    - [1. Fixed automatic update checking](#1-fixed-automatic-update-checking)
-    - [2. Added two new skills](#2-added-two-new-skills)
+    - [1. Added AI auto-query Minecraft Wiki functionality](#1-added-ai-auto-query-minecraft-wiki-functionality)
+    - [2. Refactored part of the code structure](#2-refactored-part-of-the-code-structure)
+    - [3. Added new command `!!gamesai reload`](#3-added-new-command-gamesai-reload)
   - [Acknowledgements \& Disclaimer](#acknowledgements--disclaimer)
   - [License](#license)
 
@@ -44,16 +45,32 @@ Use the following command in the MCDR console to install the plugin:
 
 Alternatively, you can obtain it from the [MCDR Plugin Repository](https://mcdreforged.com/plugin/games_ai) and install it into your plugin directory.
 
-If you choose to install manually, please install the Python package `openai` first using the following command:
+If you choose to install manually, please install the Python packages `openai` and `requests` first using the following command:
 ```bash
-pip install openai
+pip install openai requests
 ```
 
 ## Usage
 
 Enter the command `!!gamesai` anywhere to display all functions of this plugin.
 
-You can also directly type `!!ask` to ask the AI a question or chat.
+The `!!gamesai` commands are as follows:
+| Command | Description |
+|---|---|
+| `!!gamesai clear` | Clear the player's chat history. Chat history is independent of the public database. |
+| `!!gamesai clearall` | Clear all players' chat history. Chat history is independent of the public database. |
+| `!!gamesai reload` | Reload the plugin configuration file. |
+| `!!gamesai check` | Check for plugin updates. |
+
+---
+
+You can also directly type `!!ask` to ask the AI a question, chat, or have it do something for you.
+
+The `!!ask` commands are as follows:
+| Command | Description |
+|---|---|
+| `!!ask <content>` | Ask the AI a question, chat, or have it do something for you. `content` is what you want the AI to do or the question you want to ask. |
+| `!!ask -m <model> <content>` | Use a specific model to ask the AI. `model` is the AI_ID or nickname of the model you want to use, and `content` is what you want the AI to do or the question you want to ask. |
 
 ---
 
@@ -144,11 +161,14 @@ Default: \<Your AI ID\>
 The model used when a user simply types `!!ask` (without specifying a model). This should be one of the keys inside the `all_ai` dictionary (i.e., an internal `AI_ID`). If set incorrectly, the `!!ask` command will not function properly.
 
 ## This Update
-### 1. Fixed automatic update checking
-Fixed a critical issue with automatic update checking in the previous version.
+### 1. Added AI auto-query Minecraft Wiki functionality
+In version 0.4.2, AI auto-query Minecraft Wiki functionality has been added. When a user asks a question using the `!!ask` command, the AI will automatically determine whether the question is related to Minecraft. If it is, it will automatically query the Minecraft Wiki and use the results as part of the prompt to provide more accurate answers.
 
-### 2. Added two new skills
-Added the ability to add/remove players from the whitelist, and established a code foundation for adding custom skills in the future.
+### 2. Refactored part of the code structure
+In version 0.4.2, part of the code structure has been refactored to improve code readability and maintainability, while also laying the groundwork for future custom skills functionality.
+
+### 3. Added new command `!!gamesai reload`
+In version 0.4.2, a new command `!!gamesai reload` has been added. This command allows you to bypass the tedious process of unloading and reloading the plugin, and simply reload the configuration file to see the changes take effect.
 
 ## Acknowledgements & Disclaimer
 Special thanks to Wanghai Commune Server for providing the foundation for testing this plugin.
