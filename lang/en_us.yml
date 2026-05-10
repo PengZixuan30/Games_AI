@@ -1,78 +1,94 @@
 games_ai:
   mcdr_help_message: 
-    gamesai_help: "Display help information for GamesAI plugin and use GamesAI"
+    gamesai_help: "Show help info for the GamesAI plugin and use GamesAI"
     gamesai_ask: "Ask AI a question"
     data: "Modify the database"
   
   system_message:
-    default: "Answer concisely but with some emotion. You are a bot in a Minecraft server."
+    default: "You are a mature, reliable Minecraft bot tool named \"GamesAI\"."
     lang: "Please use language {lang}."
 
   load_message: 
     server_info: "Configuration file loaded"
-    client_info: "Welcome to GamesAI plugin! Current version: {v}"
-    server_create_data_dir: "Database created: "
+    client_info: "Welcome to the GamesAI plugin! Current version: {v}"
+    server_create_data_dir: "Folder created: "
 
   unload_message:
-    server_info: "Plugin unloaded, timer terminated!"
+    server_info: "Plugin unloaded, timer stopped!"
     after_update_restart_msg: "Plugin updated, restarting now!"
     reloader_msg: "Plugin reloaded!"
 
   gamesai_help_message:
-    greeting: "Welcome to GamesAI plugin! Current version: {v}"
+    greeting: "Welcome to the GamesAI plugin! Current version: {v}"
 
     all_ai_model: "Available AI models: "
     
-    help_prefix: "Enter "
+    help_prefix: "Type "
 
-    ask_help: " to ask the AI a question"
+    ask_help: " to ask AI a question"
 
     clear_help: " to clear your chat history"
 
-    clearall_help: " to clear all chat histories"
+    clearall_help: " to clear all chat history"
 
     check_update_help: " to check for plugin updates"
 
-    data_help: " to get information about the public database"
+    data_help: " to get info about the public database"
 
-    data_write_help: " to add a public data entry (overwrite), so that all players can use this data when accessing the AI"
+    data_write_help: " to add a public data entry (overwrite), making it available to all players using the AI"
 
-    data_add_help: " to append data to the end of the original value"
+    data_add_help: " to append data to the end of the existing value"
     
     data_del_help: " to delete a public data entry"
 
     data_read_help: " to read a public data entry"
 
-    data_list_help: " to get all public data"
+    data_list_help: " to list all public data"
 
-    data_keys_help: " to get all keys"
+    data_keys_help: " to list all keys"
   
   user_message:
+    time: "Current time: {time}."
     username: "Username: "
     message: "Message: "
 
     model_error: "Invalid AI model! Available AI models: "
-    model_more: "Unable to match exactly! The following AI models were matched: "
+    model_more: "Unable to match precisely! The following AI models were matched: "
 
     get_data: "Fetching public data..."
-    data_list: "Public data list: "
+    data_list: "Public data list:"
 
   tools:
     execution_error: "Function {func_name} execution error! Reason: {ex}"
-    unknown_function: "AI executed unknown function: {func_name}"
+    unknown_function: "AI executed an unknown function: {func_name}"
 
-    getting_online_players: "Fetching online player list..."
-    getting_whitelist: "Fetching whitelist..."
+    getting_online_players: "Getting online player list..."
+    getting_whitelist: "Getting whitelist..."
     adding_whitelist: "Adding to whitelist..."
     removing_whitelist: "Removing from whitelist..."
     searching_minecraft_wiki: "Searching Minecraft Wiki for: {query}"
-  
+    calculating_expression: "Calculating expression: {expression}"
+
+    adding_position: "Adding waypoint, name: {name}, position: {pos}, dimension: {dimension}"
+    removing_position: "Removing waypoint, name: {name}"
+    searching_position: "Searching waypoint, name: {name}"
+    getting_all_pos: "Getting all waypoints..."
+    consolo_add_here: "Console cannot execute the add_pos_here function"
+
+    reading_data: "Reading public data, key: {key}"
+    reading_all_keys: "Reading all public data keys"
+    writing_data: "Writing public data, key: {key}, value: {value}"
+    adding_data: "Appending public data, key: {key}, value: {value}"
+    deleting_data: "Deleting public data, key: {key}"
+
+    tool_success: "Tool executed successfully!"
+
   clear_history_message:
     success: "Cleared chat history for player {username}"
-    no_history: "No chat history to clear for player {username}"
-    clearall_success: "Cleared all chat histories, total of {count} players' histories cleared"
+    no_history: "Player {username} has no messages to clear"
+    clearall_success: "Cleared all chat history, {count} player(s) in total"
 
-  no_permission: "You do not have permission to use this command. Required permission level: {permission} or higher"
+  no_permission: "You do not have permission to use this command. Permission level {permission} or above is required"
 
   data:
     write_message:
@@ -82,18 +98,18 @@ games_ai:
     del_message:
       success: "Public data deleted, key: {key}"
     read_message:
-      write_hover: "Click to fill into dialog box (overwrite mode) (will not fill if too long)"
+      write_hover: "Click to fill into the chat box (overwrite mode) (too long to fill)"
       copy_hover: "Click to copy to clipboard (copies value only)"
       write_button: "Fill"
       copy_button: "Copy"
-      success: "Public data retrieved, key: {key}, value: {value}"
+      success: "Public data read, key: {key}, value: {value}"
       no_key: "Public data not found, key: {key}"
-    read_list_message: "All data: "
-    read_keys_message: "All keys: "
+    read_list_message: "All data listed below:"
+    read_keys_message: "All keys listed below: "
 
   update:
-    no_update: "§6No new version available!§r"
-    new_update: "§6New version available: {version}! Auto-updating in 5 seconds!§r"
+    no_update: "§6No new version available at this time!§r"
+    new_update: "§6A new version is available: {version}! Auto-updating in 5 seconds!§r"
     no_metadata: "§6Failed to retrieve plugin metadata!§r"
     update_ok: "Installing new version!"
     checking_update: "§6Checking for plugin updates!§r"

@@ -5,13 +5,13 @@ games_ai:
     data: "修改数据库"
   
   system_message:
-    default: "使用简洁的语言回答,但请带有一定的情感,你是Minecraft服务器的一名机器人"
+    default: "你是一名成熟、稳重的Minecraft机器人工具，你的名字叫做“GamesAI”"
     lang: "请使用语言{lang}。"
 
   load_message: 
     server_info: "配置文件已加载"
     client_info: "欢迎使用GamesAI插件!当前版本:{v}"
-    server_create_data_dir: "已创建数据库:"
+    server_create_data_dir: "已创建文件夹: "
 
   unload_message:
     server_info: "插件被卸载,计时器终止!"
@@ -48,8 +48,9 @@ games_ai:
     data_keys_help: "以获取所有键"
   
   user_message:
-    username: "用户名:"
-    message: "消息:"
+    time: "当前时间: {time}。"
+    username: "用户名: "
+    message: "消息: "
 
     model_error: "错误的AI模型!当前有这些AI模型: "
     model_more: "无法正确匹配!现在匹配到了如下AI模型: "
@@ -66,7 +67,22 @@ games_ai:
     adding_whitelist: "正在添加白名单..."
     removing_whitelist: "正在移除白名单..."
     searching_minecraft_wiki: "正在搜索Minecraft Wiki, 搜索内容: {query}"
-  
+    calculating_expression: "正在计算数学表达式, 表达式: {expression}"
+
+    adding_position: "正在添加路径点, 名称: {name}, 坐标: {pos}, 维度: {dimension}"
+    removing_position: "正在移除路径点, 名称: {name}"
+    searching_position: "正在搜索路径点, 名称: {name}"
+    getting_all_pos: "正在获取所有路径点信息..."
+    consolo_add_here: "控制台无法执行add_pos_here函数"
+
+    reading_data: "正在读取公共数据, key: {key}"
+    reading_all_keys: "正在读取所有公共数据的key"
+    writing_data: "正在写入公共数据, key: {key}, value: {value}"
+    adding_data: "正在追加公共数据, key: {key}, value: {value}"
+    deleting_data: "正在删除公共数据, key: {key}"
+
+    tool_success: "工具调用成功!"
+
   clear_history_message:
     success: "已清除玩家{username}的历史聊天记录"
     no_history: "当前玩家{username}没有可清除的消息"

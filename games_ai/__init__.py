@@ -1,19 +1,21 @@
 from mcdreforged.api.all import *
 
 from .openai_api import response_chat
-from .games_ai_tool import TOOL_SCHEMAS, get_tool_handler
+from .games_ai_tool import TOOL_SCHEMAS, get_tool_handler, register_tool
 from .database import PublicDatabase
 from .config import plugin_config
+from .tools_interpreter import load_external_tools
 
-import time,os,requests,lzma,json,threading
+import time,os,requests,lzma,json,threading,datetime
 
 PLUGIN_METADATA = {
     "id": "games_ai",
-    "version": "0.4.2",
-    "name": "Games AI",
+    "version": "0.5.0",
+    "name": "GamesAI",
     "description": {
-        "zh_cn": "此插件可以将MCDR与支持OpenAI的AI进行结合，使得在游戏内也能使用AI",
-        "en_us": "This plugin can combine MCDR with AI that supports OpenAI, allowing you to use AI in the game"},
+        "zh_cn": "此插件可以让你在游戏中使用AI",
+        "en_us": "This plugin allows you to use AI in the game"
+        },
     "author": "yello",
     "link": "https://github.com/PengZixuan30/Games_AI",
     "dependencies": {
@@ -26,7 +28,7 @@ unload_status_code = 0
 debug_mode = False
 
 def on_load(server: PluginServerInterface, old):
-    global prefix,allow_permission,max_history,data_path,allow_permission,mcdr_lang,_timer,ai_dict,default_ai,name_to_id
+    global prefix,allow_permission,max_history,allow_permission,mcdr_lang,_timer,ai_dict,default_ai,name_to_id,data_path
     _timer = None
     
     DEFAULT_CONFIG = {
@@ -40,7 +42,7 @@ def on_load(server: PluginServerInterface, old):
                 "base_url": "<Your API Base URL>",
                 "ai_model": "<Your AI Model>",
                 "api_key": "<Your API Key>",
-                "thinking": False
+                "thinking": False,
             }
         },
         "default_ai": "<Your AI ID>"
@@ -75,7 +77,7 @@ def on_load(server: PluginServerInterface, old):
             "base_url": ai_config.get("base_url", ""),
             "ai_model": ai_config.get("ai_model", ""),
             "api_key": ai_config.get("api_key", ""),
-            "thinking": ai_config.get("thinking", False)
+            "thinking": ai_config.get("thinking", False),
         }
         ai_dict[ai_id] = ai_info
 
@@ -103,7 +105,28 @@ def on_load(server: PluginServerInterface, old):
     if not os.path.exists(data_dir):
         os.makedirs(data_dir, exist_ok=True)
         server.logger.info(f"{server.rtr("games_ai.load_message.server_create_data_dir")}{data_dir}")
-    
+
+    tools_path = os.path.join(server.get_data_folder(), "tools", "tools.py")
+    tools_dir = os.path.dirname(tools_path)
+    if not os.path.exists(tools_dir):
+        os.makedirs(tools_dir, exist_ok=True)
+    if not os.path.exists(tools_path):
+        with open(tools_path, mode='w', encoding='utf-8') as f:
+            f.write(
+'''from mcdreforged.command.command_source import CommandSource
+from games_ai.games_ai_tool import register_tool
+
+@register_tool(description="My Custom Tool")
+def my_custom_tool(source: CommandSource, ai_prefix: str):
+    return "Tool execution completed"
+''')
+        server.logger.info(f"{server.rtr("games_ai.load_message.server_create_data_dir")}{tools_path}")
+
+    plugin_config.data_path = data_path
+    plugin_config.tools_path = tools_path
+
+    load_external_tools(log=server.logger.info)
+
     data_manager = DataManager(data_path)
 
     builder.command('!!gamesai', helper.all_help)
@@ -338,7 +361,7 @@ class gamesai_help:
             all_help_part = RTextList(basic_help_part, "\n", per_help_part)
             source.reply(all_help_part)
 
-@new_thread("games_ai@request_ai")
+@new_thread("games_ai@ask_ai")
 def ask_ai(source: CommandSource,context: dict):
     server = source.get_server()
 
@@ -373,6 +396,8 @@ def ask_ai(source: CommandSource,context: dict):
 
     os.environ["OPENAI_API_KEY"] = api_key
 
+    time = datetime.datetime.now()
+    now_time = str(server.rtr("games_ai.user_message.time", time=time.strftime('%Y-%m-%d %H:%M:%S')))
     username = get_username(source)
     history = history_conversation.get(username, {}).get(ai_prefix, [])
     content = context['content']
@@ -382,7 +407,7 @@ def ask_ai(source: CommandSource,context: dict):
         user_name = "Server Control Panel"
     user_message = {"role": "user","content": f'{server.rtr("games_ai.user_message.username")}{user_name}\n{server.rtr("games_ai.user_message.message")}{content}'}
     response_message = [
-        {"role": "system","content": mcdr_lang + prompt},
+        {"role": "system","content": now_time + mcdr_lang + prompt},
     ]
     data = DataManager(data_path).ask_ai_read_data()
     source.reply(f'{ai_prefix}{server.rtr("games_ai.user_message.get_data")}')
@@ -414,6 +439,7 @@ def ask_ai(source: CommandSource,context: dict):
                         try:
                             func_args = json.loads(tool_call.function.arguments) if tool_call.function.arguments else {}
                             result = handler.func(source, ai_prefix, **func_args)
+                            source.reply(f'{ai_prefix}{server.rtr("games_ai.tools.tool_success")}')
                         except Exception as e:
                             result = f"函数 {func_name} 执行出错: {e}"
                             source.reply(f'{ai_prefix}{server.rtr("games_ai.tools.execution_error",func_name=func_name,ex=e)}')
@@ -518,17 +544,18 @@ class DataManager:
         else:
             key = context.get("key")
             value = self.db.read_data(key)
-            message_part = RTextList(
-                prefix,
-                server.rtr("games_ai.data.read_message.success",key=key,value=value),
-                "\n",
-                RText(server.rtr("games_ai.data.read_message.write_button"), RColor.gray).h(server.rtr("games_ai.data.read_message.write_hover")).c(RAction.suggest_command, f"!!data write {key} {value}"),
-                "  OR  ",
-                RText(server.rtr("games_ai.data.read_message.copy_button"), RColor.blue).h(server.rtr("games_ai.data.read_message.copy_hover")).c(RAction.copy_to_clipboard, value)
-            )
             if value is None:
                 return source.reply(f'{prefix}{server.rtr("games_ai.data.read_message.no_key",key=key)}')
-            return source.reply(message_part)
+            else:
+                message_part = RTextList(
+                    prefix,
+                    server.rtr("games_ai.data.read_message.success",key=key,value=value),
+                    "\n",
+                    RText(server.rtr("games_ai.data.read_message.write_button"), RColor.gray).h(server.rtr("games_ai.data.read_message.write_hover")).c(RAction.suggest_command, f"!!data write {key} {value}"),
+                    "  OR  ",
+                    RText(server.rtr("games_ai.data.read_message.copy_button"), RColor.blue).h(server.rtr("games_ai.data.read_message.copy_hover")).c(RAction.copy_to_clipboard, value)
+                )
+                return source.reply(message_part)
 
     @new_thread("data_manager@list")
     def read_data_list(self, source: CommandSource, context: dict):
@@ -540,7 +567,7 @@ class DataManager:
             return source.reply(f'{prefix}{server.rtr("games_ai.data.read_list_message")}\n{value}')
 
     @new_thread("data_manager@keys")
-    def read_all_keys(self, source: CommandSource, context: dict):
+    def read_all_keys(self, source: CommandSource):
         server = source.get_server()
         if source.get_permission_level() < allow_permission:
             return source.reply(f'{prefix}{server.rtr("games_ai.no_permission",permission = allow_permission)}')
@@ -551,6 +578,105 @@ class DataManager:
     def ask_ai_read_data(self) -> list[tuple[str, str]]:
         value = self.db.data_list()
         return value
+
+class AiDataManager:
+    @staticmethod
+    @register_tool(description="读取公共数据中的键值对, 输入key以获取对应的value, 推荐在读取之前先查看现有的key都有哪些", tr_key="reading_data", parameters={
+        "type": "object",
+        "properties": {
+            "key": {
+                "type": "string",
+                "description": "要读取的数据的键"
+            }
+        },
+        "required": ["key"]
+    })
+    def ai_read_data(source: CommandSource, ai_prefix: str, key: str):
+        server = source.get_server()
+        source.reply(f'{ai_prefix}{server.rtr("games_ai.tools.reading_data",key=key)}')
+        result = PublicDatabase(data_path).read_data(key)
+        if result is None:
+            return f"键 {key} 不存在"
+        else:
+            return f"键 {key} 的值为 {result}"
+
+    @staticmethod
+    @register_tool(description="读取公共数据中的所有键", tr_key="reading_all_keys")
+    def ai_read_all_keys(source: CommandSource, ai_prefix: str):
+        server = source.get_server()
+        source.reply(f'{ai_prefix}{server.rtr("games_ai.tools.reading_all_keys")}')
+        keys = PublicDatabase(data_path).get_all_key()
+        return f"当前所有的键有: {keys}"
+
+    @staticmethod
+    @register_tool(description="向公共数据中写入键值对(新增/覆写模式), 输入key和value以写入数据, 注意写入方式为覆写, 需避免覆盖重要数据, 数据不存在时将自动创建", tr_key="writing_data", parameters={
+        "type": "object",
+        "properties": {
+            "key": {
+                "type": "string",
+                "description": "要写入的数据的键"
+            },
+            "value": {
+                "type": "string",
+                "description": "要写入的数据的值"
+            }
+        },
+        "required": ["key", "value"]
+    })
+    def ai_write_data(source: CommandSource, ai_prefix: str, key: str, value: str):
+        server = source.get_server()
+        source.reply(f'{ai_prefix}{server.rtr("games_ai.tools.writing_data",key=key,value=value)}')
+        if source.get_permission_level() < allow_permission:
+            return f'向你发起这项命令的玩家没有权限使用此功能'
+        PublicDatabase(data_path).write_data(key, value)
+        return f"已将键 {key} 的值写入 {value}"
+
+    @staticmethod
+    @register_tool(description="向公共数据中追加数据(新增/追加模式), 输入key和value以追加数据, 数据将被追加到原数据的末尾, 不存在时自动创建", tr_key="adding_data", parameters={
+        "type": "object",
+        "properties": {
+            "key": {
+                "type": "string",
+                "description": "要追加数据的键"
+            },
+            "value": {
+                "type": "string",
+                "description": "要追加的数据的值"
+            }
+        },
+        "required": ["key", "value"]
+    })
+    def ai_add_data(source: CommandSource, ai_prefix: str, key: str, value: str):
+        server = source.get_server()
+        source.reply(f'{ai_prefix}{server.rtr("games_ai.tools.adding_data",key=key,value=value)}')
+        if source.get_permission_level() < allow_permission:
+            return f'向你发起这项命令的玩家没有权限使用此功能'
+        old_value = PublicDatabase(data_path).read_data(key)
+        if old_value == None:
+            new_value = value
+        else:
+            new_value = old_value + value
+        PublicDatabase(data_path).write_data(key, new_value)
+        return f"已将键 {key} 的值增加 {value}, 当前值为 {new_value}"
+
+    @staticmethod
+    @register_tool(description="从公共数据中删除数据, 输入key以删除对应的数据, 注意删除后无法恢复, 即使key不存在, 也仍然会进行删除", tr_key="deleting_data", parameters={
+        "type": "object",
+        "properties": {
+            "key": {
+                "type": "string",
+                "description": "要删除的数据的键"
+            }
+        },
+        "required": ["key"]
+    })
+    def ai_del_data(source: CommandSource, ai_prefix: str, key: str):
+        server = source.get_server()
+        source.reply(f'{ai_prefix}{server.rtr("games_ai.tools.deleting_data",key=key)}')
+        if source.get_permission_level() < allow_permission:
+            return f'向你发起这项命令的玩家没有权限使用此功能'
+        PublicDatabase(data_path).delete_data(key)
+        return f"已删除键 {key} 的数据"
 
 @new_thread("games_ai@update")
 def check_update(source: CommandSource, context: dict):
@@ -590,7 +716,9 @@ def update(server: PluginServerInterface):
             server.logger.warning(f"{prefix}{server.rtr("games_ai.update.no_metadata")}")
             return e
         if get_main_version(new_version) <= get_main_version(PLUGIN_METADATA["version"]):
-            return server.say(f"{prefix}{server.rtr("games_ai.update.no_update")}")
+            server.logger.info(f"{prefix}{server.rtr("games_ai.update.no_update")}")
+            server.say(f"{prefix}{server.rtr("games_ai.update.no_update")}")
+            return
         else:
             server.say(f"{prefix}{server.rtr("games_ai.update.new_update",version = new_version)}")
             server.logger.info(f"{prefix}{server.rtr("games_ai.update.new_update",version = new_version)}")
@@ -616,10 +744,12 @@ def debug(source: CommandSource, context: dict):
     if debug_mode:
         debug_mode = False
         server.say(f"{prefix}{server.rtr("games_ai.debug.disable")}")
+        server.logger.info(f"{prefix}{server.rtr("games_ai.debug.disable")}")
         return
     else:
         debug_mode = True
         server.say(f"{prefix}{server.rtr("games_ai.debug.enable")}")
+        server.logger.info(f"{prefix}{server.rtr("games_ai.debug.enable")}")
         return
 
 @new_thread("games_ai@reloader")

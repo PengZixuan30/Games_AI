@@ -1,7 +1,7 @@
 import os
 from openai import OpenAI
 
-def response_chat(model,url,message,tools,thinking="disabled"):
+def response_chat(model,url,message,tools=[],thinking="disabled"):
 
     client = OpenAI(
         api_key=os.environ.get('OPENAI_API_KEY'),

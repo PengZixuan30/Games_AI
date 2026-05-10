@@ -4,15 +4,15 @@
 
 English  |  [简体中文](/README.zh-CN.md)  |  [繁體中文](/README.zh-TW.md)
 
-[Report Issue](https://github.com/PengZixuan30/Games_AI/issues/new)  |  [Feedback & Ideas](https://github.com/PengZixuan30/Games_AI/issues/new)
+[Report an Issue](https://github.com/PengZixuan30/Games_AI/issues/new)  |  [Share an Idea](https://github.com/PengZixuan30/Games_AI/issues/new)
 
 </div>
 
 > [!NOTE]
-> Welcome to version 0.4.2. This release fixes some issues, adds AI auto-query Minecraft Wiki functionality, and refactors part of the code structure. See [This Update](#this-update) for details.
+> Welcome to version 0.5.0! This release introduces custom tools, adds several new built-in tools, and fixes some issues. See [What's New](#whats-new)
 
 > [!IMPORTANT]
-> Due to the addition of multi-model support starting from version 0.4.0, the configuration file has undergone major changes. Please update your configuration file accordingly.
+> This version introduces custom tool support and will create a `tools.py` file in the config folder. See [Custom Tools](#custom-tools)
 
 <details>
 <summary>Table of Contents (click to expand)</summary>
@@ -21,15 +21,17 @@ English  |  [简体中文](/README.zh-CN.md)  |  [繁體中文](/README.zh-TW.md
   - [Installation](#installation)
   - [Usage](#usage)
   - [Configuration](#configuration)
-    - [1. prefix](#1-prefix)
-    - [2. permission](#2-permission)
-    - [3. max\_history](#3-max_history)
-    - [4. all\_ai](#4-all_ai)
-    - [5. default\_ai](#5-default_ai)
-  - [This Update](#this-update)
-    - [1. Added AI auto-query Minecraft Wiki functionality](#1-added-ai-auto-query-minecraft-wiki-functionality)
-    - [2. Refactored part of the code structure](#2-refactored-part-of-the-code-structure)
-    - [3. Added new command `!!gamesai reload`](#3-added-new-command-gamesai-reload)
+    - [1.prefix](#1prefix)
+    - [2.permission](#2permission)
+    - [3.max\_history](#3max_history)
+    - [4.all\_ai](#4all_ai)
+    - [5.default\_ai](#5default_ai)
+  - [Tools \& Custom Tools](#tools--custom-tools)
+    - [Tools](#tools)
+    - [Custom Tools](#custom-tools)
+  - [What's New](#whats-new)
+    - [1. Custom Tool Support](#1-custom-tool-support)
+    - [2. New Built-in Tools](#2-new-built-in-tools)
   - [Acknowledgements \& Disclaimer](#acknowledgements--disclaimer)
   - [License](#license)
 
@@ -37,58 +39,76 @@ English  |  [简体中文](/README.zh-CN.md)  |  [繁體中文](/README.zh-TW.md
 
 ## Installation
 
-Use the following command in the MCDR console to install the plugin:
+Run the following command in the MCDR console to install the plugin:
 
 `!!MCDR plugin install games_ai`
 
 ---
 
-Alternatively, you can obtain it from the [MCDR Plugin Repository](https://mcdreforged.com/plugin/games_ai) and install it into your plugin directory.
+Alternatively, get it from the [MCDR Plugin Repository](https://mcdreforged.com/plugin/games_ai) and place it in your plugin directory.
 
-If you choose to install manually, please install the Python packages `openai` and `requests` first using the following command:
+If you choose to install manually, install the Python packages `openai` and `requests` first:
+
 ```bash
 pip install openai requests
 ```
 
 ## Usage
 
-Enter the command `!!gamesai` anywhere to display all functions of this plugin.
+Type `!!gamesai` anywhere to display all available features of this plugin.
 
-The `!!gamesai` commands are as follows:
-| Command | Description |
+<details>
+<summary>
+
+All `!!gamesai` Commands (click to expand)</summary>
+
+|Command|Description|
 |---|---|
-| `!!gamesai clear` | Clear the player's chat history. Chat history is independent of the public database. |
-| `!!gamesai clearall` | Clear all players' chat history. Chat history is independent of the public database. |
-| `!!gamesai reload` | Reload the plugin configuration file. |
-| `!!gamesai check` | Check for plugin updates. |
+|`!!gamesai clear`|Clear your own chat history. Chat history is unrelated to the public database.|
+|`!!gamesai clearall`|Clear all players' chat history. Chat history is unrelated to the public database.|
+|`!!gamesai reload`|Reload the plugin configuration file.|
+|`!!gamesai check`|Check for plugin updates.|
+
+</details>
 
 ---
 
-You can also directly type `!!ask` to ask the AI a question, chat, or have it do something for you.
+You can also use `!!ask` directly to ask the AI questions, chat, or ask it to do things for you.
 
-The `!!ask` commands are as follows:
-| Command | Description |
+<details>
+<summary>
+
+All `!!ask` Commands (click to expand)</summary>
+
+|Command|Description|
 |---|---|
-| `!!ask <content>` | Ask the AI a question, chat, or have it do something for you. `content` is what you want the AI to do or the question you want to ask. |
-| `!!ask -m <model> <content>` | Use a specific model to ask the AI. `model` is the AI_ID or nickname of the model you want to use, and `content` is what you want the AI to do or the question you want to ask. |
+|`!!ask <content>`|Ask the AI a question, chat, or ask it to do something. `<content>` is what you want the AI to do or the question you want to ask.|
+|`!!ask -m <model> <content>`|Use a specific model to ask the AI a question, chat, or ask it to do something. `<model>` is the AI_ID or nickname of the model you want to use. `<content>` is what you want the AI to do or the question you want to ask.|
+
+</details>
 
 ---
 
-Type `!!data` to get information about database-related commands.
+Type `!!data` for information about database commands.
 
 > [!TIP]
-> When updating to version 0.3.0 or later, the database will be automatically created.
+> The database is automatically created when upgrading to version 0.3.0 or above.
 
-The `!!data` commands are as follows:
+<details>
+<summary>
 
-| Command | Description |
-|---------|-------------|
-| `!!data write <key> <value>` | Add a data entry to the public database. The key cannot contain spaces, while the value can be any string. |
-| `!!data add <key> <value>` | Append the value to an existing key in the public database. If the key does not exist, it will be created automatically. |
-| `!!data del <key>` | Delete a data entry from the public database. Works regardless of whether the key exists. |
-| `!!data read <key>` | Read the value associated with the key from the public database. |
-| `!!data list` | Read all contents of the public database. |
-| `!!data list keys` | Read all keys in the public database. |
+All `!!data` Commands (click to expand)</summary>
+
+|Command|Description|
+|---|---|
+|`!!data write <key> <value>`|Add a data entry to the public database. `<key>` must not contain spaces; `<value>` can be any string.|
+|`!!data add <key> <value>`|Append `<value>` to an existing key in the public database. Creates a new key if it does not exist.|
+|`!!data del <key>`|Delete a data entry from the public database, regardless of whether the key exists.|
+|`!!data read <key>`|Read the value associated with a key from the public database.|
+|`!!data list`|Read all entries in the public database.|
+|`!!data list keys`|Read all keys in the public database.|
+
+</details>
 
 ## Configuration
 
@@ -100,8 +120,8 @@ The default configuration file structure is as follows:
   "permission": 3,
   "max_history": 10,
   "all_ai": {
-      "<Your AI ID>": {
-          "prompt": "Answer concisely but with some emotion. You are a bot in a Minecraft server.",
+      "<Your AI ID>":{
+          "prompt": "You are a mature, reliable Minecraft bot tool named \"GamesAI\".",
           "ai_name": "[GamesAI]",
           "base_url": "<Your API Base URL>",
           "ai_model": "<Your AI Model>",
@@ -110,70 +130,275 @@ The default configuration file structure is as follows:
       }
     },
   "default_ai": "<Your AI ID>"
-}
+  }
 ```
 
 ---
 
-Below is a brief description of each parameter:
+Below is a brief introduction to each parameter:
 
-### 1. prefix
-Type: str
+<details>
 
-Default: \[GamesAI\]
+<summary>Click to expand</summary>
 
-The plugin's display name, which will be prefixed to the plugin's replies. Minecraft formatting codes are allowed.
+### 1.prefix
+Type: `str`
 
-### 2. permission
-Type: int
+Default: `[GamesAI]`
 
-Default: 3
+The plugin name used as a prefix in replies. May include Minecraft formatting codes.
 
-The required permission level to execute commands such as `!!data`. See [MCDR Permission Documentation](https://docs.mcdreforged.com/en/latest/permission.html).
+### 2.permission
+Type: `int`
 
-### 3. max_history
-Type: int
+Default: `3`
 
-Default: 10
+The minimum permission level required to execute commands like `!!data`. See the [MCDR Permission Documentation](https://docs.mcdreforged.com/en/latest/permission.html).
 
-The maximum number of chat history entries to keep per player. This is independent of the public database.
+### 3.max_history
+Type: `int`
 
-### 4. all_ai
-Type: dict
+Default: `10`
 
-Default: As shown in the file.
+The maximum number of conversation turns retained per player. Unrelated to the public database.
 
-Contains information for all AI models. It consists of multiple dictionaries, each representing an AI model. The key of each dictionary is the internal **AI_ID** used by the plugin.
+### 4.all_ai
+Type: `dict`
 
-**prompt**: This option is used to write system prompts for each AI model.
+Default: see file
 
-**ai_name**: This option is similar to the prefix function, but you now need to set it separately for each model. Minecraft formatting codes are allowed.
+All AI configuration entries, consisting of multiple sub-dictionaries. Each sub-dictionary represents one AI model, and its key serves as the plugin's internal AI_ID.
 
-**base_url**, **ai_model**, **api_key**: Same functionality as previous related settings, but you now need to set them separately for each model.
+**prompt**: Use this option to write a system prompt for each AI.
 
-**thinking**: This option is used to enable/disable the model's thinking mode. If not specified, it defaults to false. Do not enable this for models that do not support thinking mode, as it may cause errors.
+**ai_name**: Similar to `prefix`, but set per model. May include Minecraft formatting codes.
 
-### 5. default_ai
-Type: str
+**base_url**, **ai_model**, **api_key**: Same as previous related configuration, but now set per model.
 
-Default: \<Your AI ID\>
+**thinking**: Enable or disable the model's thinking/reasoning mode. Defaults to `false` when omitted. Do not enable this for models that do not support a thinking mode — it may cause errors.
 
-The model used when a user simply types `!!ask` (without specifying a model). This should be one of the keys inside the `all_ai` dictionary (i.e., an internal `AI_ID`). If set incorrectly, the `!!ask` command will not function properly.
+### 5.default_ai
+Type: `str`
 
-## This Update
-### 1. Added AI auto-query Minecraft Wiki functionality
-In version 0.4.2, AI auto-query Minecraft Wiki functionality has been added. When a user asks a question using the `!!ask` command, the AI will automatically determine whether the question is related to Minecraft. If it is, it will automatically query the Minecraft Wiki and use the results as part of the prompt to provide more accurate answers.
+Default: `<Your AI ID>`
 
-### 2. Refactored part of the code structure
-In version 0.4.2, part of the code structure has been refactored to improve code readability and maintainability, while also laying the groundwork for future custom skills functionality.
+The model used when a player simply uses `!!ask`. Should be one of the keys in the `all_ai` dictionary (i.e. the plugin's internal AI_ID). An incorrect value will prevent `!!ask` from working properly.
 
-### 3. Added new command `!!gamesai reload`
-In version 0.4.2, a new command `!!gamesai reload` has been added. This command allows you to bypass the tedious process of unloading and reloading the plugin, and simply reload the configuration file to see the changes take effect.
+</details>
+
+## Tools & Custom Tools
+
+### Tools
+The GamesAI plugin provides many built-in tools, listed in the table below. If you want more tools, you can [submit a suggestion](https://github.com/PengZixuan30/Games_AI/issues/new) or use [Custom Tools](#custom-tools).
+
+<details>
+<summary>Click to view all built-in tools</summary>
+
+|Tool ID|Parameters|Description|
+|:---:|:---:|:---|
+|get_online_players|None|Get the list of currently online players. Depends on the `online_player_api` plugin; automatically disabled if unavailable.|
+|get_whitelist_name|None|Get the complete server whitelist. Depends on the `whitelist_api` plugin; automatically disabled if unavailable.|
+|add_to_whitelist|`name`|Add a player to the whitelist. Depends on the `whitelist_api` plugin; automatically disabled if unavailable.|
+|remove_from_whitelist|`name`|Remove a player from the whitelist. Depends on the `whitelist_api` plugin; automatically disabled if unavailable.|
+|search_minecraft_wiki|`query`|Let the AI search the Minecraft Wiki for more accurate answers.|
+|calculator|`expression`|A simple mathematical expression calculator.|
+|item_caculator|`expression`, `single_limit`|A mathematical expression calculator that converts results into Minecraft item notation (shulker boxes, stacks, items). Automatically adapts to stack size; defaults to 64 if not specified.|
+|add_pos_pos|`name`, `pos`, `dimension`|Add a waypoint at a specified location. Depends on the `where2go` or `location_marker` plugin; prioritizes `where2go` when both are present; automatically disabled when neither is available.|
+|add_pos_here|`name`|Add a waypoint at the player's current location. Automatically disabled when executed from the console. Depends on the `where2go` or `location_marker` plugin; prioritizes `where2go` when both are present; automatically disabled when neither is available.|
+|remove_pos|`name`|Delete a waypoint. The `where2go` version automatically converts names to IDs. Depends on the `where2go` or `location_marker` plugin; prioritizes `where2go` when both are present; automatically disabled when neither is available.|
+|search_pos|`name`|Search for a waypoint. Depends on the `where2go` or `location_marker` plugin; prioritizes `where2go` when both are present; automatically disabled when neither is available.|
+|get_all_pos|None|Get a list of all waypoints. Depends on the `where2go` or `location_marker` plugin; prioritizes `where2go` when both are present; automatically disabled when neither is available.|
+|ai_read_data|`key`|Read a single entry from the database.|
+|ai_read_all_keys|None|Get all keys from the database.|
+|ai_write_data|`key`, `value`|Write a data entry to the database (overwrite mode).|
+|ai_add_data|`key`, `value`|Write a data entry to the database (append mode).|
+|ai_del_data|`key`|Delete a data entry from the database.|
+
+</details>
+
+### Custom Tools
+Customize tools by editing the `config/games_ai/tools/tools.py` file.
+
+Let's start by looking at the default content:
+
+```python
+from mcdreforged.command.command_source import CommandSource
+from games_ai.games_ai_tool import register_tool
+
+@register_tool(description="My Custom Tool")
+def my_custom_tool(source: CommandSource, ai_prefix: str):
+    return "Tool execution completed"
+```
+
+> [!IMPORTANT]
+> The `from games_ai.games_ai_tool import register_tool` import and the `@register_tool` decorator above the function definition **must** be present.
+
+As you can see, the structure is very simple.
+
+Now I'll show you how to build a real tool. Let's use searching `baidu.com` as an example.
+
+<details>
+
+<summary>Click to expand</summary>
+
+The best way to understand how to implement a Baidu search is to look at the built-in `search_minecraft_wiki` tool in the GamesAI source code:
+
+```python
+@register_tool(description="Search Minecraft Wiki for relevant information. Do not use this method to search for non-Minecraft content. If the search results page is returned, you can browse that page first and then perform a more precise query.", tr_key="searching_minecraft_wiki", parameters={
+    "type": "object",
+    "properties": {
+        "query": {
+            "type": "string",
+            "description": "The search term, e.g. the name of an item, mob, or game mechanic."
+        }
+    },
+    "required": ["query"]
+})
+def search_minecraft_wiki(source: CommandSource, ai_prefix: str, query: str):
+    source.reply(f'{ai_prefix}{source.get_server().rtr("games_ai.tools.searching_minecraft_wiki", query=query)}')
+    lang = source.get_server().get_mcdr_language()
+    if lang == "en_us":
+        search_url = f"https://minecraft.wiki/?search={query}"
+    else:
+        search_url = f"https://zh.minecraft.wiki/?search={query}"
+    response = requests.get(search_url)
+    if response.status_code == 200:
+        return f"Search results for {query}:\n{response.content.decode('utf-8')}"
+    else:
+        return "Unable to access Minecraft Wiki for searching."
+```
+
+Let's start by looking at the tool registration. `description` is like a system prompt — it's mandatory and is provided to the AI. `tr_key` is an internal identifier; you do **not** need to include it when writing external `tools.py`. `parameters` defines the arguments the AI should pass in. You can decide whether to include it based on your actual needs. `properties` lists all the input parameters, and `required` specifies which are mandatory. Make sure `properties` and the function's parameter list correspond one-to-one.
+
+For example:
+
+```python
+@register_tool(description="Search Baidu")
+```
+
+However, searching Baidu obviously requires a search term, so:
+
+```python
+@register_tool(description="Search Baidu", parameters={
+    "type": "object",
+    "properties": {
+        "query": {
+            "type": "string",
+            "description": "The search term"
+        }
+    },
+    "required": ["query"]
+})
+```
+
+Great — you now know how to register a tool! Next, write the function definition:
+
+```python
+def search_baidu(source: CommandSource, ai_prefix: str, query: str):
+```
+
+In the code above, the `source` and `ai_prefix` parameters **must** be included because they are always passed in.
+
+Then write the function body:
+
+```python
+def search_baidu(source: CommandSource, ai_prefix: str, query: str):
+    ...
+    return ...
+```
+
+The function body can contain any operations you need. Just remember to always `return` a result — otherwise the AI won't be able to process the output properly.
+
+Complete `tools.py` example:
+
+```python
+import requests
+from games_ai.games_ai_tool import register_tool
+
+@register_tool(
+    description="Use Baidu to search for information on the internet. Use this tool when you need real-time info, news, encyclopedia knowledge, etc.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "query": {
+                "type": "string",
+                "description": "The keyword or question to search for on Baidu"
+            }
+        },
+        "required": ["query"]
+    }
+)
+def search_baidu(source, ai_prefix: str, query: str):
+    source.reply(f'{ai_prefix}Searching Baidu: {query}...')
+
+    try:
+        url = "https://www.baidu.com/s"
+        headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/120.0.0.0 Safari/537.36"
+            )
+        }
+        response = requests.get(url, params={"wd": query}, headers=headers, timeout=10)
+
+        if response.status_code != 200:
+            return f"Baidu search failed, HTTP status code: {response.status_code}"
+
+        # Extract plain text from page (strip HTML tags)
+        import re
+        text = response.text
+        # Remove script and style tag contents
+        text = re.sub(r'<script[^>]*>.*?</script>', '', text, flags=re.DOTALL | re.IGNORECASE)
+        text = re.sub(r'<style[^>]*>.*?</style>', '', text, flags=re.DOTALL | re.IGNORECASE)
+        # Remove HTML tags
+        text = re.sub(r'<[^>]+>', '', text)
+        # Collapse extra whitespace
+        text = re.sub(r'\s+', ' ', text).strip()
+
+        # Truncate long content (keep first 3000 characters, suitable for AI context)
+        max_len = 3000
+        if len(text) > max_len:
+            text = text[:max_len] + "\n...(content truncated)"
+
+        return f"Baidu search results for 「{query}」:\n{text}"
+
+    except requests.Timeout:
+        return "Baidu search request timed out. Please try again later."
+    except Exception as e:
+        return f"Baidu search error: {str(e)}"
+```
+
+</details>
+
+## What's New
+
+### 1. Custom Tool Support
+This release introduces custom tool support, giving you a richer experience. See [Custom Tools](#custom-tools) for configuration instructions.
+
+### 2. New Built-in Tools
+New built-in tools have been added, primarily calculator-type and waypoint/coordinate manager-type tools.
+
+---
+
+Additionally, this release fixes several issues.
 
 ## Acknowledgements & Disclaimer
-Special thanks to Wanghai Commune Server for providing the foundation for testing this plugin.
 
-Any content generated by AI (LLM) models is independent of this plugin.
+Special thanks to the Wanghai Commune server for providing the foundation for testing this plugin.
+
+All content generated by AI (LLM) models is unrelated to this plugin.
+
+All consequences arising from custom tools are unrelated to this plugin.
 
 ## License
+
 This plugin is licensed under the MIT License, held by yello.
+
+<div align = "center">
+
+---
+
+[Back to Top](#gamesai)
+
+</div>
