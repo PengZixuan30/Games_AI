@@ -4,15 +4,15 @@
 
 English  |  [简体中文](/README.zh-CN.md)  |  [繁體中文](/README.zh-TW.md)
 
-[Report an Issue](https://github.com/PengZixuan30/Games_AI/issues/new)  |  [Share an Idea](https://github.com/PengZixuan30/Games_AI/issues/new)
+[Report an Issue](https://github.com/PengZixuan30/Games_AI/issues/new)  |  [Share an Idea](https://github.com/PengZixuan30/Games_AI/discussions/new/choose)
 
 </div>
 
 > [!NOTE]
-> Welcome to version 0.5.0! This release introduces custom tools, adds several new built-in tools, and fixes some issues. See [What's New](#whats-new)
+> Welcome to version 0.5.1! This release introduces the prompt file feature — you can use `> xxx.md` in the `prompt` field of AI config to point to a prompt file. See [Configuration](#4all_ai). It also adds automatic error code detection and fixes some issues. See [What's New](#whats-new)
 
 > [!IMPORTANT]
-> This version introduces custom tool support and will create a `tools.py` file in the config folder. See [Custom Tools](#custom-tools)
+> Version 0.5.0 introduced custom tool support and created a `tools.py` file in the config folder. See [Custom Tools](#custom-tools). This version introduces the prompt file feature and creates a `prompt` folder in the config folder. See [Configuration](#4all_ai)
 
 <details>
 <summary>Table of Contents (click to expand)</summary>
@@ -30,8 +30,8 @@ English  |  [简体中文](/README.zh-CN.md)  |  [繁體中文](/README.zh-TW.md
     - [Tools](#tools)
     - [Custom Tools](#custom-tools)
   - [What's New](#whats-new)
-    - [1. Custom Tool Support](#1-custom-tool-support)
-    - [2. New Built-in Tools](#2-new-built-in-tools)
+    - [1. Prompt File Support](#1-prompt-file-support)
+    - [2. Automatic Error Code Detection](#2-automatic-error-code-detection)
   - [Acknowledgements \& Disclaimer](#acknowledgements--disclaimer)
   - [License](#license)
 
@@ -169,7 +169,7 @@ Default: see file
 
 All AI configuration entries, consisting of multiple sub-dictionaries. Each sub-dictionary represents one AI model, and its key serves as the plugin's internal AI_ID.
 
-**prompt**: Use this option to write a system prompt for each AI.
+**prompt**: Use this option to write a system prompt for each AI. Use `> xxx.md` to point the prompt to the `config/games_ai/prompt/xxx.md` file (any file type is supported).
 
 **ai_name**: Similar to `prefix`, but set per model. May include Minecraft formatting codes.
 
@@ -373,11 +373,11 @@ def search_baidu(source, ai_prefix: str, query: str):
 
 ## What's New
 
-### 1. Custom Tool Support
-This release introduces custom tool support, giving you a richer experience. See [Custom Tools](#custom-tools) for configuration instructions.
+### 1. Prompt File Support
+You can now point AI prompts to external files. Use `> xxx.md` in the `prompt` field to reference the `config/games_ai/prompt/xxx.md` file.
 
-### 2. New Built-in Tools
-New built-in tools have been added, primarily calculator-type and waypoint/coordinate manager-type tools.
+### 2. Automatic Error Code Detection
+When an error occurs while accessing the AI, the error code and cause are now automatically identified and displayed.
 
 ---
 
@@ -393,7 +393,7 @@ All consequences arising from custom tools are unrelated to this plugin.
 
 ## License
 
-This plugin is licensed under the MIT License, held by yello.
+MIT License, Copyright (c) 2026 yello
 
 <div align = "center">
 

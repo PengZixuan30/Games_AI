@@ -117,3 +117,16 @@ games_ai:
   debug:
     enable: "已启用调试模式"
     disable: "已禁用调试模式"
+
+  error_code_map:
+   error400: "请求体格式错误, 请检查参数"
+   error401: "API Key 无效或未提供, 请检查配置"
+   error402: "API Key 余额不足"
+   error403: "API Key 无效或未提供, 请检查配置"
+   error404: "请求的资源或模型不存在"
+   error408: "请求超时, 请稍后重试"
+   error422: "请求体参数错误, 请检查参数"
+   error429: "请求频率过高, 请稍后重试"
+   error500: "API 服务器内部错误"
+   error502: "网关错误, 请稍后重试"
+   error503: "服务器繁忙, 请稍后重试"

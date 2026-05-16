@@ -4,15 +4,15 @@
 
 [English](/README.md)  |  简体中文  |  [繁體中文](/README.zh-TW.md)
 
-[反馈问题](https://github.com/PengZixuan30/Games_AI/issues/new)  |  [反馈想法](https://github.com/PengZixuan30/Games_AI/issues/new)
+[反馈问题](https://github.com/PengZixuan30/Games_AI/issues/new)  |  [反馈想法](https://github.com/PengZixuan30/Games_AI/discussions/new/choose)
 
 </div>
 
 > [!NOTE]
-> 欢迎使用版本0.5.0，当前版本加入了自定义工具的功能，加入了诸多新的工具，修复了一些问题。见[本次更新](#本次更新)
+> 欢迎使用版本0.5.1，当前版本加入了提示词文件化的功能，可以在AI配置中的`prompt`一项填入`> xxx.md`以指向提示词文件，见[配置](#4all_ai)；加入了错误码自动识别功能，修复了一些问题。见[本次更新](#本次更新)
 
 > [!IMPORTANT]
-> 此版本加入了自定义工具的功能，会在配置文件夹创建tools.py文件。见[自定义工具](#自定义工具)
+> 0.5.0版本加入了自定义工具的功能，会在配置文件夹创建tools.py文件，见[自定义工具](#自定义工具)。此版本加入了提示词文件化的功能，会在配置文件夹创建prompt文件夹，见[配置](#4all_ai)
 
 <details>
 <summary>目录(点击展示)</summary>
@@ -30,8 +30,8 @@
     - [工具](#工具)
     - [自定义工具](#自定义工具)
   - [本次更新](#本次更新)
-    - [1.加入了自定义工具的功能](#1加入了自定义工具的功能)
-    - [2.加入了一些新的工具](#2加入了一些新的工具)
+    - [1.允许你将提示词文件化](#1允许你将提示词文件化)
+    - [2.加入了错误码自动识别的功能](#2加入了错误码自动识别的功能)
   - [鸣谢与声明](#鸣谢与声明)
   - [许可证](#许可证)
 
@@ -39,7 +39,7 @@
 
 ## 安装
 
-在MCDR控制台中使用如下命令以安装插件
+在MCDR控制台中使用如下命令以安装插件\(鉴于现版本的MCDR下载器并不稳定，使用此命令可能无法下载最新版，不建议使用此命令安装\)
 
 `!!MCDR plugin install games_ai`
 
@@ -136,10 +136,6 @@ pip install openai requests
 
 以下是每个参数的简介:
 
-<details>
-
-<summary>点击展开</summary>
-
 ### 1.prefix
 值的类型: str
 
@@ -169,7 +165,7 @@ pip install openai requests
 
 填入所有的AI信息，由多个字典组成，每个字典为一个AI模型，字典的键即为插件内部的AI_ID
 
-**prompt**: 这项配置用于为每个AI编写提示词
+**prompt**: 这项配置用于为每个AI编写提示词。使用`> xxx.md`将提示词指向`config/games_ai/prompt/xxx.md`文件，不限文件类型
 
 **ai_name**: 这项配置与prefix功能类似，但是你现在需要单独为每一个模型设置，可以包含Minecraft格式化代码
 
@@ -183,8 +179,6 @@ pip install openai requests
 默认值: \<Your AI ID\>
 
 填入当用户直接使用`!!ask`时使用的模型，应该填入all_ai字典中的某一个键\(即为插件内部的AI_ID\)，如果错填，会导致无法正常使用`!!ask`指令
-
-</details>
 
 ## 工具与自定义工具
 ### 工具
@@ -366,11 +360,11 @@ def search_baidu(source, ai_prefix: str, query: str):
 </details>
 
 ## 本次更新
-### 1.加入了自定义工具的功能
-本次更新加入了自定义工具的功能，让你拥有更多元的体验。配置方法见[自定义工具](#自定义工具)
+### 1.允许你将提示词文件化
+允许你将AI的提示词使用`> xxx.md`指向`config/games_ai/prompt/xxx.md`文件
 
-### 2.加入了一些新的工具
-加入了一些新的工具，主要包含计算器类和坐标管理器类。
+### 2.加入了错误码自动识别的功能
+当访问AI出现错误时，自动识别错误并直接输出错误代码与错因
 
 ---
 
@@ -384,7 +378,7 @@ AI\(LLM\)模型生成的一切内容与此插件无关
 自定义工具造成的一切后果与本插件无关
 
 ## 许可证
-本插件使用MIT协议，由yello持有
+MIT License, Copyright (c) 2026 yello
 
 <div align = "center">
 

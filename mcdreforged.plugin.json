@@ -1,6 +1,6 @@
 {
     "id": "games_ai",
-    "version": "0.5.0",
+    "version": "0.5.1",
     "name": "GamesAI",
     "description": {
         "zh_cn": "此插件可以让你在游戏中使用AI",

@@ -117,3 +117,16 @@ games_ai:
   debug:
     enable: "已啟用除錯模式"
     disable: "已停用除錯模式"
+
+  error_code_map:
+   error400: "請求體格式錯誤，請檢查參數"
+   error401: "API Key 無效或未提供，請檢查設定"
+   error402: "API Key 餘額不足"
+   error403: "API Key 無效或未提供，請檢查設定"
+   error404: "請求的資源或模型不存在"
+   error408: "請求逾時，請稍後重試"
+   error422: "請求體參數錯誤，請檢查參數"
+   error429: "請求頻率過高，請稍後重試"
+   error500: "API 伺服器內部錯誤"
+   error502: "閘道錯誤，請稍後重試"
+   error503: "伺服器忙碌，請稍後重試"

@@ -117,3 +117,16 @@ games_ai:
   debug:
     enable: "Debug mode enabled"
     disable: "Debug mode disabled"
+
+  error_code_map:
+   error400: "Bad request format, please check parameters"
+   error401: "API Key invalid or not provided, please check configuration"
+   error402: "Insufficient API Key balance"
+   error403: "API Key invalid or not provided, please check configuration"
+   error404: "Requested resource or model does not exist"
+   error408: "Request timeout, please try again later"
+   error422: "Request body parameter error, please check parameters"
+   error429: "Request rate too high, please try again later"
+   error500: "API server internal error"
+   error502: "Gateway error, please try again later"
+   error503: "Server is busy, please try again later"

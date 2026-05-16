@@ -10,7 +10,7 @@ import time,os,requests,lzma,json,threading,datetime
 
 PLUGIN_METADATA = {
     "id": "games_ai",
-    "version": "0.5.0",
+    "version": "0.5.1",
     "name": "GamesAI",
     "description": {
         "zh_cn": "此插件可以让你在游戏中使用AI",
@@ -65,14 +65,29 @@ def on_load(server: PluginServerInterface, old):
     plugin_config.allow_permission = allow_permission
     plugin_config.max_history = max_history
 
+    prompt_path = os.path.join(server.get_data_folder(), "prompt")
+    if not os.path.exists(prompt_path):
+        os.makedirs(prompt_path, exist_ok=True)
+
     ai_dict = {}
 
     all_ai: dict = config.get('all_ai', {})
     for ai_id,ai_config in all_ai.items():
         if not isinstance(ai_config, dict):
             continue
+        raw_prompt: str = ai_config.get("prompt", server.rtr("games_ai.system_message.default"))
+        if raw_prompt.startswith("> "):
+            prompt_file_path = raw_prompt[2:].strip()
+            prompt_full_path = os.path.join(server.get_data_folder(), "prompt", prompt_file_path)
+            try:
+                with open(prompt_full_path, 'r', encoding='utf-8') as f:
+                    raw_prompt = f.read()
+                server.logger.info(f"{prefix} Loaded prompt from file: {prompt_full_path}")
+            except FileNotFoundError:
+                server.logger.warning(f"{prefix} Prompt file not found: {prompt_full_path}, using default prompt")
+                raw_prompt = server.rtr("games_ai.system_message.default")
         ai_info = {
-            "prompt": ai_config.get("prompt", server.rtr("games_ai.system_message.default")),
+            "prompt": raw_prompt,
             "ai_name": ai_config.get("ai_name", "[GamesAI]"),
             "base_url": ai_config.get("base_url", ""),
             "ai_model": ai_config.get("ai_model", ""),
@@ -179,7 +194,8 @@ def on_server_startup(server: PluginServerInterface):
     server.say(f'{prefix}{server.rtr("games_ai.load_message.client_info", v=PLUGIN_METADATA.get('version'))}')
 
 def on_unload(server: PluginServerInterface):
-    _timer.cancel()
+    if _timer is not None:
+        _timer.cancel()
     server.logger.info(f"{prefix}{server.rtr("games_ai.unload_message.server_info")}")
     if unload_status_code == 0:
         server.say(f'{prefix}Bye!')
@@ -412,8 +428,8 @@ def ask_ai(source: CommandSource,context: dict):
     data = DataManager(data_path).ask_ai_read_data()
     source.reply(f'{ai_prefix}{server.rtr("games_ai.user_message.get_data")}')
     data_message = {"role": "assistant","content": f'{server.rtr("games_ai.user_message.data_list")}{data}'}
-    response_message.extend(history)
     response_message.append(data_message)
+    response_message.extend(history)
     response_message.append(user_message)
 
     if debug_mode:
@@ -424,6 +440,8 @@ def ask_ai(source: CommandSource,context: dict):
             ai_reply = response_chat(model=ai_model,url=base_url,message=response_message,tools=TOOL_SCHEMAS,thinking=thinking)
             if ai_reply.tool_calls is not None:
                 response_message.append(ai_reply)
+                if ai_reply.content:
+                    source.reply(f"{ai_prefix}{ai_reply.content}")
 
                 if debug_mode:
                     source.reply(f"[DEBUG]{ai_reply.tool_calls}")
@@ -465,7 +483,39 @@ def ask_ai(source: CommandSource,context: dict):
                 source.reply(message)
                 break
         except Exception as e:
-            source.reply(f'{ai_prefix}ERROR!\n{ai_prefix}{e}')
+            error_code_map = {
+                400: server.rtr("games_ai.error_code_map.error400"),
+                401: server.rtr("games_ai.error_code_map.error401"),
+                402: server.rtr("games_ai.error_code_map.error402"),
+                403: server.rtr("games_ai.error_code_map.error403"),
+                404: server.rtr("games_ai.error_code_map.error404"),
+                408: server.rtr("games_ai.error_code_map.error408"),
+                422: server.rtr("games_ai.error_code_map.error422"),
+                429: server.rtr("games_ai.error_code_map.error429"),
+                500: server.rtr("games_ai.error_code_map.error500"),
+                502: server.rtr("games_ai.error_code_map.error502"),
+                503: server.rtr("games_ai.error_code_map.error503"),
+            }
+
+            error_code = getattr(e, 'status_code', None)
+            request_id = None
+
+            resp = getattr(e, 'response', None)
+            if resp is not None:
+                request_id = getattr(resp, '_request_id', None)
+
+            if request_id is None:
+                try:
+                    request_id = ai_reply._request_id
+                except (NameError, AttributeError):
+                    request_id = None
+
+            if error_code is not None:
+                error_desc = error_code_map.get(error_code, f"未知错误 (HTTP {error_code})")
+                rid_str = f" [Request ID: {request_id}]" if request_id else ""
+                source.reply(f'{ai_prefix}ERROR! [Code: {error_code}] {error_desc}{rid_str}\n{ai_prefix}{e}')
+            else:
+                source.reply(f'{ai_prefix}ERROR!\n{ai_prefix}{e}')
             raise e
 
 def get_username(source: CommandSource):
