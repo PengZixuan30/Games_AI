@@ -37,7 +37,7 @@ def on_load(server: PluginServerInterface, old):
         "max_history": 10,
         "all_ai": {
             "<Your AI ID>":{
-                "prompt": server.rtr("games_ai.system_message.default"),
+                "prompt": str(server.rtr("games_ai.system_message.default")),
                 "ai_name": "[GamesAI]",
                 "base_url": "<Your API Base URL>",
                 "ai_model": "<Your AI Model>",
