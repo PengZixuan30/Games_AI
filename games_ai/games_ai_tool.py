@@ -128,7 +128,7 @@ def search_minecraft_wiki(source: CommandSource, ai_prefix: str, query: str):
         search_url = f"https://zh.minecraft.wiki/?search={query}"
     response = requests.get(search_url)
     if response.status_code == 200:
-        return f"一下是搜索内容 {query} 的结果:\n{response.content.decode('utf-8')}"
+        return f"以下是搜索内容 {query} 的结果:\n{response.content.decode('utf-8')}"
     else:
         return "无法访问Minecraft Wiki进行搜索"
 
@@ -200,7 +200,7 @@ def item_caculator(source: CommandSource, ai_prefix: str, expression: str, singl
     },
     "required": ["name", "pos", "dimension"]
 })
-def add_pos_pos(source: CommandSource, ai_prefix: str, name: str, pos: list[str, str, str], dimension: str):
+def add_pos_pos(source: CommandSource, ai_prefix: str, name: str, pos: list, dimension: str):
     server = source.get_server()
     source.reply(f'{ai_prefix}{server.rtr("games_ai.tools.adding_position", name=name, pos=pos, dimension=dimension)}')
     _location_marker = server.get_plugin_instance('location_marker')
@@ -361,3 +361,24 @@ def get_all_pos(source: CommandSource, ai_prefix: str):
         return f"所有路径点信息: {waypoint_data}"
     else:
         return "无法获取坐标管理插件实例"
+
+@register_tool(description="阅读技能, 调用多个工具前必备, 每次只能读取一个skills", tr_key="games_ai.tools.reading_skills", parameters={
+    "type": "object",
+    "properties": {
+        "skills": {
+            "type": "string",
+            "description": "你要阅读的技能文件的文件名"
+        }
+    },
+    "required": ["skills"]
+})
+def read_skills(source: CommandSource, ai_prefix: str, skills: str):
+    server = source.get_server()
+    source.reply(f"{ai_prefix}{server.rtr("games_ai.tools.reading_skills", skills=skills)}")
+    skills_path = os.path.join(os.path.dirname(plugin_config.skills_path), skills)
+    try:
+        with open(skills_path, mode='r', encoding='utf-8') as f:
+            content = f.read()
+            return f"skills的内容: \n{content}"
+    except Exception as e:
+        return f"skills读取失败, 原因: {e}"

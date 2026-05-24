@@ -51,6 +51,7 @@ games_ai:
     time: "Current time: {time}."
     username: "Username: "
     message: "Message: "
+    skills: "Available skills (you can use the read_skills tool to read them): {skills}."
 
     model_error: "Invalid AI model! Available AI models: "
     model_more: "Unable to match precisely! The following AI models were matched: "
@@ -80,6 +81,8 @@ games_ai:
     writing_data: "Writing public data, key: {key}, value: {value}"
     adding_data: "Appending public data, key: {key}, value: {value}"
     deleting_data: "Deleting public data, key: {key}"
+
+    reading_skills: "Reading skill: {skills}"
 
     tool_success: "Tool executed successfully!"
 

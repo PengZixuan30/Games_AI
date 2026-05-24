@@ -10,7 +10,7 @@ import time,os,requests,lzma,json,threading,datetime
 
 PLUGIN_METADATA = {
     "id": "games_ai",
-    "version": "0.5.1",
+    "version": "0.5.2",
     "name": "GamesAI",
     "description": {
         "zh_cn": "此插件可以让你在游戏中使用AI",
@@ -28,7 +28,7 @@ unload_status_code = 0
 debug_mode = False
 
 def on_load(server: PluginServerInterface, old):
-    global prefix,allow_permission,max_history,allow_permission,mcdr_lang,_timer,ai_dict,default_ai,name_to_id,data_path
+    global prefix,allow_permission,max_history,mcdr_lang,_timer,ai_dict,default_ai,name_to_id,data_path,skills
     _timer = None
     
     DEFAULT_CONFIG = {
@@ -37,7 +37,7 @@ def on_load(server: PluginServerInterface, old):
         "max_history": 10,
         "all_ai": {
             "<Your AI ID>":{
-                "prompt": server.rtr("games_ai.system_message.default"),
+                "prompt": str(server.rtr("games_ai.system_message.default")),
                 "ai_name": "[GamesAI]",
                 "base_url": "<Your API Base URL>",
                 "ai_model": "<Your AI Model>",
@@ -137,8 +137,23 @@ def my_custom_tool(source: CommandSource, ai_prefix: str):
 ''')
         server.logger.info(f"{server.rtr("games_ai.load_message.server_create_data_dir")}{tools_path}")
 
+    skills_path = os.path.join(server.get_data_folder(), "skills", "skills.json")
+    skills_dir = os.path.dirname(skills_path)
+    if not os.path.exists(skills_dir):
+        os.makedirs(skills_dir, exist_ok=True)
+    if not os.path.exists(skills_path):
+        with open(skills_path, mode='w', encoding='utf-8') as f:
+            f.write("[{}]")
+        server.logger.info(f"{server.rtr("games_ai.load_message.server_create_data_dir")}{skills_path}")
+
+    with open(skills_path, mode="r", encoding="utf-8") as f:
+        content = f.read()
+        skills = json.loads(content)
+
+
     plugin_config.data_path = data_path
     plugin_config.tools_path = tools_path
+    plugin_config.skills_path = skills_path
 
     load_external_tools(log=server.logger.info)
 
@@ -396,7 +411,7 @@ def ask_ai(source: CommandSource,context: dict):
             source.reply(f"{prefix}{server.rtr("games_ai.user_message.model_more")}{may_user_ai}")
             return
         else:
-            source.reply(f"{prefix}{server.rtr("games_ai.user_message.model_error")}{ai_dict.keys()}")
+            source.reply(f"{prefix}{server.rtr("games_ai.user_message.model_error")}{list(ai_dict.keys())}")
             return
 
     ai_prefix = ai_info.get("ai_name")
@@ -404,6 +419,7 @@ def ask_ai(source: CommandSource,context: dict):
     base_url = ai_info.get("base_url")
     api_key = ai_info.get("api_key")
     prompt = ai_info.get("prompt")
+    skills_file_list = f"{str(server.rtr("games_ai.user_message.skills", skills=skills))}" if skills else f"{str(server.rtr("games_ai.user_message.skills", skills="None"))}"
     config_thinking = ai_info.get("thinking", False)
     if config_thinking:
         thinking = "enabled"
@@ -423,7 +439,7 @@ def ask_ai(source: CommandSource,context: dict):
         user_name = "Server Control Panel"
     user_message = {"role": "user","content": f'{server.rtr("games_ai.user_message.username")}{user_name}\n{server.rtr("games_ai.user_message.message")}{content}'}
     response_message = [
-        {"role": "system","content": now_time + mcdr_lang + prompt},
+        {"role": "system","content": skills_file_list + now_time + mcdr_lang + prompt},
     ]
     data = DataManager(data_path).ask_ai_read_data()
     source.reply(f'{ai_prefix}{server.rtr("games_ai.user_message.get_data")}')
@@ -617,7 +633,7 @@ class DataManager:
             return source.reply(f'{prefix}{server.rtr("games_ai.data.read_list_message")}\n{value}')
 
     @new_thread("data_manager@keys")
-    def read_all_keys(self, source: CommandSource):
+    def read_all_keys(self, source: CommandSource, context: dict):
         server = source.get_server()
         if source.get_permission_level() < allow_permission:
             return source.reply(f'{prefix}{server.rtr("games_ai.no_permission",permission = allow_permission)}')

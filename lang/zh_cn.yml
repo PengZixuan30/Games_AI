@@ -51,6 +51,7 @@ games_ai:
     time: "当前时间: {time}。"
     username: "用户名: "
     message: "消息: "
+    skills: "当前有如下skills(你可以调用read_skills工具读取其中的skills): {skills}。"
 
     model_error: "错误的AI模型!当前有这些AI模型: "
     model_more: "无法正确匹配!现在匹配到了如下AI模型: "
@@ -80,6 +81,8 @@ games_ai:
     writing_data: "正在写入公共数据, key: {key}, value: {value}"
     adding_data: "正在追加公共数据, key: {key}, value: {value}"
     deleting_data: "正在删除公共数据, key: {key}"
+
+    reading_skills: "正在阅读技能: {skills}"
 
     tool_success: "工具调用成功!"
 
