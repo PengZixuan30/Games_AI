@@ -9,10 +9,10 @@
 </div>
 
 > [!NOTE]
-> 歡迎使用版本 0.5.1，當前版本加入了提示詞檔案化的功能，可以在 AI 設定中的 `prompt` 一項填入 `> xxx.md` 以指向提示詞檔案，見[設定](#4all_ai)；加入了錯誤碼自動辨識功能，修復了一些問題。見[本次更新](#本次更新)
+> 歡迎使用版本 0.5.2！當前版本加入了 **Skills 技能系統**——你可以編寫技能指導檔案來引導 AI 的行為，讓 AI 在處理複雜任務時更加智慧。見[本次更新](#本次更新)
 
 > [!IMPORTANT]
-> 0.5.0 版本加入了自訂工具的功能，會在設定資料夾建立 tools.py 檔案，見[自訂工具](#自訂工具)。此版本加入了提示詞檔案化的功能，會在設定資料夾建立 prompt 資料夾，見[設定](#4all_ai)
+> 0.5.0 版本加入了自訂工具的功能，會在設定資料夾建立 `tools.py` 檔案。0.5.1 版本加入了提示詞檔案化的功能，會在設定資料夾建立 `prompt` 資料夾。**此版本**加入了 Skills 技能系統，會在設定資料夾建立 `skills` 資料夾。見[Skills 技能](#skills-技能)。
 
 <details>
 <summary>目錄（點擊展開）</summary>
@@ -26,12 +26,12 @@
     - [3.max\_history](#3max_history)
     - [4.all\_ai](#4all_ai)
     - [5.default\_ai](#5default_ai)
-  - [工具與自訂工具](#工具與自訂工具)
+  - [工具、Skills 與自訂工具](#工具skills-與自訂工具)
     - [工具](#工具)
+    - [Skills 技能](#skills-技能)
     - [自訂工具](#自訂工具)
   - [本次更新](#本次更新)
-    - [1.允許你將提示詞檔案化](#1允許你將提示詞檔案化)
-    - [2.加入了錯誤碼自動辨識的功能](#2加入了錯誤碼自動辨識的功能)
+    - [1.Skills 技能系統](#1skills-技能系統)
   - [致謝與聲明](#致謝與聲明)
   - [授權條款](#授權條款)
 
@@ -186,7 +186,7 @@ pip install openai requests
 
 </details>
 
-## 工具與自訂工具
+## 工具、Skills 與自訂工具
 
 ### 工具
 GamesAI 插件提供了許多內建工具，請見下表。如果你想要更多工具，可以選擇[向作者投稿](https://github.com/PengZixuan30/Games_AI/issues/new)或使用[自訂工具](#自訂工具)。
@@ -212,9 +212,37 @@ GamesAI 插件提供了許多內建工具，請見下表。如果你想要更多
 |ai_read_all_keys|無|取得資料庫中的所有鍵。|
 |ai_write_data|`key`、`value`|向資料庫中寫入一筆資料（覆寫模式）。|
 |ai_add_data|`key`、`value`|向資料庫中寫入一筆資料（追加模式）。|
+|read_skills|`skills`|讀取已註冊的技能指導檔案，引導 AI 執行特定任務。|
 |ai_del_data|`key`|刪除資料庫中的一筆資料。|
 
 </details>
+
+### Skills 技能
+
+Skills 技能系統讓你可以編寫指導檔案來規範 AI 處理特定任務的方式——例如白名單管理、假人控制等。
+
+技能檔案存放在 `config/games_ai/skills/` 目錄下，格式為 Markdown（`.md`）。要註冊一項技能，編輯 `config/games_ai/skills/skills.json`。以下是一個範例設定（`whitelist.md` 和 `player.md` 僅為範例檔名，並非插件內建檔案）：
+
+```json
+[
+    {
+        "file": "whitelist.md",
+        "description": "新增／刪除／查詢白名單時都應讀取此技能檔案"
+    },
+    {
+        "file": "player.md",
+        "description": "建立／控制／刪除假人時必須讀取此技能檔案"
+    }
+]
+```
+
+- **`file`** — 技能檔案名稱（相對於 `skills` 資料夾）。
+- **`description`** — 展示給 AI 的簡短提示，說明何時應當讀取此技能。
+
+技能註冊後會出現在 AI 的系統提示中。AI 可以使用 **`read_skills`** 工具在執行相關任務前讀取技能檔案的完整內容。
+
+> [!TIP]
+> Skills 就像 AI 的「標準作業程序 (SOP)」——確保 AI 每次都遵循正確的工作流程。
 
 ### 自訂工具
 透過修改 `config/games_ai/tools/tools.py` 檔案來實作自訂工具。
@@ -372,15 +400,15 @@ def search_baidu(source, ai_prefix: str, query: str):
 </details>
 
 ## 本次更新
-### 1.允許你將提示詞檔案化
-允許你將 AI 的提示詞使用 `> xxx.md` 指向 `config/games_ai/prompt/xxx.md` 檔案
 
-### 2.加入了錯誤碼自動辨識的功能
-當存取 AI 出現錯誤時，自動辨識錯誤並直接輸出錯誤代碼與錯因
+### 1.Skills 技能系統
+Skills 技能系統是一種全新的 AI 行為引導方式。透過編寫 Markdown 指導檔案並在 `skills.json` 中註冊，你可以精確控制 AI 在特定任務中的行為（如白名單管理、假人控制）。AI 會在執行相關操作前自動讀取對應的技能檔案。
 
----
+- `config/games_ai/skills/skills.json` — 技能註冊檔案。
+- `config/games_ai/skills/*.md` — 技能指導檔案。
+- 內建 `read_skills` 工具供 AI 讀取技能。
 
-另外，本次更新修復了一些問題
+另外，本次更新修復了一些問題，並改進了 Python 3.14 相容性。
 
 ## 致謝與聲明
 

@@ -9,10 +9,10 @@ English  |  [简体中文](/README.zh-CN.md)  |  [繁體中文](/README.zh-TW.md
 </div>
 
 > [!NOTE]
-> Welcome to version 0.5.1! This release introduces the prompt file feature — you can use `> xxx.md` in the `prompt` field of AI config to point to a prompt file. See [Configuration](#4all_ai). It also adds automatic error code detection and fixes some issues. See [What's New](#whats-new)
+> Welcome to version 0.5.2! This release introduces the **Skills system** — you can write skill instruction files to guide AI behavior, making it smarter at handling complex tasks. See [What's New](#whats-new)
 
 > [!IMPORTANT]
-> Version 0.5.0 introduced custom tool support and created a `tools.py` file in the config folder. See [Custom Tools](#custom-tools). This version introduces the prompt file feature and creates a `prompt` folder in the config folder. See [Configuration](#4all_ai)
+> Version 0.5.0 introduced custom tool support and created a `tools.py` file in the config folder. Version 0.5.1 introduced the prompt file feature and created a `prompt` folder. **This version** introduces the Skills system and creates a `skills` folder in the config folder. See [Skills](#skills).
 
 <details>
 <summary>Table of Contents (click to expand)</summary>
@@ -26,12 +26,12 @@ English  |  [简体中文](/README.zh-CN.md)  |  [繁體中文](/README.zh-TW.md
     - [3.max\_history](#3max_history)
     - [4.all\_ai](#4all_ai)
     - [5.default\_ai](#5default_ai)
-  - [Tools \& Custom Tools](#tools--custom-tools)
+  - [Tools, Skills \& Custom Tools](#tools-skills--custom-tools)
     - [Tools](#tools)
+    - [Skills](#skills)
     - [Custom Tools](#custom-tools)
   - [What's New](#whats-new)
-    - [1. Prompt File Support](#1-prompt-file-support)
-    - [2. Automatic Error Code Detection](#2-automatic-error-code-detection)
+    - [1. Skills System](#1-skills-system)
   - [Acknowledgements \& Disclaimer](#acknowledgements--disclaimer)
   - [License](#license)
 
@@ -186,7 +186,7 @@ The model used when a player simply uses `!!ask`. Should be one of the keys in t
 
 </details>
 
-## Tools & Custom Tools
+## Tools, Skills & Custom Tools
 
 ### Tools
 The GamesAI plugin provides many built-in tools, listed in the table below. If you want more tools, you can [submit a suggestion](https://github.com/PengZixuan30/Games_AI/issues/new) or use [Custom Tools](#custom-tools).
@@ -212,9 +212,37 @@ The GamesAI plugin provides many built-in tools, listed in the table below. If y
 |ai_read_all_keys|None|Get all keys from the database.|
 |ai_write_data|`key`, `value`|Write a data entry to the database (overwrite mode).|
 |ai_add_data|`key`, `value`|Write a data entry to the database (append mode).|
+|read_skills|`skills`|Read a registered skill instruction file to guide AI behavior for specific tasks.|
 |ai_del_data|`key`|Delete a data entry from the database.|
 
 </details>
+
+### Skills
+
+The Skills system lets you write instruction files to guide how the AI handles specific tasks — such as whitelist management, fake player control, and more.
+
+Skills files are stored in `config/games_ai/skills/` as Markdown (`.md`) files. To register a skill, edit `config/games_ai/skills/skills.json`. The following is an example configuration (`whitelist.md` and `player.md` are example filenames only — they are not built-in files):
+
+```json
+[
+    {
+        "file": "whitelist.md",
+        "description": "Read this skill before managing the whitelist"
+    },
+    {
+        "file": "player.md",
+        "description": "Read this skill before controlling fake players"
+    }
+]
+```
+
+- **`file`** — the skill filename (relative to the `skills` folder).
+- **`description`** — a short hint shown to the AI, explaining when to read this skill.
+
+When a skill is registered, it appears in the AI's system prompt. The AI can then use the **`read_skills`** tool to read the full contents of any skill file before performing related tasks.
+
+> [!TIP]
+> Skills are like SOPs (Standard Operating Procedures) for the AI — they ensure the AI follows the correct workflow every time.
 
 ### Custom Tools
 Customize tools by editing the `config/games_ai/tools/tools.py` file.
@@ -373,15 +401,14 @@ def search_baidu(source, ai_prefix: str, query: str):
 
 ## What's New
 
-### 1. Prompt File Support
-You can now point AI prompts to external files. Use `> xxx.md` in the `prompt` field to reference the `config/games_ai/prompt/xxx.md` file.
+### 1. Skills System
+The Skills system is a new way to teach the AI standardized workflows. By writing Markdown instruction files and registering them in `skills.json`, you can control exactly how the AI behaves for specific tasks (e.g. whitelist management, fake player control). The AI will automatically read the relevant skill file before executing related operations.
 
-### 2. Automatic Error Code Detection
-When an error occurs while accessing the AI, the error code and cause are now automatically identified and displayed.
+- `config/games_ai/skills/skills.json` — skill registration.
+- `config/games_ai/skills/*.md` — skill instruction files.
+- Built-in `read_skills` tool for the AI to read skills.
 
----
-
-Additionally, this release fixes several issues.
+Additionally, this release fixes several issues and improves Python 3.14 compatibility.
 
 ## Acknowledgements & Disclaimer
 
