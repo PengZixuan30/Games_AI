@@ -10,7 +10,7 @@ import time,os,requests,lzma,json,threading,datetime
 
 PLUGIN_METADATA = {
     "id": "games_ai",
-    "version": "0.5.2",
+    "version": "0.5.3",
     "name": "GamesAI",
     "description": {
         "zh_cn": "此插件可以让你在游戏中使用AI",
@@ -26,6 +26,7 @@ PLUGIN_METADATA = {
 history_conversation = {}
 unload_status_code = 0
 debug_mode = False
+user_tool_counts = {}
 
 def on_load(server: PluginServerInterface, old):
     global prefix,allow_permission,max_history,mcdr_lang,_timer,ai_dict,default_ai,name_to_id,data_path,skills
@@ -432,6 +433,7 @@ def ask_ai(source: CommandSource,context: dict):
     now_time = str(server.rtr("games_ai.user_message.time", time=time.strftime('%Y-%m-%d %H:%M:%S')))
     username = get_username(source)
     history = history_conversation.get(username, {}).get(ai_prefix, [])
+    current_tool_count = user_tool_counts.get(username, {}).get(ai_prefix, 0)
     content = context['content']
     if source.is_player:
         user_name = f'{username}'
@@ -450,12 +452,15 @@ def ask_ai(source: CommandSource,context: dict):
 
     if debug_mode:
         source.reply(f"[DEBUG]{response_message}")
+    
+    history.append(user_message)
 
     while True:
         try:
             ai_reply = response_chat(model=ai_model,url=base_url,message=response_message,tools=TOOL_SCHEMAS,thinking=thinking)
             if ai_reply.tool_calls is not None:
                 response_message.append(ai_reply)
+                history.append(ai_reply)
                 if ai_reply.content:
                     source.reply(f"{ai_prefix}{ai_reply.content}")
 
@@ -465,6 +470,7 @@ def ask_ai(source: CommandSource,context: dict):
                 for tool_call in ai_reply.tool_calls:
                     func_name = tool_call.function.name
                     handler = get_tool_handler(func_name)
+                    current_tool_count += 1
 
                     if handler is None:
                         result = f"未知函数: {func_name}"
@@ -487,15 +493,22 @@ def ask_ai(source: CommandSource,context: dict):
                         "tool_call_id": tool_call.id,
                         "content": result,
                     })
+                    history.append({
+                        "role": "tool",
+                        "tool_call_id": tool_call.id,
+                        "content": result,
+                    })
                 continue
             else:
                 message = f'{ai_prefix}{ai_reply.content}'
-                history.append(user_message)
                 history.append(ai_reply)
-                max_len = max_history * 2
+                max_len = max_history * 2 + current_tool_count * 2
+                if debug_mode:
+                    source.reply(f"{ai_prefix}当前最大历史记录数: {max_len}")
                 if len(history) > max_len:
                     history = history[-max_len:]
                 history_conversation.setdefault(username, {})[ai_prefix] = history
+                user_tool_counts.setdefault(username, {})[ai_prefix] = current_tool_count
                 source.reply(message)
                 break
         except Exception as e:
@@ -545,6 +558,8 @@ def clear_history(source: CommandSource,context: dict):
     username = get_username(source)
     if username in history_conversation:
         del history_conversation[username]
+        if username in user_tool_counts:
+            del user_tool_counts[username]
         source.reply(f'{prefix}{server.rtr("games_ai.clear_history_message.success",username=username)}')
     else:
         source.reply(f'{prefix}{server.rtr("games_ai.clear_history_message.no_history",username=username)}')
@@ -556,6 +571,7 @@ def clear_history_all(source: CommandSource,context: dict):
     else:
         count = len(history_conversation)
         history_conversation.clear()
+        user_tool_counts.clear()
         source.reply(f'{prefix}{server.rtr("games_ai.clear_history_message.clearall_success",count=count)}')
 
 class DataManager:

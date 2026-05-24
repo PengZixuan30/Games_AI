@@ -9,10 +9,10 @@ English  |  [简体中文](/README.zh-CN.md)  |  [繁體中文](/README.zh-TW.md
 </div>
 
 > [!NOTE]
-> Welcome to version 0.5.2! This release introduces the **Skills system** — you can write skill instruction files to guide AI behavior, making it smarter at handling complex tasks. See [What's New](#whats-new)
+> Welcome to version 0.5.3! This release fixes a **critical history corruption bug** (HTTP 400 error) and implements **per-user tool call tracking**. See [What's New](#whats-new)
 
 > [!IMPORTANT]
-> Version 0.5.0 introduced custom tool support and created a `tools.py` file in the config folder. Version 0.5.1 introduced the prompt file feature and created a `prompt` folder. **This version** introduces the Skills system and creates a `skills` folder in the config folder. See [Skills](#skills).
+> Version 0.5.0 introduced custom tool support and created a `tools.py` file in the config folder. Version 0.5.1 introduced the prompt file feature and created a `prompt` folder. Version 0.5.2 introduced the Skills system and created a `skills` folder. **Version 0.5.3** fixes a critical message history bug and improves tool call tracking. See [Skills](#skills).
 
 <details>
 <summary>Table of Contents (click to expand)</summary>
@@ -31,7 +31,12 @@ English  |  [简体中文](/README.zh-CN.md)  |  [繁體中文](/README.zh-TW.md
     - [Skills](#skills)
     - [Custom Tools](#custom-tools)
   - [What's New](#whats-new)
-    - [1. Skills System](#1-skills-system)
+    - [Version 0.5.3](#version-053)
+      - [1. History Corruption Fix (Critical)](#1-history-corruption-fix-critical)
+      - [2. Per-User Tool Call Tracking](#2-per-user-tool-call-tracking)
+      - [3. Debug Mode Display Fix](#3-debug-mode-display-fix)
+    - [Version 0.5.2](#version-052)
+      - [1. Skills System](#1-skills-system)
   - [Acknowledgements \& Disclaimer](#acknowledgements--disclaimer)
   - [License](#license)
 
@@ -401,7 +406,20 @@ def search_baidu(source, ai_prefix: str, query: str):
 
 ## What's New
 
-### 1. Skills System
+### Version 0.5.3
+
+#### 1. History Corruption Fix (Critical)
+Fixed a critical bug where `history.append(response_message)` was appending an entire message **list** as a single element into the conversation history. This caused malformed API requests (HTTP 400: `"invalid type: map, expected variant identifier"`) on the second conversation after a tool call. Now correctly appends individual messages via `history.append(user_message)`.
+
+#### 2. Per-User Tool Call Tracking
+The global `tool_count` variable has been replaced with a per-user, per-AI dictionary (`user_tool_counts`). Previously, `tool_count` accumulated across all users and conversations without ever resetting, causing the history retention limit (`max_history * 2 + tool_count * 2`) to grow without bound. Now each user's tool count is tracked independently and automatically cleared when their conversation history is cleared via `!!gamesai clear` or `!!gamesai clearall`.
+
+#### 3. Debug Mode Display Fix
+Fixed a typo where `debug` (an undefined variable) was used instead of `debug_mode` in the history limit display line. This would have caused a `NameError` at runtime when debug mode was enabled.
+
+### Version 0.5.2
+
+#### 1. Skills System
 The Skills system is a new way to teach the AI standardized workflows. By writing Markdown instruction files and registering them in `skills.json`, you can control exactly how the AI behaves for specific tasks (e.g. whitelist management, fake player control). The AI will automatically read the relevant skill file before executing related operations.
 
 - `config/games_ai/skills/skills.json` — skill registration.

@@ -9,10 +9,10 @@
 </div>
 
 > [!NOTE]
-> 歡迎使用版本 0.5.2！當前版本加入了 **Skills 技能系統**——你可以編寫技能指導檔案來引導 AI 的行為，讓 AI 在處理複雜任務時更加智慧。見[本次更新](#本次更新)
+> 歡迎使用版本 0.5.3！當前版本修復了**關鍵的歷史記錄損壞 Bug**（HTTP 400 錯誤），並實作了**按使用者追蹤工具呼叫計數**。見[本次更新](#本次更新)
 
 > [!IMPORTANT]
-> 0.5.0 版本加入了自訂工具的功能，會在設定資料夾建立 `tools.py` 檔案。0.5.1 版本加入了提示詞檔案化的功能，會在設定資料夾建立 `prompt` 資料夾。**此版本**加入了 Skills 技能系統，會在設定資料夾建立 `skills` 資料夾。見[Skills 技能](#skills-技能)。
+> 0.5.0 版本加入了自訂工具的功能，會在設定資料夾建立 `tools.py` 檔案。0.5.1 版本加入了提示詞檔案化的功能，會在設定資料夾建立 `prompt` 資料夾。0.5.2 版本加入了 Skills 技能系統並建立了 `skills` 資料夾。**0.5.3 版本**修復了一個關鍵的訊息歷史 Bug，並改進了工具呼叫計數機制。見[Skills 技能](#skills-技能)。
 
 <details>
 <summary>目錄（點擊展開）</summary>
@@ -401,7 +401,20 @@ def search_baidu(source, ai_prefix: str, query: str):
 
 ## 本次更新
 
-### 1.Skills 技能系統
+### Version 0.5.3
+
+#### 1. 歷史記錄損壞修復（關鍵）
+修復了一個關鍵 Bug：`history.append(response_message)` 將整個訊息**列表**作為單個元素錯誤地追加到了對話歷史中。這導致在工具呼叫後的第二次對話中，API 請求格式錯誤（HTTP 400: `"invalid type: map, expected variant identifier"`）。現已改為正確追加單條訊息 `history.append(user_message)`。
+
+#### 2. 按使用者追蹤工具呼叫計數
+將全域變數 `tool_count` 替換為按使用者、按 AI 實例的字典（`user_tool_counts`）。此前 `tool_count` 跨所有使用者和對話持續累加且從不重置，導致歷史保留上限（`max_history * 2 + tool_count * 2`）無限增長。現在每個使用者的工具呼叫計數獨立追蹤，並在透過 `!!gamesai clear` 或 `!!gamesai clearall` 清除對話歷史時自動歸零。
+
+#### 3. Debug 模式顯示修復
+修復了一處筆誤：在歷史上限顯示行中將未定義的變數 `debug` 修正為 `debug_mode`。此前開啟 debug 模式時此處會觸發 `NameError` 執行時期錯誤。
+
+### Version 0.5.2
+
+#### 1. Skills 技能系統
 Skills 技能系統是一種全新的 AI 行為引導方式。透過編寫 Markdown 指導檔案並在 `skills.json` 中註冊，你可以精確控制 AI 在特定任務中的行為（如白名單管理、假人控制）。AI 會在執行相關操作前自動讀取對應的技能檔案。
 
 - `config/games_ai/skills/skills.json` — 技能註冊檔案。
