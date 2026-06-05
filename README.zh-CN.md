@@ -9,10 +9,10 @@
 </div>
 
 > [!NOTE]
-> 欢迎使用版本 0.5.3！当前版本修复了**关键的历史记录损坏 Bug**（HTTP 400 错误），并实现了**按用户追踪工具调用计数**。见[本次更新](#本次更新)
+> 欢迎使用版本 0.5.4！当前版本修复了**关键的历史记录裁剪 Bug**（HTTP 400 错误）和 **Pydantic 模型兼容性问题**。见[本次更新](#本次更新)
 
 > [!IMPORTANT]
-> 0.5.0 版本加入了自定义工具的功能，会在配置文件夹创建 `tools.py` 文件。0.5.1 版本加入了提示词文件化的功能，会在配置文件夹创建 `prompt` 文件夹。0.5.2 版本加入了 Skills 技能系统并创建了 `skills` 文件夹。**0.5.3 版本**修复了一个关键的消息历史 Bug，并改进了工具调用计数机制。见[Skills 技能](#skills-技能)。
+> 0.5.0 版本加入了自定义工具的功能，会在配置文件夹创建 `tools.py` 文件。0.5.1 版本加入了提示词文件化的功能，会在配置文件夹创建 `prompt` 文件夹。0.5.2 版本加入了 Skills 技能系统并创建了 `skills` 文件夹。0.5.3 版本修复了一个关键的消息历史 Bug。**0.5.4 版本**修复了一个关键的历史裁剪 Bug 并改进了 Pydantic 兼容性。见[Skills 技能](#skills-技能)。
 
 <details>
 <summary>目录(点击展示)</summary>
@@ -388,6 +388,16 @@ def search_baidu(source, ai_prefix: str, query: str):
 </details>
 
 ## 本次更新
+
+### Version 0.5.4
+
+#### 1. 安全历史裁剪修复（关键）
+修复了一个关键 Bug：历史记录裁剪逻辑（`history[-max_len:]`）可能在工具调用/工具结果消息对之间切断。当历史列表超出保留上限时，从头部盲目切片可能删除包含 `tool_calls` 的 assistant 消息，却保留其对应的 `tool` 结果消息——产生孤立的工具消息。OpenAI 兼容 API 会以 HTTP 400 拒绝此类消息：`"Messages with role 'tool' must be a response to a preceding message with 'tool_calls'"`。
+
+新增的 `_safe_trim_history()` 函数确保裁剪后的历史始终从完整的对话轮次边界（`user` 角色消息）开始，从根本上杜绝孤立的工具消息被发送到 API。
+
+#### 2. Pydantic 模型兼容性修复
+修复了 `_safe_trim_history()` 中的 `AttributeError: 'ChatCompletionMessage' object has no attribute 'get'` 错误。对话历史列表混合存储了普通 `dict` 对象（用户消息和工具结果）和 Pydantic `ChatCompletionMessage` 模型实例（API 返回的 assistant 回复）。该函数现在能正确处理两种类型，正确访问 `role` 属性。
 
 ### Version 0.5.3
 

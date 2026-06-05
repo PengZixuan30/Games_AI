@@ -9,10 +9,10 @@
 </div>
 
 > [!NOTE]
-> 歡迎使用版本 0.5.3！當前版本修復了**關鍵的歷史記錄損壞 Bug**（HTTP 400 錯誤），並實作了**按使用者追蹤工具呼叫計數**。見[本次更新](#本次更新)
+> 歡迎使用版本 0.5.4！當前版本修復了**關鍵的歷史記錄裁剪 Bug**（HTTP 400 錯誤）和 **Pydantic 模型相容性問題**。見[本次更新](#本次更新)
 
 > [!IMPORTANT]
-> 0.5.0 版本加入了自訂工具的功能，會在設定資料夾建立 `tools.py` 檔案。0.5.1 版本加入了提示詞檔案化的功能，會在設定資料夾建立 `prompt` 資料夾。0.5.2 版本加入了 Skills 技能系統並建立了 `skills` 資料夾。**0.5.3 版本**修復了一個關鍵的訊息歷史 Bug，並改進了工具呼叫計數機制。見[Skills 技能](#skills-技能)。
+> 0.5.0 版本加入了自訂工具的功能，會在設定資料夾建立 `tools.py` 檔案。0.5.1 版本加入了提示詞檔案化的功能，會在設定資料夾建立 `prompt` 資料夾。0.5.2 版本加入了 Skills 技能系統並建立了 `skills` 資料夾。0.5.3 版本修復了一個關鍵的訊息歷史 Bug。**0.5.4 版本**修復了一個關鍵的歷史裁剪 Bug 並改進了 Pydantic 相容性。見[Skills 技能](#skills-技能)。
 
 <details>
 <summary>目錄（點擊展開）</summary>
@@ -31,7 +31,15 @@
     - [Skills 技能](#skills-技能)
     - [自訂工具](#自訂工具)
   - [本次更新](#本次更新)
-    - [1.Skills 技能系統](#1skills-技能系統)
+    - [Version 0.5.4](#version-054)
+      - [1. 安全歷史裁剪修復（關鍵）](#1-安全歷史裁剪修復關鍵)
+      - [2. Pydantic 模型相容性修復](#2-pydantic-模型相容性修復)
+    - [Version 0.5.3](#version-053)
+      - [1. 歷史記錄損壞修復（關鍵）](#1-歷史記錄損壞修復關鍵)
+      - [2. 按使用者追蹤工具呼叫計數](#2-按使用者追蹤工具呼叫計數)
+      - [3. Debug 模式顯示修復](#3-debug-模式顯示修復)
+    - [Version 0.5.2](#version-052)
+      - [1. Skills 技能系統](#1-skills-技能系統)
   - [致謝與聲明](#致謝與聲明)
   - [授權條款](#授權條款)
 
@@ -400,6 +408,16 @@ def search_baidu(source, ai_prefix: str, query: str):
 </details>
 
 ## 本次更新
+
+### Version 0.5.4
+
+#### 1. 安全歷史裁剪修復（關鍵）
+修復了一個關鍵 Bug：歷史記錄裁剪邏輯（`history[-max_len:]`）可能在工具呼叫／工具結果訊息對之間切斷。當歷史列表超出保留上限時，從頭部盲目切片可能刪除包含 `tool_calls` 的 assistant 訊息，卻保留其對應的 `tool` 結果訊息——產生孤立的工具訊息。OpenAI 相容 API 會以 HTTP 400 拒絕此類訊息：`"Messages with role 'tool' must be a response to a preceding message with 'tool_calls'"`。
+
+新增的 `_safe_trim_history()` 函式確保裁剪後的歷史始終從完整的對話輪次邊界（`user` 角色訊息）開始，從根本上杜絕孤立的工具訊息被傳送到 API。
+
+#### 2. Pydantic 模型相容性修復
+修復了 `_safe_trim_history()` 中的 `AttributeError: 'ChatCompletionMessage' object has no attribute 'get'` 錯誤。對話歷史列表混合儲存了普通 `dict` 物件（使用者訊息和工具結果）和 Pydantic `ChatCompletionMessage` 模型實例（API 回傳的 assistant 回覆）。該函式現在能正確處理兩種型別，正確存取 `role` 屬性。
 
 ### Version 0.5.3
 

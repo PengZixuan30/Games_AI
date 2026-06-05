@@ -9,10 +9,10 @@ English  |  [简体中文](/README.zh-CN.md)  |  [繁體中文](/README.zh-TW.md
 </div>
 
 > [!NOTE]
-> Welcome to version 0.5.3! This release fixes a **critical history corruption bug** (HTTP 400 error) and implements **per-user tool call tracking**. See [What's New](#whats-new)
+> Welcome to version 0.5.4! This release fixes a **critical history trimming bug** that caused HTTP 400 errors with orphaned tool messages, and a **Pydantic model compatibility issue**. See [What's New](#whats-new)
 
 > [!IMPORTANT]
-> Version 0.5.0 introduced custom tool support and created a `tools.py` file in the config folder. Version 0.5.1 introduced the prompt file feature and created a `prompt` folder. Version 0.5.2 introduced the Skills system and created a `skills` folder. **Version 0.5.3** fixes a critical message history bug and improves tool call tracking. See [Skills](#skills).
+> Version 0.5.0 introduced custom tool support and created a `tools.py` file in the config folder. Version 0.5.1 introduced the prompt file feature and created a `prompt` folder. Version 0.5.2 introduced the Skills system and created a `skills` folder. Version 0.5.3 fixed a critical message history bug. **Version 0.5.4** fixes a critical history trimming bug and improves Pydantic compatibility. See [Skills](#skills).
 
 <details>
 <summary>Table of Contents (click to expand)</summary>
@@ -405,6 +405,16 @@ def search_baidu(source, ai_prefix: str, query: str):
 </details>
 
 ## What's New
+
+### Version 0.5.4
+
+#### 1. Safe History Trimming (Critical)
+Fixed a critical bug where the history trimming logic (`history[-max_len:]`) could split a tool-call/tool-result message pair. When the history list grew beyond the retention limit, blindly slicing from the beginning could remove the assistant message containing `tool_calls` while leaving its corresponding `tool` result message — creating an orphaned tool message. The OpenAI-compatible API rejects such messages with HTTP 400: `"Messages with role 'tool' must be a response to a preceding message with 'tool_calls'"`.
+
+The new `_safe_trim_history()` function ensures trimmed history always starts at a complete conversation turn boundary (a `user` role message), preventing orphaned tool messages from ever reaching the API.
+
+#### 2. Pydantic Model Compatibility Fix
+Fixed an `AttributeError: 'ChatCompletionMessage' object has no attribute 'get'` in `_safe_trim_history()`. The conversation history list contains a mix of plain `dict` objects (user messages and tool results) and Pydantic `ChatCompletionMessage` model instances (assistant replies from the API). The function now correctly handles both types when accessing the `role` attribute.
 
 ### Version 0.5.3
 

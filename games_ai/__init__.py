@@ -10,7 +10,7 @@ import time,os,requests,lzma,json,threading,datetime
 
 PLUGIN_METADATA = {
     "id": "games_ai",
-    "version": "0.5.3",
+    "version": "0.5.4",
     "name": "GamesAI",
     "description": {
         "zh_cn": "此插件可以让你在游戏中使用AI",
@@ -393,6 +393,20 @@ class gamesai_help:
             all_help_part = RTextList(basic_help_part, "\n", per_help_part)
             source.reply(all_help_part)
 
+def _safe_trim_history(history: list, max_len: int) -> list:
+    if len(history) <= max_len:
+        return history
+
+    trimmed = history[-max_len:]
+
+    for i, msg in enumerate(trimmed):
+        role = msg.get("role") if isinstance(msg, dict) else getattr(msg, "role", None)
+        if role == "user":
+            return trimmed[i:]
+
+    return trimmed
+
+
 @new_thread("games_ai@ask_ai")
 def ask_ai(source: CommandSource,context: dict):
     server = source.get_server()
@@ -506,7 +520,7 @@ def ask_ai(source: CommandSource,context: dict):
                 if debug_mode:
                     source.reply(f"{ai_prefix}当前最大历史记录数: {max_len}")
                 if len(history) > max_len:
-                    history = history[-max_len:]
+                    history = _safe_trim_history(history, max_len)
                 history_conversation.setdefault(username, {})[ai_prefix] = history
                 user_tool_counts.setdefault(username, {})[ai_prefix] = current_tool_count
                 source.reply(message)
