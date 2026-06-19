@@ -9,6 +9,9 @@
 </div>
 
 > [!NOTE]
+> GamesAI现已更新Fabric版本。见[GamesAI](https://github.com/PengZixuan30/GamesAI)
+
+> [!NOTE]
 > 欢迎使用版本 0.5.4！当前版本修复了**关键的历史记录裁剪 Bug**（HTTP 400 错误）和 **Pydantic 模型兼容性问题**。见[本次更新](#本次更新)
 
 > [!IMPORTANT]
