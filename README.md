@@ -9,6 +9,9 @@ English  |  [简体中文](/README.zh-CN.md)  |  [繁體中文](/README.zh-TW.md
 </div>
 
 > [!NOTE]
+> GamesAI has now updated its Fabric version. See [GamesAI](https://github.com/PengZixuan30/GamesAI)
+
+> [!NOTE]
 > Welcome to version 0.5.4! This release fixes a **critical history trimming bug** that caused HTTP 400 errors with orphaned tool messages, and a **Pydantic model compatibility issue**. See [What's New](#whats-new)
 
 > [!IMPORTANT]
