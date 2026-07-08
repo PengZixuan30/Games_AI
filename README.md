@@ -12,10 +12,10 @@ English  |  [简体中文](/README.zh-CN.md)  |  [繁體中文](/README.zh-TW.md
 > GamesAI has now updated its Fabric version. See [GamesAI](https://github.com/PengZixuan30/GamesAI)
 
 > [!NOTE]
-> Welcome to version 0.5.4! This release fixes a **critical history trimming bug** that caused HTTP 400 errors with orphaned tool messages, and a **Pydantic model compatibility issue**. See [What's New](#whats-new)
+> Welcome to version 0.5.5! This release introduces **7 new built-in tools**, **built-in skill files**, and **hot reload** support. See [What's New](#whats-new)
 
 > [!IMPORTANT]
-> Version 0.5.0 introduced custom tool support and created a `tools.py` file in the config folder. Version 0.5.1 introduced the prompt file feature and created a `prompt` folder. Version 0.5.2 introduced the Skills system and created a `skills` folder. Version 0.5.3 fixed a critical message history bug. **Version 0.5.4** fixes a critical history trimming bug and improves Pydantic compatibility. See [Skills](#skills).
+> Version 0.5.0 introduced custom tool support and created a `tools.py` file in the config folder. Version 0.5.1 introduced the prompt file feature and created a `prompt` folder. Version 0.5.2 introduced the Skills system and created a `skills` folder. Version 0.5.3 fixed a critical message history bug. Version 0.5.4 fixed a critical history trimming bug and improved Pydantic compatibility. **Version 0.5.5** adds 7 new tools, built-in skill files, hot reload, and autonomous AI extensibility.
 
 <details>
 <summary>Table of Contents (click to expand)</summary>
@@ -221,6 +221,13 @@ The GamesAI plugin provides many built-in tools, listed in the table below. If y
 |ai_write_data|`key`, `value`|Write a data entry to the database (overwrite mode).|
 |ai_add_data|`key`, `value`|Write a data entry to the database (append mode).|
 |read_skills|`skills`|Read a registered skill instruction file to guide AI behavior for specific tasks.|
+|write_skills|`skills`, `summary`, `content`|Create or overwrite a skill file and register it in the skills index.|
+|modify_skills|`skills`, `summary`, `content`|Modify an existing skill file and update its summary in the index.|
+|delete_skills|`skills`|Delete a skill file and remove it from the skills index.|
+|read_custom_tools|None|Read the current content of the custom `tools.py` file.|
+|modify_custom_tools|`tools`|Replace the entire custom `tools.py` file with new code.|
+|setting_timer|`duration`|Pause execution for the specified number of seconds before continuing.|
+|reload_plugin|None|Hot-reload the plugin to apply configuration, skills, and custom tools changes without losing chat history.|
 |ai_del_data|`key`|Delete a data entry from the database.|
 
 </details>
@@ -250,6 +257,9 @@ Skills files are stored in `config/games_ai/skills/` as Markdown (`.md`) files. 
 When a skill is registered, it appears in the AI's system prompt. The AI can then use the **`read_skills`** tool to read the full contents of any skill file before performing related tasks.
 
 > [!TIP]
+> GamesAI ships with two **built-in skills**: `skills_management.md` (how to manage skill files) and `custom_tools_management.md` (how to modify custom tools). The AI will automatically read these before modifying skills or tools.
+
+> [!TIP]
 > Skills are like SOPs (Standard Operating Procedures) for the AI — they ensure the AI follows the correct workflow every time.
 
 ### Custom Tools
@@ -268,6 +278,9 @@ def my_custom_tool(source: CommandSource, ai_prefix: str):
 
 > [!IMPORTANT]
 > The `from games_ai.games_ai_tool import register_tool` import and the `@register_tool` decorator above the function definition **must** be present.
+
+> [!TIP]
+> In version 0.5.5+, the AI can autonomously **read and modify** the custom tools file using the `read_custom_tools` and `modify_custom_tools` tools. Just ask the AI to add a new tool for you — it will read the current file, write the new code, and reload the plugin.
 
 As you can see, the structure is very simple.
 
@@ -408,6 +421,42 @@ def search_baidu(source, ai_prefix: str, query: str):
 </details>
 
 ## What's New
+
+### Version 0.5.5
+
+#### 1. AI Self-Extension (7 New Tools)
+
+The AI can now autonomously extend its own capabilities. Seven new built-in tools have been added:
+
+- **Skill Management**: `write_skills`, `modify_skills`, `delete_skills` — the AI can create, update, and delete skill instruction files.
+- **Custom Tools Management**: `read_custom_tools`, `modify_custom_tools` — the AI can read and modify the `tools.py` file to add new tool functions.
+- **Utilities**: `setting_timer` (pauses execution), `reload_plugin` (hot-reloads the plugin).
+
+Combined with the built-in skills (`skills_management.md` and `custom_tools_management.md`), the AI now follows proper workflows when modifying skills or tools — reading instructions first, making changes, then reloading.
+
+#### 2. Hot Reload
+
+The `!!gamesai reload` command now performs an **in-process hot reload** instead of a full MCDR plugin unload/load cycle. This means:
+
+- Chat history is preserved across reloads (no more lost conversations).
+- Reloads configuration, skills index, custom tools, and prompt files instantly.
+- No MCDR restart required.
+
+#### 3. Built-in Skill Files
+
+Two skill files are now shipped with the plugin:
+
+- `skills_management.md` — teaches the AI how to properly manage skill files.
+- `custom_tools_management.md` — teaches the AI how to read and modify custom tools.
+
+These files are read automatically by the AI before performing related operations, ensuring consistent behavior.
+
+#### 4. Other Improvements
+
+- Fixed `RTextList` serialization issues in system messages and data messages.
+- Fixed prompt file path resolution in `_apply_config`.
+- Improved error reporting in `read_skills` (now shows which paths were tried).
+- The AI no longer needs the player to manually reload — it can call `reload_plugin` itself.
 
 ### Version 0.5.4
 

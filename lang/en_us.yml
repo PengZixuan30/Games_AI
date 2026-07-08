@@ -83,8 +83,19 @@ games_ai:
     deleting_data: "Deleting public data, key: {key}"
 
     reading_skills: "Reading skill: {skills}"
+    writing_skills: "Writing skill: {skills}"
+    modifying_skills: "Modifying skill: {skills}"
+    deleting_skills: "Deleting skill: {skills}"
+    setting_timer: "Setting timer, waiting for {duration} seconds"
+    reading_custom_tools: "Reading custom tools file"
+    modifying_custom_tools: "Modifying custom tools file"
+    reloading_plugin: "Reloading plugin..."
 
     tool_success: "Tool executed successfully!"
+
+  builtin_skills:
+    skills_management: "[MUST READ] You MUST read this file BEFORE performing any write/modify/delete operations on skill files!"
+    custom_tools_management: "[MUST READ] You MUST read this file BEFORE reading or modifying the custom tools.py file!"
 
   clear_history_message:
     success: "Cleared chat history for player {username}"

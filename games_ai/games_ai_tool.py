@@ -2,7 +2,7 @@ from mcdreforged.command.command_source import CommandSource
 
 from dataclasses import dataclass
 from typing import Callable
-import requests, os, json
+import requests, os, json, time
 
 from .config import plugin_config
 
@@ -375,10 +375,225 @@ def get_all_pos(source: CommandSource, ai_prefix: str):
 def read_skills(source: CommandSource, ai_prefix: str, skills: str):
     server = source.get_server()
     source.reply(f"{ai_prefix}{server.rtr("games_ai.tools.reading_skills", skills=skills)}")
+    custom_path = os.path.join(os.path.dirname(plugin_config.skills_path), skills)
+    errors = []
+
+    if os.path.isfile(custom_path):
+        try:
+            with open(custom_path, mode='r', encoding='utf-8') as f:
+                return f"skills的内容: \n{f.read()}"
+        except Exception as e:
+            errors.append(f"自定义路径读取失败: {e}")
+
+    _plugin_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if os.path.isfile(_plugin_root):
+        import zipfile
+        try:
+            with zipfile.ZipFile(_plugin_root, 'r') as zf:
+                zip_path = f"skills/{skills}"
+                if zip_path in zf.namelist():
+                    content = zf.read(zip_path).decode('utf-8')
+                    return f"skills的内容: \n{content}"
+                else:
+                    errors.append(f"内置skills中未找到: {zip_path}")
+        except (zipfile.BadZipFile, KeyError, OSError) as e:
+            errors.append(f"内置skills读取失败: {e}")
+
+    if plugin_config.builtin_skills_dir:
+        builtin_path = os.path.join(plugin_config.builtin_skills_dir, skills)
+        try:
+            with open(builtin_path, mode='r', encoding='utf-8') as f:
+                return f"skills的内容: \n{f.read()}"
+        except Exception as e:
+            errors.append(f"内置目录读取失败: {e}")
+
+    error_detail = "; ".join(errors) if errors else "文件不存在于任何路径"
+    return f"skills读取失败, 原因: {error_detail}"
+
+@register_tool(description="写入技能, 调用多个工具前必备, 每次只能写入一个skills", tr_key="games_ai.tools.writing_skills", parameters={
+    "type": "object",
+    "properties": {
+        "skills": {
+            "type": "string",
+            "description": "你要写入的技能文件的文件名"
+        },
+        "summary": {
+            "type": "string",
+            "description": "你要写入的技能的简介"
+        },
+        "content": {
+            "type": "string",
+            "description": "你要写入的技能内容"
+        }
+    },
+    "required": ["skills", "summary", "content"]
+})
+def write_skills(source: CommandSource, ai_prefix: str, skills: str, summary: str, content: str):
+    server = source.get_server()
+    source.reply(f"{ai_prefix}{server.rtr("games_ai.tools.writing_skills", skills=skills)}")
     skills_path = os.path.join(os.path.dirname(plugin_config.skills_path), skills)
     try:
-        with open(skills_path, mode='r', encoding='utf-8') as f:
-            content = f.read()
-            return f"skills的内容: \n{content}"
+        with open(skills_path, mode='w', encoding='utf-8') as f:
+            f.write(content)
+
+        try:
+            with open(plugin_config.skills_path, mode='r', encoding='utf-8') as f:
+                index_data = json.load(f)
+                if not isinstance(index_data, list):
+                    index_data = []
+        except (FileNotFoundError, json.JSONDecodeError):
+            index_data = []
+
+        found = False
+        for item in index_data:
+            if item.get("file") == skills:
+                item["description"] = summary
+                found = True
+                break
+        if not found:
+            index_data.append({"file": skills, "description": summary})
+
+        with open(plugin_config.skills_path, mode='w', encoding='utf-8') as f:
+            json.dump(index_data, f, ensure_ascii=False, indent=4)
+
+        return f"skills写入成功"
     except Exception as e:
-        return f"skills读取失败, 原因: {e}"
+        return f"skills写入失败, 原因: {e}"
+
+@register_tool(description="修改技能, 调用多个工具前必备, 每次只能修改一个skills", tr_key="games_ai.tools.modifying_skills", parameters={
+    "type": "object",
+    "properties": {
+        "skills": {
+            "type": "string",
+            "description": "你要修改的技能文件的文件名"
+        },
+        "summary": {
+            "type": "string",
+            "description": "你要修改的技能的简介"
+        },
+        "content": {
+            "type": "string",
+            "description": "你要修改的技能内容"
+        }
+    },
+    "required": ["skills", "summary", "content"]
+})
+def modify_skills(source: CommandSource, ai_prefix: str, skills: str, summary: str, content: str):
+    server = source.get_server()
+    source.reply(f"{ai_prefix}{server.rtr("games_ai.tools.modifying_skills", skills=skills)}")
+    skills_path = os.path.join(os.path.dirname(plugin_config.skills_path), skills)
+    try:
+        with open(skills_path, mode='w', encoding='utf-8') as f:
+            f.write(content)
+
+        try:
+            with open(plugin_config.skills_path, mode='r', encoding='utf-8') as f:
+                index_data = json.load(f)
+                if not isinstance(index_data, list):
+                    index_data = []
+        except (FileNotFoundError, json.JSONDecodeError):
+            index_data = []
+
+        found = False
+        for item in index_data:
+            if item.get("file") == skills:
+                item["description"] = summary
+                found = True
+                break
+        if not found:
+            index_data.append({"file": skills, "description": summary})
+
+        with open(plugin_config.skills_path, mode='w', encoding='utf-8') as f:
+            json.dump(index_data, f, ensure_ascii=False, indent=4)
+
+        return f"skills修改成功"
+    except Exception as e:
+        return f"skills修改失败, 原因: {e}"
+
+@register_tool(description="删除技能, 调用多个工具前必备, 每次只能删除一个skills", tr_key="games_ai.tools.deleting_skills", parameters={
+    "type": "object",
+    "properties": {
+        "skills": {
+            "type": "string",
+            "description": "你要删除的技能文件的文件名"
+        }
+    },
+    "required": ["skills"]
+})
+def delete_skills(source: CommandSource, ai_prefix: str, skills: str):
+    server = source.get_server()
+    source.reply(f"{ai_prefix}{server.rtr("games_ai.tools.deleting_skills", skills=skills)}")
+    skills_path = os.path.join(os.path.dirname(plugin_config.skills_path), skills)
+    try:
+        os.remove(skills_path)
+
+        try:
+            with open(plugin_config.skills_path, mode='r', encoding='utf-8') as f:
+                index_data = json.load(f)
+                if not isinstance(index_data, list):
+                    index_data = []
+        except (FileNotFoundError, json.JSONDecodeError):
+            index_data = []
+
+        index_data = [item for item in index_data if item.get("file") != skills]
+
+        with open(plugin_config.skills_path, mode='w', encoding='utf-8') as f:
+            json.dump(index_data, f, ensure_ascii=False, indent=4)
+
+        return f"skills删除成功"
+    except Exception as e:
+        return f"skills删除失败, 原因: {e}"
+    
+@register_tool(description="设置一个计时器, 等待这段时间之后再执行下一步操作", tr_key="setting_timer", parameters={
+    "type": "object",
+    "properties": {
+        "duration": {
+            "type": "number",
+            "description": "等待的时长（秒）"
+        }
+    },
+    "required": ["duration"]
+})
+def setting_timer(source: CommandSource, ai_prefix: str, duration: int):
+    server = source.get_server()
+    source.reply(f"{ai_prefix}{server.rtr("games_ai.tools.setting_timer", duration=duration)}")
+    time.sleep(duration)
+    return f"计时器结束，已等待 {duration} 秒"
+
+@register_tool(description="读取自定义tools文件", tr_key="games_ai.tools.reading_custom_tools")
+def read_custom_tools(source: CommandSource, ai_prefix: str):
+    server = source.get_server()
+    source.reply(f"{ai_prefix}{server.rtr("games_ai.tools.reading_custom_tools")}")
+    try:
+        with open(plugin_config.tools_path, mode='r', encoding='utf-8') as f:
+            tools_content = f.read()
+        return f"tools文件内容:\n{tools_content}"
+    except Exception as e:
+        return f"tools文件读取失败, 原因: {e}"
+
+@register_tool(description="修改自定义tools文件, 为AI提供更灵活的功能, 修改之前务必先阅读tools文件和相关skills", tr_key="games_ai.tools.modifying_custom_tools", parameters={
+    "type": "object",
+    "properties": {
+        "tools": {
+            "type": "string",
+            "description": "要修改的源代码, 请确保代码是有效的Python代码"
+        },
+    },
+    "required": ["tools"]
+})
+def modify_custom_tools(source: CommandSource, ai_prefix: str, tools: str):
+    server = source.get_server()
+    source.reply(f"{ai_prefix}{server.rtr("games_ai.tools.modifying_custom_tools")}")
+    try:
+        with open(plugin_config.tools_path, mode='w', encoding='utf-8') as f:
+            f.write(tools)
+        return f"tools文件修改成功"
+    except Exception as e:
+        return f"tools文件修改失败, 原因: {e}"
+
+@register_tool(description="重载插件", tr_key="games_ai.tools.reloading_plugin")
+def reload_plugin(source: CommandSource, ai_prefix: str):
+    server = source.get_server()
+    source.reply(f"{ai_prefix}{server.rtr("games_ai.tools.reloading_plugin")}")
+    server.execute_command("!!gamesai reload", source)
+    return f"插件已重载"

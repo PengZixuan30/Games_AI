@@ -83,8 +83,18 @@ games_ai:
     deleting_data: "正在删除公共数据, key: {key}"
 
     reading_skills: "正在阅读技能: {skills}"
-
+    writing_skills: "正在写入技能: {skills}"
+    modifying_skills: "正在修改技能: {skills}"
+    deleting_skills: "正在删除技能: {skills}"
+    setting_timer: "正在设置计时器，等待 {duration} 秒"
+    modifying_custom_tools: "正在修改自定义工具"
+    reading_custom_tools: "正在读取自定义工具文件"
+    reloading_plugin: "正在重载插件..."
     tool_success: "工具调用成功!"
+
+  builtin_skills:
+    skills_management: "【必须读取】在对任何技能文件执行写入/修改/删除操作之前，务必先阅读此文件！"
+    custom_tools_management: "【必须读取】在读取或修改自定义tools.py文件之前，务必先阅读此文件！"
 
   clear_history_message:
     success: "已清除玩家{username}的历史聊天记录"

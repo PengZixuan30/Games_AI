@@ -5,5 +5,6 @@ class SyncPluginConfig:
     data_path: str = "config/games_ai/database/public_database.db"
     tools_path: str = "config/games_ai/tools/tools.py"
     skills_path: str = "config/games_ai/skills/skills.json"
+    builtin_skills_dir: str = ""
     
 plugin_config = SyncPluginConfig()

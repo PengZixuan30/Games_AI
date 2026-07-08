@@ -10,7 +10,7 @@ import time,os,requests,lzma,json,threading,datetime
 
 PLUGIN_METADATA = {
     "id": "games_ai",
-    "version": "0.5.4",
+    "version": "0.5.5",
     "name": "GamesAI",
     "description": {
         "zh_cn": "此插件可以让你在游戏中使用AI",
@@ -58,56 +58,8 @@ def on_load(server: PluginServerInterface, old):
         in_data_folder=True
     )
 
-    prefix = config.get('prefix','[GamesAI]')
-    max_history = config.get('max_history',10)
-    allow_permission = config.get('permission',3)
+    _apply_config(server, config)
 
-    plugin_config.prefix = prefix
-    plugin_config.allow_permission = allow_permission
-    plugin_config.max_history = max_history
-
-    prompt_path = os.path.join(server.get_data_folder(), "prompt")
-    if not os.path.exists(prompt_path):
-        os.makedirs(prompt_path, exist_ok=True)
-
-    ai_dict = {}
-
-    all_ai: dict = config.get('all_ai', {})
-    for ai_id,ai_config in all_ai.items():
-        if not isinstance(ai_config, dict):
-            continue
-        raw_prompt: str = ai_config.get("prompt", server.rtr("games_ai.system_message.default"))
-        if raw_prompt.startswith("> "):
-            prompt_file_path = raw_prompt[2:].strip()
-            prompt_full_path = os.path.join(server.get_data_folder(), "prompt", prompt_file_path)
-            try:
-                with open(prompt_full_path, 'r', encoding='utf-8') as f:
-                    raw_prompt = f.read()
-                server.logger.info(f"{prefix} Loaded prompt from file: {prompt_full_path}")
-            except FileNotFoundError:
-                server.logger.warning(f"{prefix} Prompt file not found: {prompt_full_path}, using default prompt")
-                raw_prompt = server.rtr("games_ai.system_message.default")
-        ai_info = {
-            "prompt": raw_prompt,
-            "ai_name": ai_config.get("ai_name", "[GamesAI]"),
-            "base_url": ai_config.get("base_url", ""),
-            "ai_model": ai_config.get("ai_model", ""),
-            "api_key": ai_config.get("api_key", ""),
-            "thinking": ai_config.get("thinking", False),
-        }
-        ai_dict[ai_id] = ai_info
-
-    default_ai = config.get("default_ai", list(ai_dict.keys())[0])
-
-    name_to_id = {}
-
-    for id, info in ai_dict.items():
-        name = info.get("ai_name")
-        name_to_id[name] = id
-
-    mcdr_lang = str(server.rtr("games_ai.system_message.lang", lang=server.get_mcdr_language()))
-
-    
     server.register_help_message(prefix="!!data",message=server.rtr("games_ai.mcdr_help_message.data"),permission=allow_permission)
 
     server.logger.info(f'{prefix}{server.rtr("games_ai.load_message.server_info")}')
@@ -155,6 +107,7 @@ def my_custom_tool(source: CommandSource, ai_prefix: str):
     plugin_config.data_path = data_path
     plugin_config.tools_path = tools_path
     plugin_config.skills_path = skills_path
+    plugin_config.builtin_skills_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "skills")
 
     load_external_tools(log=server.logger.info)
 
@@ -209,6 +162,56 @@ def my_custom_tool(source: CommandSource, ai_prefix: str):
 def on_server_startup(server: PluginServerInterface):
     server.say(f'{prefix}{server.rtr("games_ai.load_message.client_info", v=PLUGIN_METADATA.get('version'))}')
 
+
+def _apply_config(server: PluginServerInterface, config: dict):
+    global prefix, allow_permission, max_history, mcdr_lang, ai_dict, default_ai, name_to_id
+
+    prefix = config.get('prefix', '[GamesAI]')
+    max_history = config.get('max_history', 10)
+    allow_permission = config.get('permission', 3)
+
+    plugin_config.prefix = prefix
+    plugin_config.allow_permission = allow_permission
+    plugin_config.max_history = max_history
+    
+    prompt_dir = os.path.join(os.path.dirname(os.path.dirname(plugin_config.skills_path)), "prompt")
+    if not os.path.exists(prompt_dir):
+        os.makedirs(prompt_dir, exist_ok=True)
+
+    ai_dict = {}
+    all_ai: dict = config.get('all_ai', {})
+    for ai_id, ai_config in all_ai.items():
+        if not isinstance(ai_config, dict):
+            continue
+        raw_prompt: str = ai_config.get("prompt", str(server.rtr("games_ai.system_message.default")))
+        if raw_prompt.startswith("> "):
+            prompt_file_path = raw_prompt[2:].strip()
+            prompt_full_path = os.path.join(prompt_dir, prompt_file_path)
+            try:
+                with open(prompt_full_path, 'r', encoding='utf-8') as f:
+                    raw_prompt = f.read()
+                server.logger.info(f"{prefix} Loaded prompt from file: {prompt_full_path}")
+            except FileNotFoundError:
+                server.logger.warning(f"{prefix} Prompt file not found: {prompt_full_path}, using default prompt")
+                raw_prompt = str(server.rtr("games_ai.system_message.default"))
+        ai_dict[ai_id] = {
+            "prompt": raw_prompt,
+            "ai_name": ai_config.get("ai_name", "[GamesAI]"),
+            "base_url": ai_config.get("base_url", ""),
+            "ai_model": ai_config.get("ai_model", ""),
+            "api_key": ai_config.get("api_key", ""),
+            "thinking": ai_config.get("thinking", False),
+        }
+
+    default_ai = config.get("default_ai", list(ai_dict.keys())[0] if ai_dict else "")
+
+    name_to_id = {}
+    for aid, info in ai_dict.items():
+        name = info.get("ai_name")
+        name_to_id[name] = aid
+
+    mcdr_lang = str(server.rtr("games_ai.system_message.lang", lang=server.get_mcdr_language()))
+
 def on_unload(server: PluginServerInterface):
     if _timer is not None:
         _timer.cancel()
@@ -217,8 +220,6 @@ def on_unload(server: PluginServerInterface):
         server.say(f'{prefix}Bye!')
     elif unload_status_code == 1:
         server.say(f'{prefix}{server.rtr("games_ai.unload_message.after_update_restart_msg")}')
-    else:
-        server.say(f'{prefix}{server.rtr("games_ai.unload_message.reloader_msg")}')
 
 class gamesai_help:
     @staticmethod
@@ -434,7 +435,11 @@ def ask_ai(source: CommandSource,context: dict):
     base_url = ai_info.get("base_url")
     api_key = ai_info.get("api_key")
     prompt = ai_info.get("prompt")
-    skills_file_list = f"{str(server.rtr("games_ai.user_message.skills", skills=skills))}" if skills else f"{str(server.rtr("games_ai.user_message.skills", skills="None"))}"
+    default_skills = [
+        {"file": "skills_management.md", "description": str(server.rtr("games_ai.builtin_skills.skills_management"))},
+        {"file": "custom_tools_management.md", "description": str(server.rtr("games_ai.builtin_skills.custom_tools_management"))},
+    ]
+    skills_file_list = str(server.rtr("games_ai.user_message.skills", skills=[*skills, *default_skills]))
     config_thinking = ai_info.get("thinking", False)
     if config_thinking:
         thinking = "enabled"
@@ -459,7 +464,7 @@ def ask_ai(source: CommandSource,context: dict):
     ]
     data = DataManager(data_path).ask_ai_read_data()
     source.reply(f'{ai_prefix}{server.rtr("games_ai.user_message.get_data")}')
-    data_message = {"role": "assistant","content": f'{server.rtr("games_ai.user_message.data_list")}{data}'}
+    data_message = {"role": "assistant","content": f'{str(server.rtr("games_ai.user_message.data_list"))}{data}'}
     response_message.append(data_message)
     response_message.extend(history)
     response_message.append(user_message)
@@ -850,12 +855,22 @@ def debug(source: CommandSource, context: dict):
 
 @new_thread("games_ai@reloader")
 def reloader(source: CommandSource, context: dict):
-    global unload_status_code
+    global unload_status_code, skills
     unload_status_code = 2
     server = source.get_server()
-    server.execute_command("!!MCDR plugin unload games_ai")
-    while True:
-        if server.get_plugin_metadata("games_ai") is None:
-            break
-    server.execute_command(f"!!MCDR plugin load GamesAI-v{PLUGIN_METADATA.get('version')}.mcdr")
+
+    config_path = os.path.join(os.path.dirname(os.path.dirname(plugin_config.skills_path)), 'config.json')
+    with open(config_path, 'r', encoding='utf-8') as f:
+        config = json.load(f)
+    _apply_config(server, config)
+
+    try:
+        with open(plugin_config.skills_path, mode="r", encoding="utf-8") as f:
+            skills = json.loads(f.read())
+    except Exception as e:
+        server.logger.warning(f"{prefix} Failed to reload skills: {e}")
+
+    load_external_tools(log=server.logger.info)
+
+    server.say(f'{prefix}{server.rtr("games_ai.unload_message.reloader_msg")}')
     return

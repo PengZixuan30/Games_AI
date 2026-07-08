@@ -12,10 +12,10 @@
 > GamesAI现已更新Fabric版本。见[GamesAI](https://github.com/PengZixuan30/GamesAI)
 
 > [!NOTE]
-> 欢迎使用版本 0.5.4！当前版本修复了**关键的历史记录裁剪 Bug**（HTTP 400 错误）和 **Pydantic 模型兼容性问题**。见[本次更新](#本次更新)
+> 欢迎使用版本 0.5.5！当前版本新增了 **7 个内置工具**、**内置技能文件**和**热重载**支持。见[本次更新](#本次更新)
 
 > [!IMPORTANT]
-> 0.5.0 版本加入了自定义工具的功能，会在配置文件夹创建 `tools.py` 文件。0.5.1 版本加入了提示词文件化的功能，会在配置文件夹创建 `prompt` 文件夹。0.5.2 版本加入了 Skills 技能系统并创建了 `skills` 文件夹。0.5.3 版本修复了一个关键的消息历史 Bug。**0.5.4 版本**修复了一个关键的历史裁剪 Bug 并改进了 Pydantic 兼容性。见[Skills 技能](#skills-技能)。
+> 0.5.0 版本加入了自定义工具的功能，会在配置文件夹创建 `tools.py` 文件。0.5.1 版本加入了提示词文件化的功能，会在配置文件夹创建 `prompt` 文件夹。0.5.2 版本加入了 Skills 技能系统并创建了 `skills` 文件夹。0.5.3 版本修复了一个关键的消息历史 Bug。0.5.4 版本修复了一个关键的历史裁剪 Bug 并改进了 Pydantic 兼容性。**0.5.5 版本**新增了 7 个内置工具、内置技能文件、热重载功能和 AI 自主扩展能力。
 
 <details>
 <summary>目录(点击展示)</summary>
@@ -34,7 +34,20 @@
     - [Skills 技能](#skills-技能)
     - [自定义工具](#自定义工具)
   - [本次更新](#本次更新)
-    - [1.Skills 技能系统](#1skills-技能系统)
+    - [Version 0.5.5](#version-055)
+      - [1. AI 自主扩展（7 个新工具）](#1-ai-自主扩展7-个新工具)
+      - [2. 热重载](#2-热重载)
+      - [3. 内置技能文件](#3-内置技能文件)
+      - [4. 其他改进](#4-其他改进)
+    - [Version 0.5.4](#version-054)
+      - [1. 安全历史裁剪修复（关键）](#1-安全历史裁剪修复关键)
+      - [2. Pydantic 模型兼容性修复](#2-pydantic-模型兼容性修复)
+    - [Version 0.5.3](#version-053)
+      - [1. 历史记录损坏修复（关键）](#1-历史记录损坏修复关键)
+      - [2. 按用户追踪工具调用计数](#2-按用户追踪工具调用计数)
+      - [3. Debug 模式显示修复](#3-debug-模式显示修复)
+    - [Version 0.5.2](#version-052)
+      - [1. Skills 技能系统](#1-skills-技能系统)
   - [鸣谢与声明](#鸣谢与声明)
   - [许可证](#许可证)
 
@@ -209,6 +222,13 @@ GamesAI插件提供了很多自带的工具，见下表。如果你想要更多�
 |ai_write_data|`key`,`value`|向数据库中写入一条数据\(覆写模式\)|
 |ai_add_data|`key`,`value`|向数据库中写入一条数据\(追加模式\)|
 |read_skills|`skills`|读取已注册的技能指导文件，引导 AI 执行特定任务|
+|write_skills|`skills`、`summary`、`content`|创建或覆写一个技能文件并注册到技能索引中|
+|modify_skills|`skills`、`summary`、`content`|修改已有技能文件并更新索引中的简介|
+|delete_skills|`skills`|删除一个技能文件并从技能索引中移除|
+|read_custom_tools|无|读取当前自定义 `tools.py` 文件的内容|
+|modify_custom_tools|`tools`|用新代码替换整个自定义 `tools.py` 文件|
+|setting_timer|`duration`|暂停执行指定秒数后再继续下一步操作|
+|reload_plugin|无|热重载插件以应用配置、技能和自定义工具的更改，不会丢失聊天记录|
 |ai_del_data|`key`|删除数据库中的一条数据|
 
 </details>
@@ -238,6 +258,9 @@ Skills 技能系统让你可以编写指导文件来规范 AI 处理特定任务
 技能注册后会出现在 AI 的系统提示中。AI 可以使用 **`read_skills`** 工具在执行相关任务前读取技能文件的完整内容。
 
 > [!TIP]
+> GamesAI 内置了两个**技能文件**：`skills_management.md`（如何管理技能文件）和 `custom_tools_management.md`（如何修改自定义工具）。AI 在修改技能或工具之前会自动读取这些文件。
+
+> [!TIP]
 > Skills 就像 AI 的「标准作业程序 (SOP)」——确保 AI 每次都遵循正确的工作流程。
 
 ### 自定义工具
@@ -256,6 +279,9 @@ def my_custom_tool(source: CommandSource, ai_prefix: str):
 
 > [!IMPORTANT]
 > 代码中的`from games_ai.games_ai_tool import register_tool`和函数定义前的`@register_tool`必须存在
+
+> [!TIP]
+> 在 0.5.5+ 版本中，AI 可以**自主读取和修改**自定义工具文件。只需让 AI 帮你添加新工具——它会先读取当前文件，编写新代码，然后重载插件。
 
 可见，这是十分简单的结构。
 
@@ -391,6 +417,42 @@ def search_baidu(source, ai_prefix: str, query: str):
 </details>
 
 ## 本次更新
+
+### Version 0.5.5
+
+#### 1. AI 自主扩展（7 个新工具）
+
+AI 现在可以自主扩展自身能力。新增 7 个内置工具：
+
+- **技能管理**：`write_skills`、`modify_skills`、`delete_skills` — AI 可以创建、更新和删除技能指导文件。
+- **自定义工具管理**：`read_custom_tools`、`modify_custom_tools` — AI 可以读取和修改 `tools.py` 文件来添加新的工具函数。
+- **实用工具**：`setting_timer`（暂停执行）、`reload_plugin`（热重载插件）。
+
+配合内置技能文件（`skills_management.md` 和 `custom_tools_management.md`），AI 在修改技能或工具时会遵循正确的工作流程——先读指令，再修改，最后重载。
+
+#### 2. 热重载
+
+`!!gamesai reload` 命令现在执行**进程内热重载**，而非完整的 MCDR 插件卸载/加载循环：
+
+- 聊天记录在重载时得以保留（不再丢失对话）。
+- 即时重载配置、技能索引、自定义工具和提示词文件。
+- 无需 MCDR 重启。
+
+#### 3. 内置技能文件
+
+插件现在附带两个内置技能文件：
+
+- `skills_management.md` — 教导 AI 如何正确管理技能文件。
+- `custom_tools_management.md` — 教导 AI 如何读取和修改自定义工具。
+
+AI 在执行相关操作前会自动读取这些文件，确保行为一致。
+
+#### 4. 其他改进
+
+- 修复了系统消息和数据消息中的 `RTextList` 序列化问题。
+- 修复了 `_apply_config` 中的提示词文件路径解析。
+- 改进了 `read_skills` 的错误报告（现在显示尝试了哪些路径）。
+- AI 不再需要玩家手动重载——它可以自行调用 `reload_plugin`。
 
 ### Version 0.5.4
 

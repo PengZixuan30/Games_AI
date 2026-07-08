@@ -12,10 +12,10 @@
 > GamesAI現已更新Fabric版本。見[GamesAI](https://github.com/PengZixuan30/GamesAI)
 
 > [!NOTE]
-> 歡迎使用版本 0.5.4！當前版本修復了**關鍵的歷史記錄裁剪 Bug**（HTTP 400 錯誤）和 **Pydantic 模型相容性問題**。見[本次更新](#本次更新)
+> 歡迎使用版本 0.5.5！當前版本新增了 **7 個內建工具**、**內建技能檔案**和**熱重載**支援。見[本次更新](#本次更新)
 
 > [!IMPORTANT]
-> 0.5.0 版本加入了自訂工具的功能，會在設定資料夾建立 `tools.py` 檔案。0.5.1 版本加入了提示詞檔案化的功能，會在設定資料夾建立 `prompt` 資料夾。0.5.2 版本加入了 Skills 技能系統並建立了 `skills` 資料夾。0.5.3 版本修復了一個關鍵的訊息歷史 Bug。**0.5.4 版本**修復了一個關鍵的歷史裁剪 Bug 並改進了 Pydantic 相容性。見[Skills 技能](#skills-技能)。
+> 0.5.0 版本加入了自訂工具的功能，會在設定資料夾建立 `tools.py` 檔案。0.5.1 版本加入了提示詞檔案化的功能，會在設定資料夾建立 `prompt` 資料夾。0.5.2 版本加入了 Skills 技能系統並建立了 `skills` 資料夾。0.5.3 版本修復了一個關鍵的訊息歷史 Bug。0.5.4 版本修復了一個關鍵的歷史裁剪 Bug 並改進了 Pydantic 相容性。**0.5.5 版本**新增了 7 個內建工具、內建技能檔案、熱重載功能和 AI 自主擴充能力。
 
 <details>
 <summary>目錄（點擊展開）</summary>
@@ -223,8 +223,13 @@ GamesAI 插件提供了許多內建工具，請見下表。如果你想要更多
 |ai_read_all_keys|無|取得資料庫中的所有鍵。|
 |ai_write_data|`key`、`value`|向資料庫中寫入一筆資料（覆寫模式）。|
 |ai_add_data|`key`、`value`|向資料庫中寫入一筆資料（追加模式）。|
-|read_skills|`skills`|讀取已註冊的技能指導檔案，引導 AI 執行特定任務。|
-|ai_del_data|`key`|刪除資料庫中的一筆資料。|
+|read_skills|`skills`|讀取已註冊的技能指導檔案，引導 AI 執行特定任務。||write_skills|`skills`、`summary`、`content`|建立或覆寫一個技能檔案並註冊到技能索引中|
+|modify_skills|`skills`、`summary`、`content`|修改已有技能檔案並更新索引中的簡介|
+|delete_skills|`skills`|刪除一個技能檔案並從技能索引中移除|
+|read_custom_tools|無|讀取目前自訂 `tools.py` 檔案的內容|
+|modify_custom_tools|`tools`|用新程式碼替換整個自訂 `tools.py` 檔案|
+|setting_timer|`duration`|暫停執行指定秒數後再繼續下一步操作|
+|reload_plugin|無|熱重載插件以套用設定、技能和自訂工具的變更，不會遺失聊天記錄||ai_del_data|`key`|刪除資料庫中的一筆資料。|
 
 </details>
 
@@ -253,6 +258,9 @@ Skills 技能系統讓你可以編寫指導檔案來規範 AI 處理特定任務
 技能註冊後會出現在 AI 的系統提示中。AI 可以使用 **`read_skills`** 工具在執行相關任務前讀取技能檔案的完整內容。
 
 > [!TIP]
+> GamesAI 內建了兩個**技能檔案**：`skills_management.md`（如何管理技能檔案）和 `custom_tools_management.md`（如何修改自訂工具）。AI 在修改技能或工具之前會自動讀取這些檔案。
+
+> [!TIP]
 > Skills 就像 AI 的「標準作業程序 (SOP)」——確保 AI 每次都遵循正確的工作流程。
 
 ### 自訂工具
@@ -271,6 +279,9 @@ def my_custom_tool(source: CommandSource, ai_prefix: str):
 
 > [!IMPORTANT]
 > 程式碼中的 `from games_ai.games_ai_tool import register_tool` 和函式定義前的 `@register_tool` 必須存在。
+
+> [!TIP]
+> 在 0.5.5+ 版本中，AI 可以**自主讀取和修改**自訂工具檔案。只需讓 AI 幫你新增工具——它會先讀取目前檔案，編寫新程式碼，然後重載插件。
 
 可見，這是非常簡單的結構。
 
@@ -411,6 +422,42 @@ def search_baidu(source, ai_prefix: str, query: str):
 </details>
 
 ## 本次更新
+
+### Version 0.5.5
+
+#### 1. AI 自主擴充（7 個新工具）
+
+AI 現在可以自主擴充自身能力。新增 7 個內建工具：
+
+- **技能管理**：`write_skills`、`modify_skills`、`delete_skills` — AI 可以建立、更新和刪除技能指導檔案。
+- **自訂工具管理**：`read_custom_tools`、`modify_custom_tools` — AI 可以讀取和修改 `tools.py` 檔案來新增工具函式。
+- **實用工具**：`setting_timer`（暫停執行）、`reload_plugin`（熱重載插件）。
+
+配合內建技能檔案（`skills_management.md` 和 `custom_tools_management.md`），AI 在修改技能或工具時會遵循正確的工作流程——先讀指令，再修改，最後重載。
+
+#### 2. 熱重載
+
+`!!gamesai reload` 指令現在執行**行程內熱重載**，而非完整的 MCDR 插件卸載／載入迴圈：
+
+- 聊天記錄在重載時得以保留（不再遺失對話）。
+- 即時重載設定、技能索引、自訂工具和提示詞檔案。
+- 無需 MCDR 重新啟動。
+
+#### 3. 內建技能檔案
+
+插件現在附帶兩個內建技能檔案：
+
+- `skills_management.md` — 教導 AI 如何正確管理技能檔案。
+- `custom_tools_management.md` — 教導 AI 如何讀取和修改自訂工具。
+
+AI 在執行相關操作前會自動讀取這些檔案，確保行為一致。
+
+#### 4. 其他改進
+
+- 修復了系統訊息和資料訊息中的 `RTextList` 序列化問題。
+- 修復了 `_apply_config` 中的提示詞檔案路徑解析。
+- 改進了 `read_skills` 的錯誤報告（現在顯示嘗試了哪些路徑）。
+- AI 不再需要玩家手動重載——它可以自行呼叫 `reload_plugin`。
 
 ### Version 0.5.4
 
