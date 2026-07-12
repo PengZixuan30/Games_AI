@@ -12,6 +12,9 @@ English  |  [简体中文](/README.zh-CN.md)  |  [繁體中文](/README.zh-TW.md
 > GamesAI has now updated its Fabric version. See [GamesAI](https://github.com/PengZixuan30/GamesAI)
 
 > [!NOTE]
+> **GamesAI Plugin/Mod QQ Group: 849544707** — Join us to discuss issues, share feedback, and exchange prompt, skills, tools configurations!
+
+> [!NOTE]
 > Welcome to version 0.5.5! This release introduces **7 new built-in tools**, **built-in skill files**, and **hot reload** support. See [What's New](#whats-new)
 
 > [!IMPORTANT]

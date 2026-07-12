@@ -12,6 +12,9 @@
 > GamesAI现已更新Fabric版本。见[GamesAI](https://github.com/PengZixuan30/GamesAI)
 
 > [!NOTE]
+> **GamesAI 插件/模组 QQ 交流群：849544707** — 欢迎加入交流群讨论问题、反馈建议，以及分享 prompt、skills、tools 等配置！
+
+> [!NOTE]
 > 欢迎使用版本 0.5.5！当前版本新增了 **7 个内置工具**、**内置技能文件**和**热重载**支持。见[本次更新](#本次更新)
 
 > [!IMPORTANT]
