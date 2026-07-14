@@ -348,9 +348,12 @@ def get_all_pos(source: CommandSource, ai_prefix: str):
     _location_marker = server.get_plugin_instance('location_marker')
     _where2go = server.get_plugin_metadata('where2go')
     if _where2go is not None:
-        with open("config/where2go/data.json", mode="r", encoding="utf-8") as f:
-            content = f.read()
-            where2go_data = json.loads(content)
+        try:
+            with open("config/where2go/data.json", mode="r", encoding="utf-8") as f:
+                content = f.read()
+                where2go_data = json.loads(content)
+        except (json.JSONDecodeError, FileNotFoundError) as e:
+            return f"读取 where2go 数据文件时出错: {e}"
         waypoint_data = where2go_data
         return f"所有路径点信息: {waypoint_data}"
     elif _location_marker is not None:

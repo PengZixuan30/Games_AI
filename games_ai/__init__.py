@@ -10,7 +10,7 @@ import time,os,requests,lzma,json,threading,datetime
 
 PLUGIN_METADATA = {
     "id": "games_ai",
-    "version": "0.5.5",
+    "version": "0.5.6",
     "name": "GamesAI",
     "description": {
         "zh_cn": "此插件可以让你在游戏中使用AI",
@@ -129,6 +129,12 @@ def my_custom_tool(source: CommandSource, ai_prefix: str):
     builder.command('!!ask <content>', ask_ai)
     builder.command('!!ask -m <model> <content>', ask_ai)
     builder.command('!!ask --model <model> <content>', ask_ai)
+    builder.command('!!ask --no-history <content>', lambda source, context: ask_ai(source, context, no_history=True))
+    builder.command('!!ask --no-history -m <model> <content>', lambda source, context: ask_ai(source, context, no_history=True))
+    builder.command('!!ask --no-history --model <model> <content>', lambda source, context: ask_ai(source, context, no_history=True))
+    builder.command('!!ask -n <content>', lambda source, context: ask_ai(source, context, no_history=True))
+    builder.command('!!ask -n -m <model> <content>', lambda source, context: ask_ai(source, context, no_history=True))
+    builder.command('!!ask -n --model <model> <content>', lambda source, context: ask_ai(source, context, no_history=True))
 
     builder.command('!!data', helper.data_help)
 
@@ -238,6 +244,16 @@ class gamesai_help:
             server.rtr("games_ai.gamesai_help_message.help_prefix"),
             RText("!!ask -m <model> <content>", RColor.gray).c(RAction.suggest_command,'!!ask -m '),
             server.rtr("games_ai.gamesai_help_message.ask_help"),
+            "\n",
+            prefix,
+            server.rtr("games_ai.gamesai_help_message.help_prefix"),
+            RText("!!ask -n <content>", RColor.gray).c(RAction.suggest_command,'!!ask -n '),
+            server.rtr("games_ai.gamesai_help_message.ask_no_history_help"),
+            "\n",
+            prefix,
+            server.rtr("games_ai.gamesai_help_message.help_prefix"),
+            RText("!!ask -n -m <model> <content>", RColor.gray).c(RAction.suggest_command,'!!ask -n -m '),
+            server.rtr("games_ai.gamesai_help_message.ask_no_history_help"),
             "\n",
             prefix,
             server.rtr("games_ai.gamesai_help_message.all_ai_model"),
@@ -409,7 +425,7 @@ def _safe_trim_history(history: list, max_len: int) -> list:
 
 
 @new_thread("games_ai@ask_ai")
-def ask_ai(source: CommandSource,context: dict):
+def ask_ai(source: CommandSource, context: dict, no_history: bool = False):
     server = source.get_server()
 
     user_input = context.get("model", default_ai)
@@ -446,10 +462,8 @@ def ask_ai(source: CommandSource,context: dict):
     else:
         thinking = "disabled"
 
-    os.environ["OPENAI_API_KEY"] = api_key
-
-    time = datetime.datetime.now()
-    now_time = str(server.rtr("games_ai.user_message.time", time=time.strftime('%Y-%m-%d %H:%M:%S')))
+    now_time = datetime.datetime.now()
+    now_time = str(server.rtr("games_ai.user_message.time", time=now_time.strftime('%Y-%m-%d %H:%M:%S')))
     username = get_username(source)
     history = history_conversation.get(username, {}).get(ai_prefix, [])
     current_tool_count = user_tool_counts.get(username, {}).get(ai_prefix, 0)
@@ -466,7 +480,8 @@ def ask_ai(source: CommandSource,context: dict):
     source.reply(f'{ai_prefix}{server.rtr("games_ai.user_message.get_data")}')
     data_message = {"role": "assistant","content": f'{str(server.rtr("games_ai.user_message.data_list"))}{data}'}
     response_message.append(data_message)
-    response_message.extend(history)
+    if not no_history:
+        response_message.extend(history)
     response_message.append(user_message)
 
     if debug_mode:
@@ -476,7 +491,7 @@ def ask_ai(source: CommandSource,context: dict):
 
     while True:
         try:
-            ai_reply = response_chat(model=ai_model,url=base_url,message=response_message,tools=TOOL_SCHEMAS,thinking=thinking)
+            ai_reply = response_chat(model=ai_model,url=base_url,message=response_message,api_key=api_key,tools=TOOL_SCHEMAS,thinking=thinking)
             if ai_reply.tool_calls is not None:
                 response_message.append(ai_reply)
                 history.append(ai_reply)
@@ -502,7 +517,6 @@ def ask_ai(source: CommandSource,context: dict):
                         except Exception as e:
                             result = f"函数 {func_name} 执行出错: {e}"
                             source.reply(f'{ai_prefix}{server.rtr("games_ai.tools.execution_error",func_name=func_name,ex=e)}')
-                            raise e
                         
                     if debug_mode:
                         source.reply(f"[DEBUG] Tool call result: \n{result}")
@@ -520,14 +534,17 @@ def ask_ai(source: CommandSource,context: dict):
                 continue
             else:
                 message = f'{ai_prefix}{ai_reply.content}'
-                history.append(ai_reply)
-                max_len = max_history * 2 + current_tool_count * 2
-                if debug_mode:
-                    source.reply(f"{ai_prefix}当前最大历史记录数: {max_len}")
-                if len(history) > max_len:
-                    history = _safe_trim_history(history, max_len)
-                history_conversation.setdefault(username, {})[ai_prefix] = history
-                user_tool_counts.setdefault(username, {})[ai_prefix] = current_tool_count
+
+                if max_history > 0:
+                    history.append(ai_reply)
+                    max_len = max_history * 2 + current_tool_count * 2
+                    if debug_mode:
+                        source.reply(f"{ai_prefix}当前最大历史记录数: {max_len}")
+                    if len(history) > max_len:
+                        history = _safe_trim_history(history, max_len)
+                    history_conversation.setdefault(username, {})[ai_prefix] = history
+                    user_tool_counts.setdefault(username, {})[ai_prefix] = current_tool_count
+                
                 source.reply(message)
                 break
         except Exception as e:

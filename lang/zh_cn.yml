@@ -26,6 +26,7 @@ games_ai:
     help_prefix: "输入"
 
     ask_help: "以向AI提问"
+    ask_no_history_help: "以向AI提问(不使用历史记录)"
 
     clear_help: "以清除你的历史聊天记录"
 

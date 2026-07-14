@@ -4,7 +4,7 @@
 
 English  |  [简体中文](/README.zh-CN.md)  |  [繁體中文](/README.zh-TW.md)
 
-[Report an Issue](https://github.com/PengZixuan30/Games_AI/issues/new)  |  [Share an Idea](https://github.com/PengZixuan30/Games_AI/discussions/new/choose)
+[Report an Issue](https://github.com/PengZixuan30/Games_AI/issues/new)  |  [Share an Idea](https://github.com/PengZixuan30/Games_AI/discussions/new/choose)  |  [Join QQ Group](https://qm.qq.com/q/jDQQaUPNmw)
 
 </div>
 
@@ -15,10 +15,10 @@ English  |  [简体中文](/README.zh-CN.md)  |  [繁體中文](/README.zh-TW.md
 > **GamesAI Plugin/Mod QQ Group: 849544707** — Join us to discuss issues, share feedback, and exchange prompt, skills, tools configurations!
 
 > [!NOTE]
-> Welcome to version 0.5.5! This release introduces **7 new built-in tools**, **built-in skill files**, and **hot reload** support. See [What's New](#whats-new)
+> Welcome to version 0.5.6! This release introduces **no-history mode**, **max_history disable support**, and fixes for **tool error handling** and **file check** issues. See [What's New](#whats-new)
 
 > [!IMPORTANT]
-> Version 0.5.0 introduced custom tool support and created a `tools.py` file in the config folder. Version 0.5.1 introduced the prompt file feature and created a `prompt` folder. Version 0.5.2 introduced the Skills system and created a `skills` folder. Version 0.5.3 fixed a critical message history bug. Version 0.5.4 fixed a critical history trimming bug and improved Pydantic compatibility. **Version 0.5.5** adds 7 new tools, built-in skill files, hot reload, and autonomous AI extensibility.
+> Version 0.5.0 introduced custom tool support and created a `tools.py` file in the config folder. Version 0.5.1 introduced the prompt file feature and created a `prompt` folder. Version 0.5.2 introduced the Skills system and created a `skills` folder. Version 0.5.3 fixed a critical message history bug. Version 0.5.4 fixed a critical history trimming bug and improved Pydantic compatibility. **Version 0.5.5** adds 7 new tools, built-in skill files, hot reload, and autonomous AI extensibility. **Version 0.5.6** adds no-history mode, `max_history` disable support, and fixes for tool error handling and `where2go` file check issues.
 
 <details>
 <summary>Table of Contents (click to expand)</summary>
@@ -37,6 +37,19 @@ English  |  [简体中文](/README.zh-CN.md)  |  [繁體中文](/README.zh-TW.md
     - [Skills](#skills)
     - [Custom Tools](#custom-tools)
   - [What's New](#whats-new)
+    - [Version 0.5.6](#version-056)
+      - [1. `!!ask` No-History Mode](#1-ask-no-history-mode)
+      - [2. `max_history` Can Disable History](#2-max_history-can-disable-history)
+      - [3. Graceful Tool Error Handling](#3-graceful-tool-error-handling)
+      - [4. `get_all_pos` / `remove_pos` File Check Fix](#4-get_all_pos--remove_pos-file-check-fix)
+    - [Version 0.5.5](#version-055)
+      - [1. AI Self-Extension (7 New Tools)](#1-ai-self-extension-7-new-tools)
+      - [2. Hot Reload](#2-hot-reload)
+      - [3. Built-in Skill Files](#3-built-in-skill-files)
+      - [4. Other Improvements](#4-other-improvements)
+    - [Version 0.5.4](#version-054)
+      - [1. Safe History Trimming (Critical)](#1-safe-history-trimming-critical)
+      - [2. Pydantic Model Compatibility Fix](#2-pydantic-model-compatibility-fix)
     - [Version 0.5.3](#version-053)
       - [1. History Corruption Fix (Critical)](#1-history-corruption-fix-critical)
       - [2. Per-User Tool Call Tracking](#2-per-user-tool-call-tracking)
@@ -95,6 +108,8 @@ All `!!ask` Commands (click to expand)</summary>
 |---|---|
 |`!!ask <content>`|Ask the AI a question, chat, or ask it to do something. `<content>` is what you want the AI to do or the question you want to ask.|
 |`!!ask -m <model> <content>`|Use a specific model to ask the AI a question, chat, or ask it to do something. `<model>` is the AI_ID or nickname of the model you want to use. `<content>` is what you want the AI to do or the question you want to ask.|
+|`!!ask -n <content>`|Ask the AI without using conversation history (current conversation is still saved).|
+|`!!ask -n -m <model> <content>`|Use a specific model without conversation history.|
 
 </details>
 
@@ -171,7 +186,7 @@ Type: `int`
 
 Default: `10`
 
-The maximum number of conversation turns retained per player. Unrelated to the public database.
+The maximum number of conversation turns retained per player. Unrelated to the public database. Set to `0` to completely disable history.
 
 ### 4.all_ai
 Type: `dict`
@@ -425,6 +440,28 @@ def search_baidu(source, ai_prefix: str, query: str):
 
 ## What's New
 
+### Version 0.5.6
+
+#### 1. `!!ask` No-History Mode
+
+Added `--no-history` / `-n` flag. When used, old conversation history is not read into the prompt, but the current conversation is still saved for future use. Can be combined with `-m`. This feature was suggested by [william-song-shy (William Song)](https://github.com/william-song-shy).
+
+- `!!ask -n <content>` — Ask without history
+- `!!ask --no-history <content>` — Same as above
+- `!!ask -n -m <model> <content>` — Specify model without history
+
+#### 2. `max_history` Can Disable History
+
+`max_history` can now be set to `0`, which completely disables the history feature — no conversation history is read or saved.
+
+#### 3. Graceful Tool Error Handling
+
+Removed `raise e` from the tool execution error handler. Tool call failures no longer terminate the entire conversation thread. The AI now receives the error message and can attempt alternative approaches.
+
+#### 4. `get_all_pos` / `remove_pos` File Check Fix
+
+Fixed a crash in `get_all_pos` and `remove_pos` tools when the `where2go` plugin is installed but its data file hasn't been created yet. Both tools now check for file existence before attempting to read.
+
 ### Version 0.5.5
 
 #### 1. AI Self-Extension (7 New Tools)
@@ -496,6 +533,8 @@ Additionally, this release fixes several issues and improves Python 3.14 compati
 ## Acknowledgements & Disclaimer
 
 Special thanks to the Wanghai Commune server for providing the foundation for testing this plugin.
+
+Special thanks to [william-song-shy (William Song)](https://github.com/william-song-shy) for suggesting the `!!ask` no-history mode.
 
 All content generated by AI (LLM) models is unrelated to this plugin.
 

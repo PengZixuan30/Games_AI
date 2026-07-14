@@ -4,7 +4,7 @@
 
 [English](/README.md)  |  [简体中文](/README.zh-CN.md)  |  繁體中文
 
-[回報問題](https://github.com/PengZixuan30/Games_AI/issues/new)  |  [提供想法](https://github.com/PengZixuan30/Games_AI/discussions/new/choose)
+[回報問題](https://github.com/PengZixuan30/Games_AI/issues/new)  |  [提供想法](https://github.com/PengZixuan30/Games_AI/discussions/new/choose)  |  [加入Q群](https://qm.qq.com/q/jDQQaUPNmw)
 
 </div>
 
@@ -15,10 +15,10 @@
 > **GamesAI 插件/模組 QQ 交流群：849544707** — 歡迎加入交流群討論問題、回饋建議，以及分享 prompt、skills、tools 等設定！
 
 > [!NOTE]
-> 歡迎使用版本 0.5.5！當前版本新增了 **7 個內建工具**、**內建技能檔案**和**熱重載**支援。見[本次更新](#本次更新)
+> 歡迎使用版本 0.5.6！當前版本新增了 **無歷史模式**、**max_history 停用支援**，並修復了**工具例外處理**和**檔案檢查**問題。見[本次更新](#本次更新)
 
 > [!IMPORTANT]
-> 0.5.0 版本加入了自訂工具的功能，會在設定資料夾建立 `tools.py` 檔案。0.5.1 版本加入了提示詞檔案化的功能，會在設定資料夾建立 `prompt` 資料夾。0.5.2 版本加入了 Skills 技能系統並建立了 `skills` 資料夾。0.5.3 版本修復了一個關鍵的訊息歷史 Bug。0.5.4 版本修復了一個關鍵的歷史裁剪 Bug 並改進了 Pydantic 相容性。**0.5.5 版本**新增了 7 個內建工具、內建技能檔案、熱重載功能和 AI 自主擴充能力。
+> 0.5.0 版本加入了自訂工具的功能，會在設定資料夾建立 `tools.py` 檔案。0.5.1 版本加入了提示詞檔案化的功能，會在設定資料夾建立 `prompt` 資料夾。0.5.2 版本加入了 Skills 技能系統並建立了 `skills` 資料夾。0.5.3 版本修復了一個關鍵的訊息歷史 Bug。0.5.4 版本修復了一個關鍵的歷史裁剪 Bug 並改進了 Pydantic 相容性。**0.5.5 版本**新增了 7 個內建工具、內建技能檔案、熱重載功能和 AI 自主擴充能力。**0.5.6 版本**新增了無歷史模式、`max_history` 停用支援，並修復了工具例外處理和 `where2go` 檔案檢查問題。
 
 <details>
 <summary>目錄（點擊展開）</summary>
@@ -37,6 +37,11 @@
     - [Skills 技能](#skills-技能)
     - [自訂工具](#自訂工具)
   - [本次更新](#本次更新)
+    - [Version 0.5.6](#version-056)
+      - [1. `!!ask` 無歷史模式](#1-ask-無歷史模式)
+      - [2. `max_history` 支援停用歷史](#2-max_history-支援停用歷史)
+      - [3. 工具錯誤優雅處理](#3-工具錯誤優雅處理)
+      - [4. `get_all_pos` / `remove_pos` 檔案檢查修復](#4-get_all_pos--remove_pos-檔案檢查修復)
     - [Version 0.5.5](#version-055)
       - [1. AI 自主擴充（7 個新工具）](#1-ai-自主擴充7-個新工具)
       - [2. 熱重載](#2-熱重載)
@@ -103,6 +108,8 @@ pip install openai requests
 |---|---|
 |`!!ask <content>`|向 AI 提問、聊天或請它幫你做一些事情。`<content>` 為你想讓 AI 做的事情或你想問 AI 的問題。|
 |`!!ask -m <model> <content>`|使用指定的模型向 AI 提問、聊天或請它幫你做一些事情。`<model>` 為你想使用的模型的 AI_ID 或暱稱，`<content>` 為你想讓 AI 做的事情或你想問 AI 的問題。|
+|`!!ask -n <content>`|向 AI 提問但不使用歷史記錄（當前對話仍會被儲存）。|
+|`!!ask -n -m <model> <content>`|使用指定的模型且不使用歷史記錄提問。|
 
 </details>
 
@@ -179,7 +186,7 @@ pip install openai requests
 
 預設值：`10`
 
-填入每個玩家最多可保留的歷史記錄數量，與公共資料庫無關。
+填入每個玩家最多可保留的歷史記錄數量，與公共資料庫無關。設定為 `0` 時完全停用歷史記錄功能。
 
 ### 4.all_ai
 值的類型：`dict`
@@ -431,6 +438,28 @@ def search_baidu(source, ai_prefix: str, query: str):
 
 ## 本次更新
 
+### Version 0.5.6
+
+#### 1. `!!ask` 無歷史模式
+
+新增 `--no-history` / `-n` 參數，使用後當前對話不會讀取舊的歷史記錄，但本次對話仍會被儲存供後續使用。支援與 `-m` 組合使用。此功能由 [william-song-shy (William Song)](https://github.com/william-song-shy) 提議。
+
+- `!!ask -n <content>` — 不帶歷史記錄提問
+- `!!ask --no-history <content>` — 同上
+- `!!ask -n -m <model> <content>` — 指定模型且不帶歷史記錄
+
+#### 2. `max_history` 支援停用歷史
+
+`max_history` 現在可以設定為 `0`，此時插件完全停用歷史記錄功能——不讀取也不儲存任何對話歷史。
+
+#### 3. 工具錯誤優雅處理
+
+移除了工具執行例外處理中的 `raise e`，工具呼叫失敗不再導致整個對話執行緒終止。AI 會收到錯誤資訊並可以嘗試其他方式完成任務。
+
+#### 4. `get_all_pos` / `remove_pos` 檔案檢查修復
+
+修復了 `get_all_pos` 和 `remove_pos` 工具在 `where2go` 插件存在但資料檔案尚未建立時直接崩潰的問題，現在會先檢查檔案是否存在。
+
 ### Version 0.5.5
 
 #### 1. AI 自主擴充（7 個新工具）
@@ -502,6 +531,8 @@ Skills 技能系統是一種全新的 AI 行為引導方式。透過編寫 Markd
 ## 致謝與聲明
 
 特別感謝望海公社伺服器為此插件的測試提供了基礎。
+
+特別感謝 [william-song-shy (William Song)](https://github.com/william-song-shy) 為 `!!ask` 無歷史模式提供的建議。
 
 AI（LLM）模型生成的一切內容與此插件無關。
 

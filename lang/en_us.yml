@@ -26,6 +26,7 @@ games_ai:
     help_prefix: "Type "
 
     ask_help: " to ask AI a question"
+    ask_no_history_help: " to ask AI a question (without history)"
 
     clear_help: " to clear your chat history"
 
