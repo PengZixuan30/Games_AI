@@ -18,7 +18,7 @@ English  |  [简体中文](/README.zh-CN.md)  |  [繁體中文](/README.zh-TW.md
 > Welcome to version 0.5.6! This release introduces **no-history mode**, **max_history disable support**, and fixes for **tool error handling** and **file check** issues. See [What's New](#whats-new)
 
 > [!IMPORTANT]
-> Version 0.5.0 introduced custom tool support and created a `tools.py` file in the config folder. Version 0.5.1 introduced the prompt file feature and created a `prompt` folder. Version 0.5.2 introduced the Skills system and created a `skills` folder. Version 0.5.3 fixed a critical message history bug. Version 0.5.4 fixed a critical history trimming bug and improved Pydantic compatibility. **Version 0.5.5** adds 7 new tools, built-in skill files, hot reload, and autonomous AI extensibility. **Version 0.5.6** adds no-history mode, `max_history` disable support, and fixes for tool error handling and `where2go` file check issues.
+> The 0.5.x series versions add `tools`, `skills`, `prompt` folders and a `tools.py` file in the GamesAI config folder to support ToolCalls, skills, and prompt file-ization.
 
 <details>
 <summary>Table of Contents (click to expand)</summary>
@@ -42,21 +42,8 @@ English  |  [简体中文](/README.zh-CN.md)  |  [繁體中文](/README.zh-TW.md
       - [2. `max_history` Can Disable History](#2-max_history-can-disable-history)
       - [3. Graceful Tool Error Handling](#3-graceful-tool-error-handling)
       - [4. `get_all_pos` / `remove_pos` File Check Fix](#4-get_all_pos--remove_pos-file-check-fix)
-    - [Version 0.5.5](#version-055)
-      - [1. AI Self-Extension (7 New Tools)](#1-ai-self-extension-7-new-tools)
-      - [2. Hot Reload](#2-hot-reload)
-      - [3. Built-in Skill Files](#3-built-in-skill-files)
-      - [4. Other Improvements](#4-other-improvements)
-    - [Version 0.5.4](#version-054)
-      - [1. Safe History Trimming (Critical)](#1-safe-history-trimming-critical)
-      - [2. Pydantic Model Compatibility Fix](#2-pydantic-model-compatibility-fix)
-    - [Version 0.5.3](#version-053)
-      - [1. History Corruption Fix (Critical)](#1-history-corruption-fix-critical)
-      - [2. Per-User Tool Call Tracking](#2-per-user-tool-call-tracking)
-      - [3. Debug Mode Display Fix](#3-debug-mode-display-fix)
-    - [Version 0.5.2](#version-052)
-      - [1. Skills System](#1-skills-system)
   - [Acknowledgements \& Disclaimer](#acknowledgements--disclaimer)
+  - [Sponsorship \& Contributors](#sponsorship--contributors)
   - [License](#license)
 
 </details>
@@ -81,11 +68,6 @@ pip install openai requests
 
 Type `!!gamesai` anywhere to display all available features of this plugin.
 
-<details>
-<summary>
-
-All `!!gamesai` Commands (click to expand)</summary>
-
 |Command|Description|
 |---|---|
 |`!!gamesai clear`|Clear your own chat history. Chat history is unrelated to the public database.|
@@ -93,16 +75,9 @@ All `!!gamesai` Commands (click to expand)</summary>
 |`!!gamesai reload`|Reload the plugin configuration file.|
 |`!!gamesai check`|Check for plugin updates.|
 
-</details>
-
 ---
 
 You can also use `!!ask` directly to ask the AI questions, chat, or ask it to do things for you.
-
-<details>
-<summary>
-
-All `!!ask` Commands (click to expand)</summary>
 
 |Command|Description|
 |---|---|
@@ -111,19 +86,12 @@ All `!!ask` Commands (click to expand)</summary>
 |`!!ask -n <content>`|Ask the AI without using conversation history (current conversation is still saved).|
 |`!!ask -n -m <model> <content>`|Use a specific model without conversation history.|
 
-</details>
-
 ---
 
 Type `!!data` for information about database commands.
 
 > [!TIP]
 > The database is automatically created when upgrading to version 0.3.0 or above.
-
-<details>
-<summary>
-
-All `!!data` Commands (click to expand)</summary>
 
 |Command|Description|
 |---|---|
@@ -133,8 +101,6 @@ All `!!data` Commands (click to expand)</summary>
 |`!!data read <key>`|Read the value associated with a key from the public database.|
 |`!!data list`|Read all entries in the public database.|
 |`!!data list keys`|Read all keys in the public database.|
-
-</details>
 
 ## Configuration
 
@@ -162,10 +128,6 @@ The default configuration file structure is as follows:
 ---
 
 Below is a brief introduction to each parameter:
-
-<details>
-
-<summary>Click to expand</summary>
 
 ### 1.prefix
 Type: `str`
@@ -209,8 +171,6 @@ Type: `str`
 Default: `<Your AI ID>`
 
 The model used when a player simply uses `!!ask`. Should be one of the keys in the `all_ai` dictionary (i.e. the plugin's internal AI_ID). An incorrect value will prevent `!!ask` from working properly.
-
-</details>
 
 ## Tools, Skills & Custom Tools
 
@@ -462,74 +422,6 @@ Removed `raise e` from the tool execution error handler. Tool call failures no l
 
 Fixed a crash in `get_all_pos` and `remove_pos` tools when the `where2go` plugin is installed but its data file hasn't been created yet. Both tools now check for file existence before attempting to read.
 
-### Version 0.5.5
-
-#### 1. AI Self-Extension (7 New Tools)
-
-The AI can now autonomously extend its own capabilities. Seven new built-in tools have been added:
-
-- **Skill Management**: `write_skills`, `modify_skills`, `delete_skills` — the AI can create, update, and delete skill instruction files.
-- **Custom Tools Management**: `read_custom_tools`, `modify_custom_tools` — the AI can read and modify the `tools.py` file to add new tool functions.
-- **Utilities**: `setting_timer` (pauses execution), `reload_plugin` (hot-reloads the plugin).
-
-Combined with the built-in skills (`skills_management.md` and `custom_tools_management.md`), the AI now follows proper workflows when modifying skills or tools — reading instructions first, making changes, then reloading.
-
-#### 2. Hot Reload
-
-The `!!gamesai reload` command now performs an **in-process hot reload** instead of a full MCDR plugin unload/load cycle. This means:
-
-- Chat history is preserved across reloads (no more lost conversations).
-- Reloads configuration, skills index, custom tools, and prompt files instantly.
-- No MCDR restart required.
-
-#### 3. Built-in Skill Files
-
-Two skill files are now shipped with the plugin:
-
-- `skills_management.md` — teaches the AI how to properly manage skill files.
-- `custom_tools_management.md` — teaches the AI how to read and modify custom tools.
-
-These files are read automatically by the AI before performing related operations, ensuring consistent behavior.
-
-#### 4. Other Improvements
-
-- Fixed `RTextList` serialization issues in system messages and data messages.
-- Fixed prompt file path resolution in `_apply_config`.
-- Improved error reporting in `read_skills` (now shows which paths were tried).
-- The AI no longer needs the player to manually reload — it can call `reload_plugin` itself.
-
-### Version 0.5.4
-
-#### 1. Safe History Trimming (Critical)
-Fixed a critical bug where the history trimming logic (`history[-max_len:]`) could split a tool-call/tool-result message pair. When the history list grew beyond the retention limit, blindly slicing from the beginning could remove the assistant message containing `tool_calls` while leaving its corresponding `tool` result message — creating an orphaned tool message. The OpenAI-compatible API rejects such messages with HTTP 400: `"Messages with role 'tool' must be a response to a preceding message with 'tool_calls'"`.
-
-The new `_safe_trim_history()` function ensures trimmed history always starts at a complete conversation turn boundary (a `user` role message), preventing orphaned tool messages from ever reaching the API.
-
-#### 2. Pydantic Model Compatibility Fix
-Fixed an `AttributeError: 'ChatCompletionMessage' object has no attribute 'get'` in `_safe_trim_history()`. The conversation history list contains a mix of plain `dict` objects (user messages and tool results) and Pydantic `ChatCompletionMessage` model instances (assistant replies from the API). The function now correctly handles both types when accessing the `role` attribute.
-
-### Version 0.5.3
-
-#### 1. History Corruption Fix (Critical)
-Fixed a critical bug where `history.append(response_message)` was appending an entire message **list** as a single element into the conversation history. This caused malformed API requests (HTTP 400: `"invalid type: map, expected variant identifier"`) on the second conversation after a tool call. Now correctly appends individual messages via `history.append(user_message)`.
-
-#### 2. Per-User Tool Call Tracking
-The global `tool_count` variable has been replaced with a per-user, per-AI dictionary (`user_tool_counts`). Previously, `tool_count` accumulated across all users and conversations without ever resetting, causing the history retention limit (`max_history * 2 + tool_count * 2`) to grow without bound. Now each user's tool count is tracked independently and automatically cleared when their conversation history is cleared via `!!gamesai clear` or `!!gamesai clearall`.
-
-#### 3. Debug Mode Display Fix
-Fixed a typo where `debug` (an undefined variable) was used instead of `debug_mode` in the history limit display line. This would have caused a `NameError` at runtime when debug mode was enabled.
-
-### Version 0.5.2
-
-#### 1. Skills System
-The Skills system is a new way to teach the AI standardized workflows. By writing Markdown instruction files and registering them in `skills.json`, you can control exactly how the AI behaves for specific tasks (e.g. whitelist management, fake player control). The AI will automatically read the relevant skill file before executing related operations.
-
-- `config/games_ai/skills/skills.json` — skill registration.
-- `config/games_ai/skills/*.md` — skill instruction files.
-- Built-in `read_skills` tool for the AI to read skills.
-
-Additionally, this release fixes several issues and improves Python 3.14 compatibility.
-
 ## Acknowledgements & Disclaimer
 
 Special thanks to the Wanghai Commune server for providing the foundation for testing this plugin.
@@ -539,6 +431,16 @@ Special thanks to [william-song-shy (William Song)](https://github.com/william-s
 All content generated by AI (LLM) models is unrelated to this plugin.
 
 All consequences arising from custom tools are unrelated to this plugin.
+
+## Sponsorship & Contributors
+
+Sponsorship address: [Afdian](https://ifdian.net/a/yello)
+
+Those who sponsor GamesAI will appear in the following sponsor list (currently no sponsors):
+
+| # | Sponsor | Amount | Date |
+|---|---------|--------|------|
+| - | - | - | - |
 
 ## License
 

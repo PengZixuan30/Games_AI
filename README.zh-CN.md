@@ -18,7 +18,7 @@
 > 欢迎使用版本 0.5.6！当前版本新增了 **无历史模式**、**max_history 禁用支持**，并修复了**工具异常处理**和**文件检查**问题。见[本次更新](#本次更新)
 
 > [!IMPORTANT]
-> 0.5.0 版本加入了自定义工具的功能，会在配置文件夹创建 `tools.py` 文件。0.5.1 版本加入了提示词文件化的功能，会在配置文件夹创建 `prompt` 文件夹。0.5.2 版本加入了 Skills 技能系统并创建了 `skills` 文件夹。0.5.3 版本修复了一个关键的消息历史 Bug。0.5.4 版本修复了一个关键的历史裁剪 Bug 并改进了 Pydantic 兼容性。**0.5.5 版本**新增了 7 个内置工具、内置技能文件、热重载功能和 AI 自主扩展能力。**0.5.6 版本**新增了无历史模式、`max_history` 禁用支持，并修复了工具异常处理和 `where2go` 文件检查问题。
+> 0.5.x系列版本会在GamesAI的配置文件夹中加入 `tools`、`skills`、`prompt` 文件夹及 `tools.py` 文件，用于支持 ToolCalls、技能、提示词文件化。
 
 <details>
 <summary>目录(点击展示)</summary>
@@ -42,21 +42,8 @@
       - [2. `max_history` 支持禁用历史](#2-max_history-支持禁用历史)
       - [3. 工具错误优雅处理](#3-工具错误优雅处理)
       - [4. `get_all_pos` / `remove_pos` 文件检查修复](#4-get_all_pos--remove_pos-文件检查修复)
-    - [Version 0.5.5](#version-055)
-      - [1. AI 自主扩展（7 个新工具）](#1-ai-自主扩展7-个新工具)
-      - [2. 热重载](#2-热重载)
-      - [3. 内置技能文件](#3-内置技能文件)
-      - [4. 其他改进](#4-其他改进)
-    - [Version 0.5.4](#version-054)
-      - [1. 安全历史裁剪修复（关键）](#1-安全历史裁剪修复关键)
-      - [2. Pydantic 模型兼容性修复](#2-pydantic-模型兼容性修复)
-    - [Version 0.5.3](#version-053)
-      - [1. 历史记录损坏修复（关键）](#1-历史记录损坏修复关键)
-      - [2. 按用户追踪工具调用计数](#2-按用户追踪工具调用计数)
-      - [3. Debug 模式显示修复](#3-debug-模式显示修复)
-    - [Version 0.5.2](#version-052)
-      - [1. Skills 技能系统](#1-skills-技能系统)
   - [鸣谢与声明](#鸣谢与声明)
+  - [赞助与贡献者名单](#赞助与贡献者名单)
   - [许可证](#许可证)
 
 </details>
@@ -80,11 +67,6 @@ pip install openai requests
 
 在任何地方输入命令`!!gamesai`以显示这个插件的所有功能
 
-<details>
-<summary>
-
-有关`!!gamesai`的所有指令(点击展开)</summary>
-
 |指令|用途|
 |---|---|
 |`!!gamesai clear`|清除玩家的历史聊天记录，历史聊天记录与公共数据库无关|
@@ -92,16 +74,9 @@ pip install openai requests
 |`!!gamesai reload`|重新加载插件配置文件|
 |`!!gamesai check`|检查插件更新|
 
-</details>
-
 ---
 
 你也可以直接输入`!!ask`向AI提问或者聊天或者帮你做一些事情
-
-<details>
-<summary>
-
-有关`!!ask`的所有指令(点击展开)</summary>
 
 |指令|用途|
 |---|---|
@@ -110,19 +85,12 @@ pip install openai requests
 |`!!ask -n <content>`|向AI提问但不使用历史记录（当前对话仍会被保存）|
 |`!!ask -n -m <model> <content>`|使用指定的模型且不使用历史记录提问|
 
-</details>
-
 ---
 
 输入`!!data`获取有关数据库指令的信息
 
 > [!TIP]
 > 更新到0.3.0及以上版本时会自动添加数据库
-
-<details>
-<summary>
-
-有关`!!gamesai`的所有指令(点击展开)</summary>
 
 |指令|用途|
 |---|---|
@@ -132,8 +100,6 @@ pip install openai requests
 |`!!data read <key>`|读取公共数据库中key对应的value|
 |`!!data list`|读取公共数据库中的所有内容|
 |`!!data list keys`|读取公共数据库中的所有key|
-
-</details>
 
 ## 配置
 
@@ -450,74 +416,6 @@ def search_baidu(source, ai_prefix: str, query: str):
 
 修复了 `get_all_pos` 和 `remove_pos` 工具在 `where2go` 插件存在但数据文件尚未创建时直接崩溃的问题，现在会先检查文件是否存在。
 
-### Version 0.5.5
-
-#### 1. AI 自主扩展（7 个新工具）
-
-AI 现在可以自主扩展自身能力。新增 7 个内置工具：
-
-- **技能管理**：`write_skills`、`modify_skills`、`delete_skills` — AI 可以创建、更新和删除技能指导文件。
-- **自定义工具管理**：`read_custom_tools`、`modify_custom_tools` — AI 可以读取和修改 `tools.py` 文件来添加新的工具函数。
-- **实用工具**：`setting_timer`（暂停执行）、`reload_plugin`（热重载插件）。
-
-配合内置技能文件（`skills_management.md` 和 `custom_tools_management.md`），AI 在修改技能或工具时会遵循正确的工作流程——先读指令，再修改，最后重载。
-
-#### 2. 热重载
-
-`!!gamesai reload` 命令现在执行**进程内热重载**，而非完整的 MCDR 插件卸载/加载循环：
-
-- 聊天记录在重载时得以保留（不再丢失对话）。
-- 即时重载配置、技能索引、自定义工具和提示词文件。
-- 无需 MCDR 重启。
-
-#### 3. 内置技能文件
-
-插件现在附带两个内置技能文件：
-
-- `skills_management.md` — 教导 AI 如何正确管理技能文件。
-- `custom_tools_management.md` — 教导 AI 如何读取和修改自定义工具。
-
-AI 在执行相关操作前会自动读取这些文件，确保行为一致。
-
-#### 4. 其他改进
-
-- 修复了系统消息和数据消息中的 `RTextList` 序列化问题。
-- 修复了 `_apply_config` 中的提示词文件路径解析。
-- 改进了 `read_skills` 的错误报告（现在显示尝试了哪些路径）。
-- AI 不再需要玩家手动重载——它可以自行调用 `reload_plugin`。
-
-### Version 0.5.4
-
-#### 1. 安全历史裁剪修复（关键）
-修复了一个关键 Bug：历史记录裁剪逻辑（`history[-max_len:]`）可能在工具调用/工具结果消息对之间切断。当历史列表超出保留上限时，从头部盲目切片可能删除包含 `tool_calls` 的 assistant 消息，却保留其对应的 `tool` 结果消息——产生孤立的工具消息。OpenAI 兼容 API 会以 HTTP 400 拒绝此类消息：`"Messages with role 'tool' must be a response to a preceding message with 'tool_calls'"`。
-
-新增的 `_safe_trim_history()` 函数确保裁剪后的历史始终从完整的对话轮次边界（`user` 角色消息）开始，从根本上杜绝孤立的工具消息被发送到 API。
-
-#### 2. Pydantic 模型兼容性修复
-修复了 `_safe_trim_history()` 中的 `AttributeError: 'ChatCompletionMessage' object has no attribute 'get'` 错误。对话历史列表混合存储了普通 `dict` 对象（用户消息和工具结果）和 Pydantic `ChatCompletionMessage` 模型实例（API 返回的 assistant 回复）。该函数现在能正确处理两种类型，正确访问 `role` 属性。
-
-### Version 0.5.3
-
-#### 1. 历史记录损坏修复（关键）
-修复了一个关键 Bug：`history.append(response_message)` 将整个消息**列表**作为单个元素错误地追加到了对话历史中。这导致在工具调用后的第二次对话中，API 请求格式错误（HTTP 400: `"invalid type: map, expected variant identifier"`）。现已改为正确追加单条消息 `history.append(user_message)`。
-
-#### 2. 按用户追踪工具调用计数
-将全局变量 `tool_count` 替换为按用户、按 AI 实例的字典（`user_tool_counts`）。此前 `tool_count` 跨所有用户和对话持续累加且从不重置，导致历史保留上限（`max_history * 2 + tool_count * 2`）无限增长。现在每个用户的工具调用计数独立追踪，并在通过 `!!gamesai clear` 或 `!!gamesai clearall` 清除对话历史时自动归零。
-
-#### 3. Debug 模式显示修复
-修复了一处笔误：在历史上限显示行中将未定义的变量 `debug` 修正为 `debug_mode`。此前开启 debug 模式时此处会触发 `NameError` 运行时错误。
-
-### Version 0.5.2
-
-#### 1. Skills 技能系统
-Skills 技能系统是一种全新的 AI 行为引导方式。通过编写 Markdown 指导文件并在 `skills.json` 中注册，你可以精确控制 AI 在特定任务中的行为（如白名单管理、假人控制）。AI 会在执行相关操作前自动读取对应的技能文件。
-
-- `config/games_ai/skills/skills.json` — 技能注册文件。
-- `config/games_ai/skills/*.md` — 技能指导文件。
-- 内置 `read_skills` 工具供 AI 读取技能。
-
-另外，本次更新修复了一些问题，并改进了 Python 3.14 兼容性。
-
 ## 鸣谢与声明
 特别感谢望海公社服务器为此插件的测试提供了基础
 
@@ -526,6 +424,16 @@ Skills 技能系统是一种全新的 AI 行为引导方式。通过编写 Markd
 AI\(LLM\)模型生成的一切内容与此插件无关
 
 自定义工具造成的一切后果与本插件无关
+
+## 赞助与贡献者名单
+
+赞助地址：[爱发电](https://ifdian.net/a/yello)
+
+为GamesAI赞助的将会出现在下列的赞助者名单中（当前没有赞助者）：
+
+| # | 赞助者 | 金额 | 日期 |
+|---|--------|------|------|
+| - | - | - | - |
 
 ## 许可证
 MIT License, Copyright (c) 2026 yello
