@@ -10,6 +10,7 @@ This skill describes how to read and modify the custom tools file (`tools.py`) t
 |------|---------|
 | `read_custom_tools` | Read the current content of the custom tools file |
 | `modify_custom_tools` | Replace the entire custom tools file with new code |
+| `append_custom_tools` | Append new tool code to the end of the custom tools file |
 
 ---
 
@@ -40,7 +41,7 @@ from games_ai.games_ai_tool import register_tool
 
 Each tool function MUST be decorated with `@register_tool(...)`. The decorator parameters are:
 
-- **description** (required): A clear description of what the tool does, written in Chinese. This is what the AI reads to decide when to call the tool.
+- **description** (required): A clear description of what the tool does. This is what the AI reads to decide when to call the tool.
 - **parameters** (optional): JSON Schema for function parameters.
 
 Every tool function MUST accept these two parameters:
@@ -102,9 +103,13 @@ Understand what the user wants and design the tool function(s). Consider:
 - What permissions should be required?
 - What should the return value tell the AI?
 
-### Step 3: Write the Complete File
+### Step 3A: Append New Tools (Recommended)
 
-Use `modify_custom_tools` with the **complete** file content. This is a full overwrite, so you must include:
+If you only need to **add** new tool functions, use `append_custom_tools`. Only provide the new function's code — it will be appended to the end of the file. This is safer and simpler than a full overwrite.
+
+### Step 3B: Full File Replacement
+
+Use `modify_custom_tools` only when you need to rewrite the entire file. You must include:
 1. All existing imports
 2. All existing tool functions (if you want to keep them)
 3. Your new tool function(s)
@@ -117,9 +122,10 @@ After modifying, call `reload_plugin` to apply the changes. This will reload the
 
 ## Best Practices
 
-1. **Read before write** — always call `read_custom_tools` before `modify_custom_tools`.
-2. **Preserve existing code** — when modifying, keep all working tools and only add/change what's needed.
-3. **Follow existing patterns** — look at how built-in tools are structured and follow the same conventions.
-4. **Handle errors gracefully** — wrap risky operations in try/except and return meaningful error messages.
-5. **One modification at a time** — make focused, incremental changes rather than rewriting everything at once.
-6. **Test your logic** — ensure the Python code is syntactically correct and all imports are valid.
+1. **Read before write** — always call `read_custom_tools` before `modify_custom_tools` or `append_custom_tools`.
+2. **Prefer append over replace** — when adding new tools, use `append_custom_tools` instead of `modify_custom_tools` to avoid accidentally deleting existing code.
+3. **Preserve existing code** — when using `modify_custom_tools`, keep all working tools and only add/change what's needed.
+4. **Follow existing patterns** — look at how built-in tools are structured and follow the same conventions.
+5. **Handle errors gracefully** — wrap risky operations in try/except and return meaningful error messages.
+6. **One modification at a time** — make focused, incremental changes rather than rewriting everything at once.
+7. **Test your logic** — ensure the Python code is syntactically correct and all imports are valid.

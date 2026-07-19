@@ -1,7 +1,7 @@
 import os
 from openai import OpenAI
 
-def response_chat(model,url,message,api_key,tools=[],thinking="disabled"):
+def response_chat(model,url,message,api_key,tools=[],extra_body={}):
 
     client = OpenAI(
         api_key=api_key,
@@ -13,9 +13,7 @@ def response_chat(model,url,message,api_key,tools=[],thinking="disabled"):
         messages=message,
         tools=tools,
         stream=False,
-        extra_body={
-            "thinking": {"type": thinking}
-        },
+        extra_body=extra_body,
     )
 
     return response.choices[0].message

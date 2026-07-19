@@ -89,6 +89,7 @@ games_ai:
     deleting_skills: "Deleting skill: {skills}"
     setting_timer: "Setting timer, waiting for {duration} seconds"
     reading_custom_tools: "Reading custom tools file"
+    appending_custom_tools: "Appending code to custom tools file"
     modifying_custom_tools: "Modifying custom tools file"
     reloading_plugin: "Reloading plugin..."
 
@@ -132,6 +133,16 @@ games_ai:
   debug:
     enable: "Debug mode enabled"
     disable: "Debug mode disabled"
+
+  speed_test:
+    testing: "Testing connection speed to {url}..."
+    success: "Connection test completed!"
+    latency: "Latency: {latency}ms"
+    status_code: "HTTP status code: {code}"
+    partial: "Connection partially successful, latency: {latency}ms, HTTP status code: {code}"
+    timeout: "Connection timed out, please check network or server address"
+    connection_error: "Connection failed: {error}"
+    error: "Test error: {error}"
 
   error_code_map:
    error400: "Bad request format, please check parameters"

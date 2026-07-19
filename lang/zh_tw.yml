@@ -89,6 +89,7 @@ games_ai:
     deleting_skills: "正在刪除技能：{skills}"
     setting_timer: "正在設定計時器，等待 {duration} 秒"
     modifying_custom_tools: "正在修改自訂工具"
+    appending_custom_tools: "正在向自訂工具檔案末尾追加程式碼"
     reading_custom_tools: "正在讀取自訂工具檔案"
     reloading_plugin: "正在重新載入插件..."
     tool_success: "工具呼叫成功！"
@@ -131,6 +132,16 @@ games_ai:
   debug:
     enable: "已啟用除錯模式"
     disable: "已停用除錯模式"
+
+  speed_test:
+    testing: "正在測試與 {url} 的連線速度..."
+    success: "連線測試完成！"
+    latency: "延遲: {latency}ms"
+    status_code: "HTTP 狀態碼: {code}"
+    partial: "連線部分成功，延遲: {latency}ms，HTTP 狀態碼: {code}"
+    timeout: "連線逾時，請檢查網路或伺服器位址"
+    connection_error: "連線失敗: {error}"
+    error: "測試出錯: {error}"
 
   error_code_map:
    error400: "請求體格式錯誤，請檢查參數"

@@ -89,6 +89,7 @@ games_ai:
     deleting_skills: "正在删除技能: {skills}"
     setting_timer: "正在设置计时器，等待 {duration} 秒"
     modifying_custom_tools: "正在修改自定义工具"
+    appending_custom_tools: "正在向自定义工具文件末尾追加代码"
     reading_custom_tools: "正在读取自定义工具文件"
     reloading_plugin: "正在重载插件..."
     tool_success: "工具调用成功!"
@@ -131,6 +132,16 @@ games_ai:
   debug:
     enable: "已启用调试模式"
     disable: "已禁用调试模式"
+
+  speed_test:
+    testing: "正在测试与 {url} 的连接速度..."
+    success: "连接测试完成！"
+    latency: "延迟: {latency}ms"
+    status_code: "HTTP 状态码: {code}"
+    partial: "连接部分成功，延迟: {latency}ms，HTTP 状态码: {code}"
+    timeout: "连接超时，请检查网络或服务器地址"
+    connection_error: "连接失败: {error}"
+    error: "测试出错: {error}"
 
   error_code_map:
    error400: "请求体格式错误, 请检查参数"

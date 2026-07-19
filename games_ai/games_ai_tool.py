@@ -594,6 +594,29 @@ def modify_custom_tools(source: CommandSource, ai_prefix: str, tools: str):
     except Exception as e:
         return f"tools文件修改失败, 原因: {e}"
 
+@register_tool(description="新增一个自定义tools到原有tools文件的末尾, 修改之前务必先阅读tools文件和相关skills", tr_key="games_ai.tools.appending_custom_tools", parameters={
+    "type": "object",
+    "properties": {
+        "tools": {
+            "type": "string",
+            "description": "要追加到tools文件末尾的Python源代码, 请确保代码是有效的Python代码"
+        },
+    },
+    "required": ["tools"]
+})
+def append_custom_tools(source: CommandSource, ai_prefix: str, tools: str):
+    server = source.get_server()
+    source.reply(f"{ai_prefix}{server.rtr("games_ai.tools.appending_custom_tools")}")
+    try:
+        with open(plugin_config.tools_path, mode='r', encoding='utf-8') as f:
+            existing = f.read()
+        new_content = existing.rstrip("\n") + "\n\n" + tools.strip() + "\n"
+        with open(plugin_config.tools_path, mode='w', encoding='utf-8') as f:
+            f.write(new_content)
+        return f"tools追加成功"
+    except Exception as e:
+        return f"tools追加失败, 原因: {e}"
+
 @register_tool(description="重载插件", tr_key="games_ai.tools.reloading_plugin")
 def reload_plugin(source: CommandSource, ai_prefix: str):
     server = source.get_server()

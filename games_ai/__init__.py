@@ -10,7 +10,7 @@ import time,os,requests,lzma,json,threading,datetime
 
 PLUGIN_METADATA = {
     "id": "games_ai",
-    "version": "0.5.6",
+    "version": "0.5.7",
     "name": "GamesAI",
     "description": {
         "zh_cn": "此插件可以让你在游戏中使用AI",
@@ -125,6 +125,9 @@ def my_custom_tool(source: CommandSource, ai_prefix: str):
 
     builder.command('!!gamesai reload', reloader)
 
+    builder.command('!!gamesai speedtest', speed_test)
+    builder.command('!!gamesai speedtest <model>', speed_test)
+
     builder.command('!!ask', helper.ask_help)
     builder.command('!!ask <content>', ask_ai)
     builder.command('!!ask -m <model> <content>', ask_ai)
@@ -231,184 +234,90 @@ class gamesai_help:
     @staticmethod
     def ask_help(source: CommandSource):
         server = source.get_server()
-        ask_help_part = RTextList(
-            prefix,
-            server.rtr("games_ai.gamesai_help_message.greeting",v=PLUGIN_METADATA.get("version")),
-            "\n",
-            prefix,
-            server.rtr("games_ai.gamesai_help_message.help_prefix"),
-            RText("!!ask <content>", RColor.gray).c(RAction.suggest_command,'!!ask '),
-            server.rtr("games_ai.gamesai_help_message.ask_help"),
-            "\n",
-            prefix,
-            server.rtr("games_ai.gamesai_help_message.help_prefix"),
-            RText("!!ask -m <model> <content>", RColor.gray).c(RAction.suggest_command,'!!ask -m '),
-            server.rtr("games_ai.gamesai_help_message.ask_help"),
-            "\n",
-            prefix,
-            server.rtr("games_ai.gamesai_help_message.help_prefix"),
-            RText("!!ask -n <content>", RColor.gray).c(RAction.suggest_command,'!!ask -n '),
-            server.rtr("games_ai.gamesai_help_message.ask_no_history_help"),
-            "\n",
-            prefix,
-            server.rtr("games_ai.gamesai_help_message.help_prefix"),
-            RText("!!ask -n -m <model> <content>", RColor.gray).c(RAction.suggest_command,'!!ask -n -m '),
-            server.rtr("games_ai.gamesai_help_message.ask_no_history_help"),
-            "\n",
-            prefix,
-            server.rtr("games_ai.gamesai_help_message.all_ai_model"),
-            list(ai_dict.keys()),
-        )
-        source.reply(ask_help_part)
+        send_help(source, prefix, message=server.rtr("games_ai.gamesai_help_message.greeting", v=PLUGIN_METADATA.get("version")))
+        send_help(source, prefix, command="!!ask <content>", command_help_key="games_ai.gamesai_help_message.ask_help")
+        send_help(source, prefix, command="!!ask -m <model> <content>", command_help_key="games_ai.gamesai_help_message.ask_help")
+        send_help(source, prefix, command="!!ask -n <content>", command_help_key="games_ai.gamesai_help_message.ask_no_history_help")
+        send_help(source, prefix, command="!!ask -n -m <model> <content>", command_help_key="games_ai.gamesai_help_message.ask_no_history_help")
+        send_help(source, prefix, message=server.rtr("games_ai.gamesai_help_message.all_ai_model") + str(list(ai_dict.keys())))
 
     @staticmethod
     def data_help(source: CommandSource):
         server = source.get_server()
-        data_help_part = RTextList(
-            prefix,
-            server.rtr("games_ai.gamesai_help_message.greeting",v=PLUGIN_METADATA.get("version")),
-            "\n",
-            prefix,
-            server.rtr("games_ai.gamesai_help_message.help_prefix"),
-            RText("!!data write <key> <value>", RColor.gray).c(RAction.suggest_command,'!!data write '),
-            server.rtr("games_ai.gamesai_help_message.data_write_help"),
-            "\n",
-            prefix,
-            server.rtr("games_ai.gamesai_help_message.help_prefix"),
-            RText("!!data add <key> <value>", RColor.gray).c(RAction.suggest_command,'!!data add '),
-            server.rtr("games_ai.gamesai_help_message.data_add_help"),
-            "\n",
-            prefix,
-            server.rtr("games_ai.gamesai_help_message.help_prefix"),
-            RText("!!data del <key>", RColor.gray).c(RAction.suggest_command,'!!data del '),
-            server.rtr("games_ai.gamesai_help_message.data_del_help"),
-            "\n",
-            prefix,
-            server.rtr("games_ai.gamesai_help_message.help_prefix"),
-            RText("!!data read <key>", RColor.gray).c(RAction.suggest_command,'!!data read '),
-            server.rtr("games_ai.gamesai_help_message.data_read_help"),
-            "\n",
-            prefix,
-            server.rtr("games_ai.gamesai_help_message.help_prefix"),
-            RText("!!data list", RColor.gray).c(RAction.suggest_command,"!!data list"),
-            server.rtr("games_ai.gamesai_help_message.data_list_help"),
-            "\n",
-            prefix,
-            server.rtr("games_ai.gamesai_help_message.help_prefix"),
-            RText("!!data list keys", RColor.gray).c(RAction.suggest_command, '!!data list keys'),
-            server.rtr("games_ai.gamesai_help_message.data_keys_help"),
-        )
         if source.get_permission_level() < allow_permission:
-            source.reply(server.rtr("games_ai.no_permission", permission = allow_permission))
-        else:
-            source.reply(data_help_part)
+            source.reply(server.rtr("games_ai.no_permission", permission=allow_permission))
+            return
+        send_help(source, prefix, message=server.rtr("games_ai.gamesai_help_message.greeting", v=PLUGIN_METADATA.get("version")))
+        send_help(source, prefix, command="!!data write <key> <value>", command_help_key="games_ai.gamesai_help_message.data_write_help")
+        send_help(source, prefix, command="!!data add <key> <value>", command_help_key="games_ai.gamesai_help_message.data_add_help")
+        send_help(source, prefix, command="!!data del <key>", command_help_key="games_ai.gamesai_help_message.data_del_help")
+        send_help(source, prefix, command="!!data read <key>", command_help_key="games_ai.gamesai_help_message.data_read_help")
+        send_help(source, prefix, command="!!data list", command_help_key="games_ai.gamesai_help_message.data_list_help")
+        send_help(source, prefix, command="!!data list keys", command_help_key="games_ai.gamesai_help_message.data_keys_help")
 
     @staticmethod
     def data_write_help(source: CommandSource):
         server = source.get_server()
-        data_add_help_part = RTextList(
-            prefix,
-            server.rtr("games_ai.gamesai_help_message.greeting",v=PLUGIN_METADATA.get("version")),
-            "\n",
-            prefix,
-            server.rtr("games_ai.gamesai_help_message.help_prefix"),
-            RText("!!data write <key> <value>", RColor.gray).c(RAction.suggest_command,'!!data write '),
-            server.rtr("games_ai.gamesai_help_message.data_write_help"),
-        )
         if source.get_permission_level() < allow_permission:
-            source.reply(server.rtr("games_ai.no_permission", permission = allow_permission))
-        else:
-            source.reply(data_add_help_part)
+            source.reply(server.rtr("games_ai.no_permission", permission=allow_permission))
+            return
+        send_help(source, prefix, message=server.rtr("games_ai.gamesai_help_message.greeting", v=PLUGIN_METADATA.get("version")))
+        send_help(source, prefix, command="!!data write <key> <value>", command_help_key="games_ai.gamesai_help_message.data_write_help")
 
     @staticmethod
     def data_del_help(source: CommandSource):
         server = source.get_server()
-        data_del_help_part = RTextList(
-            prefix,
-            server.rtr("games_ai.gamesai_help_message.greeting",v=PLUGIN_METADATA.get("version")),
-            "\n",
-            prefix,
-            server.rtr("games_ai.gamesai_help_message.help_prefix"),
-            RText("!!data del <key>", RColor.gray).c(RAction.suggest_command,'!!data del '),
-            server.rtr("games_ai.gamesai_help_message.data_del_help"),
-        )
         if source.get_permission_level() < allow_permission:
-            source.reply(server.rtr("games_ai.no_permission", permission = allow_permission))
-        else:
-            source.reply(data_del_help_part)
+            source.reply(server.rtr("games_ai.no_permission", permission=allow_permission))
+            return
+        send_help(source, prefix, message=server.rtr("games_ai.gamesai_help_message.greeting", v=PLUGIN_METADATA.get("version")))
+        send_help(source, prefix, command="!!data del <key>", command_help_key="games_ai.gamesai_help_message.data_del_help")
 
     @staticmethod
     def data_read_help(source: CommandSource):
         server = source.get_server()
-        data_read_help_part = RTextList(
-            prefix,
-            server.rtr("games_ai.gamesai_help_message.greeting",v=PLUGIN_METADATA.get("version")),
-            "\n",
-            prefix,
-            server.rtr("games_ai.gamesai_help_message.help_prefix"),
-            RText("!!data read <key>", RColor.gray).c(RAction.suggest_command,'!!data read '),
-            server.rtr("games_ai.gamesai_help_message.data_read_help"),
-        )
         if source.get_permission_level() < allow_permission:
-            source.reply(server.rtr("games_ai.no_permission", permission = allow_permission))
-        else:
-            source.reply(data_read_help_part)
+            source.reply(server.rtr("games_ai.no_permission", permission=allow_permission))
+            return
+        send_help(source, prefix, message=server.rtr("games_ai.gamesai_help_message.greeting", v=PLUGIN_METADATA.get("version")))
+        send_help(source, prefix, command="!!data read <key>", command_help_key="games_ai.gamesai_help_message.data_read_help")
 
     @staticmethod
     def data_add_help(source: CommandSource):
         server = source.get_server()
-        data_add_help_part = RTextList(
-            prefix,
-            server.rtr("games_ai.gamesai_help_message.greeting", v=PLUGIN_METADATA.get("version")),
-            "\n",
-            prefix,
-            server.rtr("games_ai.gamesai_help_message.help_prefix"),
-            RText("!!data add <key> <value>", RColor.gray).c(RAction.suggest_command,'!!data add '),
-            server.rtr("games_ai.gamesai_help_message.data_add_help"),
-        )
         if source.get_permission_level() < allow_permission:
-            source.reply(server.rtr("games_ai.no_permission", permission = allow_permission))
-        else:
-            source.reply(data_add_help_part)
+            source.reply(server.rtr("games_ai.no_permission", permission=allow_permission))
+            return
+        send_help(source, prefix, message=server.rtr("games_ai.gamesai_help_message.greeting", v=PLUGIN_METADATA.get("version")))
+        send_help(source, prefix, command="!!data add <key> <value>", command_help_key="games_ai.gamesai_help_message.data_add_help")
 
     @staticmethod
     def all_help(source: CommandSource):
         server = source.get_server()
-        basic_help_part = RTextList(
-            prefix,
-            server.rtr("games_ai.gamesai_help_message.greeting",v=PLUGIN_METADATA.get("version")),
-            "\n",
-            prefix,
-            server.rtr("games_ai.gamesai_help_message.help_prefix"),
-            RText("!!ask <content>", RColor.gray).c(RAction.suggest_command,'!!ask '),
-            server.rtr("games_ai.gamesai_help_message.ask_help"),
-            "\n",
-            prefix,
-            server.rtr("games_ai.gamesai_help_message.help_prefix"),
-            RText("!!gamesai clear", RColor.gray).c(RAction.suggest_command,'!!gamesai clear'),
-            server.rtr("games_ai.gamesai_help_message.clear_help"),
-            )
-        per_help_part = RTextList(
+        send_help(source, prefix, message=server.rtr("games_ai.gamesai_help_message.greeting", v=PLUGIN_METADATA.get("version")))
+        send_help(source, prefix, command="!!ask <content>", command_help_key="games_ai.gamesai_help_message.ask_help")
+        send_help(source, prefix, command="!!gamesai clear", command_help_key="games_ai.gamesai_help_message.clear_help")
+        if source.get_permission_level() >= allow_permission:
+            send_help(source, prefix, command="!!gamesai clearall", command_help_key="games_ai.gamesai_help_message.clearall_help")
+            send_help(source, prefix, command="!!gamesai check", command_help_key="games_ai.gamesai_help_message.check_update_help")
+            send_help(source, prefix, command="!!data", command_help_key="games_ai.gamesai_help_message.data_help")
+
+def send_help(source: CommandSource, prefix: str, message: str|None = None, command: str|None = None, command_help_key: str|None = None):
+    server = source.get_server()
+    if command and message is None:
+        source.reply(RTextList(
             prefix,
             server.rtr("games_ai.gamesai_help_message.help_prefix"),
-            RText("!!gamesai clearall", RColor.gray).c(RAction.suggest_command,'!!gamesai clearall'),
-            server.rtr("games_ai.gamesai_help_message.clearall_help"),
-            "\n",
+            RText(command, RColor.gray).c(RAction.suggest_command, command[:command.find(' <')] + ' ' if ' <' in command else command + ' '),
+            server.rtr(command_help_key)
+        ))
+        return
+    else:
+        source.reply(RTextList(
             prefix,
-            server.rtr("games_ai.gamesai_help_message.help_prefix"),
-            RText("!!gamesai check", RColor.gray).c(RAction.suggest_command, '!!gamesai check'),
-            server.rtr("games_ai.gamesai_help_message.check_update_help"),
-            "\n",
-            prefix,
-            server.rtr("games_ai.gamesai_help_message.help_prefix"),
-            RText("!!data", RColor.gray).c(RAction.suggest_command, '!!data'),
-            server.rtr("games_ai.gamesai_help_message.data_help"),
-        )
-        if source.get_permission_level() < allow_permission:
-            source.reply(basic_help_part)
-        else:
-            all_help_part = RTextList(basic_help_part, "\n", per_help_part)
-            source.reply(all_help_part)
+            message,
+        ))
+        return
 
 def _safe_trim_history(history: list, max_len: int) -> list:
     if len(history) <= max_len:
@@ -458,9 +367,9 @@ def ask_ai(source: CommandSource, context: dict, no_history: bool = False):
     skills_file_list = str(server.rtr("games_ai.user_message.skills", skills=[*skills, *default_skills]))
     config_thinking = ai_info.get("thinking", False)
     if config_thinking:
-        thinking = "enabled"
+        extra_body = {"thinking": {"type": "enabled"}}
     else:
-        thinking = "disabled"
+        extra_body = {}
 
     now_time = datetime.datetime.now()
     now_time = str(server.rtr("games_ai.user_message.time", time=now_time.strftime('%Y-%m-%d %H:%M:%S')))
@@ -491,7 +400,7 @@ def ask_ai(source: CommandSource, context: dict, no_history: bool = False):
 
     while True:
         try:
-            ai_reply = response_chat(model=ai_model,url=base_url,message=response_message,api_key=api_key,tools=TOOL_SCHEMAS,thinking=thinking)
+            ai_reply = response_chat(model=ai_model,url=base_url,message=response_message,api_key=api_key,tools=TOOL_SCHEMAS,extra_body=extra_body)
             if ai_reply.tool_calls is not None:
                 response_message.append(ai_reply)
                 history.append(ai_reply)
@@ -890,4 +799,64 @@ def reloader(source: CommandSource, context: dict):
     load_external_tools(log=server.logger.info)
 
     server.say(f'{prefix}{server.rtr("games_ai.unload_message.reloader_msg")}')
+    return
+
+@new_thread("games_ai@speed_test")
+def speed_test(source: CommandSource, context: dict):
+    server = source.get_server()
+    test_url = []
+
+    user_input = context.get("model")
+    if user_input is not None:
+        user_input_id = name_to_id.get(user_input, user_input)
+        ai_info = ai_dict.get(user_input_id)
+
+        if ai_info is None:
+            may_user_ai = []
+            for ai_id, ai_config in ai_dict.items():
+                name = ai_config.get("ai_name", "")
+                if user_input.lower() in name.lower() or user_input.lower() in ai_id.lower():
+                    may_user_ai.append(ai_id)
+            if len(may_user_ai) == 1:
+                ai_info = ai_dict.get(may_user_ai[0])
+            elif len(may_user_ai) > 1:
+                source.reply(f"{prefix}{server.rtr('games_ai.user_message.model_more')}{may_user_ai}")
+                return
+            else:
+                source.reply(f"{prefix}{server.rtr('games_ai.user_message.model_error')}{list(ai_dict.keys())}")
+                return
+
+        ai_prefix = ai_info.get("ai_name")
+        base_url = ai_info.get("base_url")
+        api_key = ai_info.get("api_key")
+        test_url.append((ai_prefix, base_url, api_key))
+    else:
+        test_url = [(ai_info.get("ai_name"), ai_info.get("base_url"), ai_info.get("api_key")) for ai_info in ai_dict.values()]
+
+    for ai_prefix, base_url, api_key in test_url:
+        source.reply(f'{ai_prefix}{server.rtr("games_ai.speed_test.testing", url=base_url)}')
+
+        try:
+            start_time = time.time()
+            response = requests.get(
+                base_url.rstrip("/") + "/models",
+                headers={"Authorization": f"Bearer {api_key}"},
+                timeout=10
+            )
+            elapsed = (time.time() - start_time) * 1000
+
+            if response.status_code in (200, 401):
+                source.reply(
+                    f'{ai_prefix}✅ {server.rtr("games_ai.speed_test.success")}\n{ai_prefix}{server.rtr("games_ai.speed_test.latency", latency=f"{elapsed:.0f}")}\n{ai_prefix}{server.rtr("games_ai.speed_test.status_code", code=response.status_code)}'
+                )
+            else:
+                source.reply(
+                    f'{ai_prefix}⚠️ {server.rtr("games_ai.speed_test.partial", latency=f"{elapsed:.0f}", code=response.status_code)}'
+                )
+        except requests.exceptions.Timeout:
+            source.reply(f'{ai_prefix}❌ {server.rtr("games_ai.speed_test.timeout")}')
+        except requests.exceptions.ConnectionError as e:
+            source.reply(f'{ai_prefix}❌ {server.rtr("games_ai.speed_test.connection_error", error=str(e))}')
+        except Exception as e:
+            source.reply(f'{ai_prefix}❌ {server.rtr("games_ai.speed_test.error", error=str(e))}')
     return

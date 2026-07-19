@@ -15,7 +15,7 @@
 > **GamesAI 插件/模組 QQ 交流群：849544707** — 歡迎加入交流群討論問題、回饋建議，以及分享 prompt、skills、tools 等設定！
 
 > [!NOTE]
-> 歡迎使用版本 0.5.6！當前版本新增了 **無歷史模式**、**max_history 停用支援**，並修復了**工具例外處理**和**檔案檢查**問題。見[本次更新](#本次更新)
+> 歡迎使用版本 0.5.7！當前版本新增了 **API 延遲測速**、**更安全的工具追加**、**幫助系統重構**和 **Skills 文件更新**。見[本次更新](#本次更新)
 
 > [!IMPORTANT]
 > 0.5.x系列版本會在GamesAI的設定資料夾中加入 `tools`、`skills`、`prompt` 資料夾及 `tools.py` 檔案，用於支援 ToolCalls、技能、提示詞檔案化。
@@ -37,11 +37,11 @@
     - [Skills 技能](#skills-技能)
     - [自訂工具](#自訂工具)
   - [本次更新](#本次更新)
-    - [Version 0.5.6](#version-056)
-      - [1. `!!ask` 無歷史模式](#1-ask-無歷史模式)
-      - [2. `max_history` 支援停用歷史](#2-max_history-支援停用歷史)
-      - [3. 工具錯誤優雅處理](#3-工具錯誤優雅處理)
-      - [4. `get_all_pos` / `remove_pos` 檔案檢查修復](#4-get_all_pos--remove_pos-檔案檢查修復)
+    - [Version 0.5.7](#version-057)
+      - [1. `!!gamesai speedtest` — API 延遲測速](#1-gamesai-speedtest--api-延遲測速)
+      - [2. `append_custom_tools` — 更安全的工具追加](#2-append_custom_tools--更安全的工具追加)
+      - [3. 幫助系統重構](#3-幫助系統重構)
+      - [4. 更新 `custom_tools_management.md` 技能](#4-更新-custom_tools_managementmd-技能)
   - [致謝與聲明](#致謝與聲明)
   - [贊助與貢獻者名單](#贊助與貢獻者名單)
   - [授權條款](#授權條款)
@@ -74,6 +74,7 @@ pip install openai requests
 |`!!gamesai clearall`|清除所有玩家的歷史聊天記錄，歷史聊天記錄與公共資料庫無關。|
 |`!!gamesai reload`|重新載入插件設定檔。|
 |`!!gamesai check`|檢查插件更新。|
+|`!!gamesai speedtest [model]`|測試 API 伺服器連線延遲，不指定模型時測試全部。|
 
 ---
 
@@ -203,6 +204,7 @@ GamesAI 插件提供了許多內建工具，請見下表。如果你想要更多
 |delete_skills|`skills`|刪除一個技能檔案並從技能索引中移除|
 |read_custom_tools|無|讀取目前自訂 `tools.py` 檔案的內容|
 |modify_custom_tools|`tools`|用新程式碼替換整個自訂 `tools.py` 檔案|
+|append_custom_tools|`tools`|向自訂 `tools.py` 檔案末尾追加新工具程式碼|
 |setting_timer|`duration`|暫停執行指定秒數後再繼續下一步操作|
 |reload_plugin|無|熱重載插件以套用設定、技能和自訂工具的變更，不會遺失聊天記錄||ai_del_data|`key`|刪除資料庫中的一筆資料。|
 
@@ -256,7 +258,7 @@ def my_custom_tool(source: CommandSource, ai_prefix: str):
 > 程式碼中的 `from games_ai.games_ai_tool import register_tool` 和函式定義前的 `@register_tool` 必須存在。
 
 > [!TIP]
-> 在 0.5.5+ 版本中，AI 可以**自主讀取和修改**自訂工具檔案。只需讓 AI 幫你新增工具——它會先讀取目前檔案，編寫新程式碼，然後重載插件。
+> 在 0.5.7+ 版本中，AI 可以**自主讀取、修改和追加**自訂工具檔案。只需讓 AI 幫你新增工具——它會先讀取目前檔案，編寫新程式碼（使用 `append_custom_tools` 追加而非覆蓋），然後重載插件。
 
 可見，這是非常簡單的結構。
 
@@ -398,33 +400,31 @@ def search_baidu(source, ai_prefix: str, query: str):
 
 ## 本次更新
 
-### Version 0.5.6
+### Version 0.5.7
 
-#### 1. `!!ask` 無歷史模式
+#### 1. `!!gamesai speedtest` — API 延遲測速
 
-新增 `--no-history` / `-n` 參數，使用後當前對話不會讀取舊的歷史記錄，但本次對話仍會被儲存供後續使用。支援與 `-m` 組合使用。此功能由 [william-song-shy (William Song)](https://github.com/william-song-shy) 提議。
+新增 `!!gamesai speedtest [model]` 指令，用於測試 API 伺服器的連線延遲。不指定模型時測試所有已設定的模型。結果包含毫秒級延遲和 HTTP 狀態碼。
 
-- `!!ask -n <content>` — 不帶歷史記錄提問
-- `!!ask --no-history <content>` — 同上
-- `!!ask -n -m <model> <content>` — 指定模型且不帶歷史記錄
+#### 2. `append_custom_tools` — 更安全的工具追加
 
-#### 2. `max_history` 支援停用歷史
+新增 AI 工具，可向自訂 `tools.py` 檔案末尾追加程式碼，而非全量覆寫。AI 現在會透過 `custom_tools_management.md` 技能引導，優先使用 `append_custom_tools` 而非 `modify_custom_tools` 來新增工具，降低誤刪現有程式碼的風險。
 
-`max_history` 現在可以設定為 `0`，此時插件完全停用歷史記錄功能——不讀取也不儲存任何對話歷史。
+#### 3. 幫助系統重構
 
-#### 3. 工具錯誤優雅處理
+所有幫助資訊生成現已統一透過 `send_help` 輔助函式完成，大幅減少程式碼重複。修復了高權限使用者在 `!!gamesai` 幫助中看不到基礎指令（如 `!!ask`、`!!gamesai clear`）的問題——基礎指令現在無論權限等級都始終顯示。
 
-移除了工具執行例外處理中的 `raise e`，工具呼叫失敗不再導致整個對話執行緒終止。AI 會收到錯誤資訊並可以嘗試其他方式完成任務。
+#### 4. 更新 `custom_tools_management.md` 技能
 
-#### 4. `get_all_pos` / `remove_pos` 檔案檢查修復
-
-修復了 `get_all_pos` 和 `remove_pos` 工具在 `where2go` 插件存在但資料檔案尚未建立時直接崩潰的問題，現在會先檢查檔案是否存在。
+內建 `custom_tools_management.md` 技能已更新，記錄了 `append_custom_tools` 工具的使用方法。工作流程現在推薦在可能的情況下使用追加而非全量替換來新增工具。
 
 ## 致謝與聲明
 
 特別感謝望海公社伺服器為此插件的測試提供了基礎。
 
 特別感謝 [william-song-shy (William Song)](https://github.com/william-song-shy) 為 `!!ask` 無歷史模式提供的建議。
+
+特別感謝 [ZhangZuoqian (張作乾)](https://github.com/ZhangZuoqian) 為測速指令提供的建議。
 
 AI（LLM）模型生成的一切內容與此插件無關。
 

@@ -15,7 +15,7 @@ English  |  [简体中文](/README.zh-CN.md)  |  [繁體中文](/README.zh-TW.md
 > **GamesAI Plugin/Mod QQ Group: 849544707** — Join us to discuss issues, share feedback, and exchange prompt, skills, tools configurations!
 
 > [!NOTE]
-> Welcome to version 0.5.6! This release introduces **no-history mode**, **max_history disable support**, and fixes for **tool error handling** and **file check** issues. See [What's New](#whats-new)
+> Welcome to version 0.5.7! This release introduces **API speed testing**, **safer tool appending**, a **refactored help system**, and updated **skills documentation**. See [What's New](#whats-new)
 
 > [!IMPORTANT]
 > The 0.5.x series versions add `tools`, `skills`, `prompt` folders and a `tools.py` file in the GamesAI config folder to support ToolCalls, skills, and prompt file-ization.
@@ -37,11 +37,11 @@ English  |  [简体中文](/README.zh-CN.md)  |  [繁體中文](/README.zh-TW.md
     - [Skills](#skills)
     - [Custom Tools](#custom-tools)
   - [What's New](#whats-new)
-    - [Version 0.5.6](#version-056)
-      - [1. `!!ask` No-History Mode](#1-ask-no-history-mode)
-      - [2. `max_history` Can Disable History](#2-max_history-can-disable-history)
-      - [3. Graceful Tool Error Handling](#3-graceful-tool-error-handling)
-      - [4. `get_all_pos` / `remove_pos` File Check Fix](#4-get_all_pos--remove_pos-file-check-fix)
+    - [Version 0.5.7](#version-057)
+      - [1. `!!gamesai speedtest` — API Latency Testing](#1-gamesai-speedtest--api-latency-testing)
+      - [2. `append_custom_tools` — Safer Tool Appending](#2-append_custom_tools--safer-tool-appending)
+      - [3. Refactored Help System](#3-refactored-help-system)
+      - [4. Updated `custom_tools_management.md` Skill](#4-updated-custom_tools_managementmd-skill)
   - [Acknowledgements \& Disclaimer](#acknowledgements--disclaimer)
   - [Sponsorship \& Contributors](#sponsorship--contributors)
   - [License](#license)
@@ -74,6 +74,7 @@ Type `!!gamesai` anywhere to display all available features of this plugin.
 |`!!gamesai clearall`|Clear all players' chat history. Chat history is unrelated to the public database.|
 |`!!gamesai reload`|Reload the plugin configuration file.|
 |`!!gamesai check`|Check for plugin updates.|
+|`!!gamesai speedtest [model]`|Test API server connection latency. If no model is specified, all models are tested.|
 
 ---
 
@@ -204,6 +205,7 @@ The GamesAI plugin provides many built-in tools, listed in the table below. If y
 |delete_skills|`skills`|Delete a skill file and remove it from the skills index.|
 |read_custom_tools|None|Read the current content of the custom `tools.py` file.|
 |modify_custom_tools|`tools`|Replace the entire custom `tools.py` file with new code.|
+|append_custom_tools|`tools`|Append new tool code to the end of the custom `tools.py` file.|
 |setting_timer|`duration`|Pause execution for the specified number of seconds before continuing.|
 |reload_plugin|None|Hot-reload the plugin to apply configuration, skills, and custom tools changes without losing chat history.|
 |ai_del_data|`key`|Delete a data entry from the database.|
@@ -258,7 +260,7 @@ def my_custom_tool(source: CommandSource, ai_prefix: str):
 > The `from games_ai.games_ai_tool import register_tool` import and the `@register_tool` decorator above the function definition **must** be present.
 
 > [!TIP]
-> In version 0.5.5+, the AI can autonomously **read and modify** the custom tools file using the `read_custom_tools` and `modify_custom_tools` tools. Just ask the AI to add a new tool for you — it will read the current file, write the new code, and reload the plugin.
+> In version 0.5.7+, the AI can autonomously **read, modify, and append** the custom tools file using the `read_custom_tools`, `modify_custom_tools`, and `append_custom_tools` tools. Just ask the AI to add a new tool for you — it will read the current file, write the new code, and reload the plugin.
 
 As you can see, the structure is very simple.
 
@@ -400,33 +402,31 @@ def search_baidu(source, ai_prefix: str, query: str):
 
 ## What's New
 
-### Version 0.5.6
+### Version 0.5.7
 
-#### 1. `!!ask` No-History Mode
+#### 1. `!!gamesai speedtest` — API Latency Testing
 
-Added `--no-history` / `-n` flag. When used, old conversation history is not read into the prompt, but the current conversation is still saved for future use. Can be combined with `-m`. This feature was suggested by [william-song-shy (William Song)](https://github.com/william-song-shy).
+New `!!gamesai speedtest [model]` command. Measures the connection latency to your configured AI API servers. If no model is specified, all configured models are tested. Results include latency in milliseconds and HTTP status code.
 
-- `!!ask -n <content>` — Ask without history
-- `!!ask --no-history <content>` — Same as above
-- `!!ask -n -m <model> <content>` — Specify model without history
+#### 2. `append_custom_tools` — Safer Tool Appending
 
-#### 2. `max_history` Can Disable History
+New AI tool that appends code to the end of the custom `tools.py` file, rather than overwriting the entire file. The AI is now guided (via `custom_tools_management.md`) to prefer `append_custom_tools` over `modify_custom_tools` when adding new tools, reducing the risk of accidentally deleting existing code.
 
-`max_history` can now be set to `0`, which completely disables the history feature — no conversation history is read or saved.
+#### 3. Refactored Help System
 
-#### 3. Graceful Tool Error Handling
+All help message generation is now unified through a single `send_help` helper function, significantly reducing code duplication. Fixed a bug where high-permission users could not see basic commands (e.g., `!!ask`, `!!gamesai clear`) in the `!!gamesai` help output — basic commands are now always shown regardless of permission level.
 
-Removed `raise e` from the tool execution error handler. Tool call failures no longer terminate the entire conversation thread. The AI now receives the error message and can attempt alternative approaches.
+#### 4. Updated `custom_tools_management.md` Skill
 
-#### 4. `get_all_pos` / `remove_pos` File Check Fix
-
-Fixed a crash in `get_all_pos` and `remove_pos` tools when the `where2go` plugin is installed but its data file hasn't been created yet. Both tools now check for file existence before attempting to read.
+The built-in `custom_tools_management.md` skill has been updated to document the `append_custom_tools` tool. The workflow now recommends appending new tools rather than performing a full file replacement whenever possible.
 
 ## Acknowledgements & Disclaimer
 
 Special thanks to the Wanghai Commune server for providing the foundation for testing this plugin.
 
 Special thanks to [william-song-shy (William Song)](https://github.com/william-song-shy) for suggesting the `!!ask` no-history mode.
+
+Special thanks to [ZhangZuoqian (张作乾)](https://github.com/ZhangZuoqian) for suggesting the `!!gamesai speedtest` command.
 
 All content generated by AI (LLM) models is unrelated to this plugin.
 
