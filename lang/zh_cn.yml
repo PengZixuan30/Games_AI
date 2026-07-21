@@ -93,6 +93,7 @@ games_ai:
     reading_custom_tools: "正在读取自定义工具文件"
     reloading_plugin: "正在重载插件..."
     tool_success: "工具调用成功!"
+    permission_denied: "你没有权限使用此功能"
 
   builtin_skills:
     skills_management: "【必须读取】在对任何技能文件执行写入/修改/删除操作之前，务必先阅读此文件！"

@@ -94,6 +94,7 @@ games_ai:
     reloading_plugin: "Reloading plugin..."
 
     tool_success: "Tool executed successfully!"
+    permission_denied: "You do not have permission to use this feature"
 
   builtin_skills:
     skills_management: "[MUST READ] You MUST read this file BEFORE performing any write/modify/delete operations on skill files!"

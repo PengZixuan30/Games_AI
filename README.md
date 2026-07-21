@@ -15,7 +15,7 @@ English  |  [简体中文](/README.zh-CN.md)  |  [繁體中文](/README.zh-TW.md
 > **GamesAI Plugin/Mod QQ Group: 849544707** — Join us to discuss issues, share feedback, and exchange prompt, skills, tools configurations!
 
 > [!NOTE]
-> Welcome to version 0.5.7! This release introduces **API speed testing**, **safer tool appending**, a **refactored help system**, and updated **skills documentation**. See [What's New](#whats-new)
+> Welcome to version 0.5.8! This release introduces **permission control for skills and custom tools**. See [What's New](#whats-new)
 
 > [!IMPORTANT]
 > The 0.5.x series versions add `tools`, `skills`, `prompt` folders and a `tools.py` file in the GamesAI config folder to support ToolCalls, skills, and prompt file-ization.
@@ -37,6 +37,8 @@ English  |  [简体中文](/README.zh-CN.md)  |  [繁體中文](/README.zh-TW.md
     - [Skills](#skills)
     - [Custom Tools](#custom-tools)
   - [What's New](#whats-new)
+    - [Version 0.5.8](#version-058)
+      - [1. Permission Control for Skills \& Custom Tools](#1-permission-control-for-skills--custom-tools)
     - [Version 0.5.7](#version-057)
       - [1. `!!gamesai speedtest` — API Latency Testing](#1-gamesai-speedtest--api-latency-testing)
       - [2. `append_custom_tools` — Safer Tool Appending](#2-append_custom_tools--safer-tool-appending)
@@ -401,6 +403,14 @@ def search_baidu(source, ai_prefix: str, query: str):
 </details>
 
 ## What's New
+
+### Version 0.5.8
+
+#### 1. Permission Control for Skills & Custom Tools
+
+Skills modification tools (`write_skills`, `modify_skills`, `delete_skills`) and custom tools modification tools (`read_custom_tools`, `modify_custom_tools`, `append_custom_tools`) now require the player to have a permission level at or above the `allow_permission` value set in the config (default: `3`). The `read_skills` tool remains accessible without restriction.
+
+This prevents unauthorized players from modifying skill files or custom tools via AI, while still allowing everyone to read existing skills.
 
 ### Version 0.5.7
 

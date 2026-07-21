@@ -15,7 +15,7 @@
 > **GamesAI 插件/模组 QQ 交流群：849544707** — 欢迎加入交流群讨论问题、反馈建议，以及分享 prompt、skills、tools 等配置！
 
 > [!NOTE]
-> 欢迎使用版本 0.5.7！当前版本新增了 **API 延迟测速**、**更安全的工具追加**、**帮助系统重构**和**Skills 文档更新**。见[本次更新](#本次更新)
+> 欢迎使用版本 0.5.8！当前版本新增了 **Skills 与自定义工具的权限控制**。见[本次更新](#本次更新)
 
 > [!IMPORTANT]
 > 0.5.x系列版本会在GamesAI的配置文件夹中加入 `tools`、`skills`、`prompt` 文件夹及 `tools.py` 文件，用于支持 ToolCalls、技能、提示词文件化。
@@ -37,6 +37,8 @@
     - [Skills 技能](#skills-技能)
     - [自定义工具](#自定义工具)
   - [本次更新](#本次更新)
+    - [Version 0.5.8](#version-058)
+      - [1. Skills 与自定义工具的权限控制](#1-skills-与自定义工具的权限控制)
     - [Version 0.5.7](#version-057)
       - [1. `!!gamesai speedtest` — API 延迟测速](#1-gamesai-speedtest--api-延迟测速)
       - [2. `append_custom_tools` — 更安全的工具追加](#2-append_custom_tools--更安全的工具追加)
@@ -395,6 +397,14 @@ def search_baidu(source, ai_prefix: str, query: str):
 </details>
 
 ## 本次更新
+
+### Version 0.5.8
+
+#### 1. Skills 与自定义工具的权限控制
+
+Skills 修改工具（`write_skills`、`modify_skills`、`delete_skills`）和自定义工具修改工具（`read_custom_tools`、`modify_custom_tools`、`append_custom_tools`）现在需要玩家权限等级达到配置文件中 `allow_permission` 所设置的值（默认 `3`）才能使用。`read_skills` 工具不受限制，所有玩家均可使用。
+
+这项改动可以防止未授权玩家通过 AI 修改技能文件或自定义工具，同时保留所有人阅读现有技能的权限。
 
 ### Version 0.5.7
 

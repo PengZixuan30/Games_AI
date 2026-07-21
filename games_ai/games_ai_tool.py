@@ -434,6 +434,8 @@ def read_skills(source: CommandSource, ai_prefix: str, skills: str):
 def write_skills(source: CommandSource, ai_prefix: str, skills: str, summary: str, content: str):
     server = source.get_server()
     source.reply(f"{ai_prefix}{server.rtr("games_ai.tools.writing_skills", skills=skills)}")
+    if source.get_permission_level() < plugin_config.allow_permission:
+        return server.rtr("games_ai.tools.permission_denied")
     skills_path = os.path.join(os.path.dirname(plugin_config.skills_path), skills)
     try:
         with open(skills_path, mode='w', encoding='utf-8') as f:
@@ -484,6 +486,8 @@ def write_skills(source: CommandSource, ai_prefix: str, skills: str, summary: st
 def modify_skills(source: CommandSource, ai_prefix: str, skills: str, summary: str, content: str):
     server = source.get_server()
     source.reply(f"{ai_prefix}{server.rtr("games_ai.tools.modifying_skills", skills=skills)}")
+    if source.get_permission_level() < plugin_config.allow_permission:
+        return server.rtr("games_ai.tools.permission_denied")
     skills_path = os.path.join(os.path.dirname(plugin_config.skills_path), skills)
     try:
         with open(skills_path, mode='w', encoding='utf-8') as f:
@@ -526,6 +530,8 @@ def modify_skills(source: CommandSource, ai_prefix: str, skills: str, summary: s
 def delete_skills(source: CommandSource, ai_prefix: str, skills: str):
     server = source.get_server()
     source.reply(f"{ai_prefix}{server.rtr("games_ai.tools.deleting_skills", skills=skills)}")
+    if source.get_permission_level() < plugin_config.allow_permission:
+        return server.rtr("games_ai.tools.permission_denied")
     skills_path = os.path.join(os.path.dirname(plugin_config.skills_path), skills)
     try:
         os.remove(skills_path)
@@ -567,6 +573,8 @@ def setting_timer(source: CommandSource, ai_prefix: str, duration: int):
 def read_custom_tools(source: CommandSource, ai_prefix: str):
     server = source.get_server()
     source.reply(f"{ai_prefix}{server.rtr("games_ai.tools.reading_custom_tools")}")
+    if source.get_permission_level() < plugin_config.allow_permission:
+        return server.rtr("games_ai.tools.permission_denied")
     try:
         with open(plugin_config.tools_path, mode='r', encoding='utf-8') as f:
             tools_content = f.read()
@@ -587,6 +595,8 @@ def read_custom_tools(source: CommandSource, ai_prefix: str):
 def modify_custom_tools(source: CommandSource, ai_prefix: str, tools: str):
     server = source.get_server()
     source.reply(f"{ai_prefix}{server.rtr("games_ai.tools.modifying_custom_tools")}")
+    if source.get_permission_level() < plugin_config.allow_permission:
+        return server.rtr("games_ai.tools.permission_denied")
     try:
         with open(plugin_config.tools_path, mode='w', encoding='utf-8') as f:
             f.write(tools)
@@ -607,6 +617,8 @@ def modify_custom_tools(source: CommandSource, ai_prefix: str, tools: str):
 def append_custom_tools(source: CommandSource, ai_prefix: str, tools: str):
     server = source.get_server()
     source.reply(f"{ai_prefix}{server.rtr("games_ai.tools.appending_custom_tools")}")
+    if source.get_permission_level() < plugin_config.allow_permission:
+        return server.rtr("games_ai.tools.permission_denied")
     try:
         with open(plugin_config.tools_path, mode='r', encoding='utf-8') as f:
             existing = f.read()
