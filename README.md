@@ -14,10 +14,10 @@ English  |  [简体中文](/README.zh-CN.md)  |  [繁體中文](/README.zh-TW.md
 > **GamesAI Plugin/Mod QQ Group: 849544707** — Join us to discuss issues, share feedback, and exchange prompt, skills, tools configurations!
 
 > [!NOTE]
-> Welcome to version 0.5.9! This release introduces **ai_read_all_data tool**, **system message refactoring**, and **real-time database injection**. See [What's New](#whats-new)
+> Welcome to version 0.5.10! This release introduces **generic `extra_body` configuration** replacing the `thinking` boolean flag, enabling full control over API request parameters. See [What's New](#whats-new)
 
 > [!IMPORTANT]
-> The 0.5.x series versions add `tools`, `skills`, `prompt` folders and a `tools.py` file in the GamesAI config folder to support ToolCalls, skills, and prompt file-ization.
+> **Breaking Change in 0.5.10**: The `thinking` boolean config has been replaced by a generic `extra_body` dict. If you were using `"thinking": true`, you must migrate to `"extra_body": {"thinking": {"type": "enabled"}}`. See [What's New](#1-extra_body--generic-api-parameter-configuration-breaking) for migration guide.
 
 <details>
 <summary>Table of Contents (click to expand)</summary>
@@ -36,19 +36,14 @@ English  |  [简体中文](/README.zh-CN.md)  |  [繁體中文](/README.zh-TW.md
     - [Skills](#skills)
     - [Custom Tools](#custom-tools)
   - [What's New](#whats-new)
+    - [Version 0.5.10](#version-0510)
+      - [1. `extra_body` — Generic API Parameter Configuration (BREAKING)](#1-extra_body--generic-api-parameter-configuration-breaking)
     - [Version 0.5.9](#version-059)
       - [1. System Message Refactoring](#1-system-message-refactoring)
       - [2. New `ai_read_all_data` Tool](#2-new-ai_read_all_data-tool)
       - [3. Real-Time Database Injection](#3-real-time-database-injection)
       - [4. Thinking Message Style](#4-thinking-message-style)
       - [5. Bug Fixes \& Stability](#5-bug-fixes--stability)
-    - [Version 0.5.8](#version-058)
-      - [1. Permission Control for Skills \& Custom Tools](#1-permission-control-for-skills--custom-tools)
-    - [Version 0.5.7](#version-057)
-      - [1. `!!gamesai speedtest` — API Latency Testing](#1-gamesai-speedtest--api-latency-testing)
-      - [2. `append_custom_tools` — Safer Tool Appending](#2-append_custom_tools--safer-tool-appending)
-      - [3. Refactored Help System](#3-refactored-help-system)
-      - [4. Updated `custom_tools_management.md` Skill](#4-updated-custom_tools_managementmd-skill)
   - [Acknowledgements \& Disclaimer](#acknowledgements--disclaimer)
   - [Sponsorship \& Contributors](#sponsorship--contributors)
   - [License](#license)
@@ -126,7 +121,7 @@ The default configuration file structure is as follows:
           "base_url": "<Your API Base URL>",
           "ai_model": "<Your AI Model>",
           "api_key": "<Your API Key>",
-          "thinking": false
+          "extra_body": {}
       }
     },
   "default_ai": "<Your AI ID>"
@@ -171,7 +166,7 @@ All AI configuration entries, consisting of multiple sub-dictionaries. Each sub-
 
 **base_url**, **ai_model**, **api_key**: Same as previous related configuration, but now set per model.
 
-**thinking**: Enable or disable the model's thinking/reasoning mode. Defaults to `false` when omitted. Do not enable this for models that do not support a thinking mode — it may cause errors.
+**extra_body**: Please refer to your API provider's documentation for the `extra_body` parameter. For DeepSeek users migrating from the previous `thinking` option, use `{"thinking": {"type": "enabled"}}`. Defaults to `{}` (empty).
 
 ### 5.default_ai
 Type: `str`
@@ -410,6 +405,25 @@ def search_baidu(source, ai_prefix: str, query: str):
 
 ## What's New
 
+### Version 0.5.10
+
+#### 1. `extra_body` — Generic API Parameter Configuration (BREAKING)
+
+The previous `thinking` boolean configuration option has been replaced with a generic `extra_body` dictionary. Please refer to your API provider's documentation for available options.
+
+> [!WARNING]
+> **Breaking Change**: If you were using `"thinking": true`, you must now migrate as shown below:
+>
+> ```json
+> // Before (0.5.9)
+> { "thinking": true }
+>
+> // After (0.5.10) — for DeepSeek users
+> { "extra_body": { "thinking": { "type": "enabled" } } }
+> ```
+>
+> For other API providers, consult their documentation for the correct `extra_body` format.
+
 ### Version 0.5.9
 
 #### 1. System Message Refactoring
@@ -438,32 +452,6 @@ The "Thinking..." status message now uses Minecraft gray formatting (`§7...§r`
 #### 5. Bug Fixes & Stability
 
 - Fixed `ai_read_all_data` returning a non-string value (`list[tuple]`) that caused HTTP 400 errors on DeepSeek and other strict API implementations. Tool call results now always return properly formatted strings.
-
-### Version 0.5.8
-
-#### 1. Permission Control for Skills & Custom Tools
-
-Skills modification tools (`write_skills`, `modify_skills`, `delete_skills`) and custom tools modification tools (`read_custom_tools`, `modify_custom_tools`, `append_custom_tools`) now require the player to have a permission level at or above the `allow_permission` value set in the config (default: `3`). The `read_skills` tool remains accessible without restriction.
-
-This prevents unauthorized players from modifying skill files or custom tools via AI, while still allowing everyone to read existing skills.
-
-### Version 0.5.7
-
-#### 1. `!!gamesai speedtest` — API Latency Testing
-
-New `!!gamesai speedtest [model]` command. Measures the connection latency to your configured AI API servers. If no model is specified, all configured models are tested. Results include latency in milliseconds and HTTP status code.
-
-#### 2. `append_custom_tools` — Safer Tool Appending
-
-New AI tool that appends code to the end of the custom `tools.py` file, rather than overwriting the entire file. The AI is now guided (via `custom_tools_management.md`) to prefer `append_custom_tools` over `modify_custom_tools` when adding new tools, reducing the risk of accidentally deleting existing code.
-
-#### 3. Refactored Help System
-
-All help message generation is now unified through a single `send_help` helper function, significantly reducing code duplication. Fixed a bug where high-permission users could not see basic commands (e.g., `!!ask`, `!!gamesai clear`) in the `!!gamesai` help output — basic commands are now always shown regardless of permission level.
-
-#### 4. Updated `custom_tools_management.md` Skill
-
-The built-in `custom_tools_management.md` skill has been updated to document the `append_custom_tools` tool. The workflow now recommends appending new tools rather than performing a full file replacement whenever possible.
 
 ## Acknowledgements & Disclaimer
 

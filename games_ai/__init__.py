@@ -10,7 +10,7 @@ import time,os,requests,lzma,json,threading,datetime
 
 PLUGIN_METADATA = {
     "id": "games_ai",
-    "version": "0.5.9",
+    "version": "0.5.10",
     "name": "GamesAI",
     "description": {
         "zh_cn": "此插件可以让你在游戏中使用AI",
@@ -43,7 +43,7 @@ def on_load(server: PluginServerInterface, old):
                 "base_url": "<Your API Base URL>",
                 "ai_model": "<Your AI Model>",
                 "api_key": "<Your API Key>",
-                "thinking": False,
+                "extra_body": {},
             }
         },
         "default_ai": "<Your AI ID>"
@@ -209,7 +209,7 @@ def _apply_config(server: PluginServerInterface, config: dict):
             "base_url": ai_config.get("base_url", ""),
             "ai_model": ai_config.get("ai_model", ""),
             "api_key": ai_config.get("api_key", ""),
-            "thinking": ai_config.get("thinking", False),
+            "extra_body": ai_config.get("extra_body", {}),
         }
 
     default_ai = config.get("default_ai", list(ai_dict.keys())[0] if ai_dict else "")
@@ -365,11 +365,7 @@ def ask_ai(source: CommandSource, context: dict, no_history: bool = False):
         {"file": "custom_tools_management.md", "description": str(server.rtr("games_ai.builtin_skills.custom_tools_management"))},
     ]
     skills_file_list = str(server.rtr("games_ai.user_message.skills", skills=[*skills, *default_skills]))
-    config_thinking = ai_info.get("thinking", False)
-    if config_thinking:
-        extra_body = {"thinking": {"type": "enabled"}}
-    else:
-        extra_body = {}
+    extra_body = ai_info.get("extra_body", {})
 
     now_time = datetime.datetime.now()
     now_time = str(server.rtr("games_ai.user_message.time", time=now_time.strftime('%Y-%m-%d %H:%M:%S')))

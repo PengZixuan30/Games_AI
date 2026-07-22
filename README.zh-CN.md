@@ -14,10 +14,10 @@
 > **GamesAI 插件/模组 QQ 交流群：849544707** — 欢迎加入交流群讨论问题、反馈建议，以及分享 prompt、skills、tools 等配置！
 
 > [!NOTE]
-> 欢迎使用版本 0.5.9！当前版本新增了 **ai_read_all_data 工具**、**System 消息重构** 和 **数据库实时注入**。见[本次更新](#本次更新)
+> 欢迎使用版本 0.5.10！当前版本引入了 **通用 `extra_body` 配置** 替代 `thinking` 布尔开关，支持完整的 API 请求参数自定义。见[本次更新](#本次更新)
 
 > [!IMPORTANT]
-> 0.5.x系列版本会在GamesAI的配置文件夹中加入 `tools`、`skills`、`prompt` 文件夹及 `tools.py` 文件，用于支持 ToolCalls、技能、提示词文件化。
+> **0.5.10 破坏性变更**：`thinking` 布尔配置已被通用 `extra_body` 字典替代。如果你使用了 `"thinking": true`，必须迁移为 `"extra_body": {"thinking": {"type": "enabled"}}`。详见[迁移指南](#1-extra_body--通用-api-参数配置破坏性变更)。
 
 <details>
 <summary>目录(点击展示)</summary>
@@ -36,19 +36,14 @@
     - [Skills 技能](#skills-技能)
     - [自定义工具](#自定义工具)
   - [本次更新](#本次更新)
+    - [Version 0.5.10](#version-0510)
+      - [1. `extra_body` — 通用 API 参数配置（破坏性变更）](#1-extra_body--通用-api-参数配置破坏性变更)
     - [Version 0.5.9](#version-059)
       - [1. System 消息重构](#1-system-消息重构)
       - [2. 新增 `ai_read_all_data` 工具](#2-新增-ai_read_all_data-工具)
       - [3. 数据库实时注入](#3-数据库实时注入)
       - [4. Thinking 消息样式](#4-thinking-消息样式)
       - [5. Bug 修复与稳定性](#5-bug-修复与稳定性)
-    - [Version 0.5.8](#version-058)
-      - [1. Skills 与自定义工具的权限控制](#1-skills-与自定义工具的权限控制)
-    - [Version 0.5.7](#version-057)
-      - [1. `!!gamesai speedtest` — API 延迟测速](#1-gamesai-speedtest--api-延迟测速)
-      - [2. `append_custom_tools` — 更安全的工具追加](#2-append_custom_tools--更安全的工具追加)
-      - [3. 帮助系统重构](#3-帮助系统重构)
-      - [4. 更新 `custom_tools_management.md` 技能](#4-更新-custom_tools_managementmd-技能)
   - [鸣谢与声明](#鸣谢与声明)
   - [赞助与贡献者名单](#赞助与贡献者名单)
   - [许可证](#许可证)
@@ -125,7 +120,7 @@ pip install openai requests
           "base_url": "<Your API Base URL>",
           "ai_model": "<Your AI Model>",
           "api_key": "<Your API Key>",
-          "thinking": false
+          "extra_body": {}
       }
     },
   "default_ai": "<Your AI ID>"
@@ -171,7 +166,7 @@ pip install openai requests
 
 **base_url**, **ai_model**, **api_key**: 与以前的相关配置功能相同，但是你现在需要单独为每一个模型设置
 
-**thinking**: 这项配置用于 启用/禁用 模型的思考模式，不填时默认为false，切勿为没有思考模式的模型启用此项，那可能会出错
+**extra_body**：请参考各API提供商对 `extra_body` 项的说明以编写。对于DeepSeek用户，想要移植原有 `thinking` 的，直接填写 `{"thinking": {"type": "enabled"}}`。不填时默认 `{}`（空）。
 
 ### 5.default_ai
 值的类型: str
@@ -404,6 +399,25 @@ def search_baidu(source, ai_prefix: str, query: str):
 
 ## 本次更新
 
+### Version 0.5.10
+
+#### 1. `extra_body` — 通用 API 参数配置（破坏性变更）
+
+之前的 `thinking` 布尔配置项已被替换为通用的 `extra_body` 字典。请参考各API提供商的说明以编写此项。
+
+> [!WARNING]
+> **破坏性变更**：如果你之前使用了 `"thinking": true`，请按如下方式迁移：
+>
+> ```json
+> // 之前 (0.5.9)
+> { "thinking": true }
+>
+> // 之后 (0.5.10) — 适用于DeepSeek用户
+> { "extra_body": { "thinking": { "type": "enabled" } } }
+> ```
+>
+> 对于其他API提供商，请查阅其文档以了解正确的 `extra_body` 格式。
+
 ### Version 0.5.9
 
 #### 1. System 消息重构
@@ -432,32 +446,6 @@ def search_baidu(source, ai_prefix: str, query: str):
 #### 5. Bug 修复与稳定性
 
 - 修复了 `ai_read_all_data` 返回非字符串值（`list[tuple]`）导致 DeepSeek 等严格 API 返回 HTTP 400 错误的问题。工具调用结果现在始终返回正确格式的字符串。
-
-### Version 0.5.8
-
-#### 1. Skills 与自定义工具的权限控制
-
-Skills 修改工具（`write_skills`、`modify_skills`、`delete_skills`）和自定义工具修改工具（`read_custom_tools`、`modify_custom_tools`、`append_custom_tools`）现在需要玩家权限等级达到配置文件中 `allow_permission` 所设置的值（默认 `3`）才能使用。`read_skills` 工具不受限制，所有玩家均可使用。
-
-这项改动可以防止未授权玩家通过 AI 修改技能文件或自定义工具，同时保留所有人阅读现有技能的权限。
-
-### Version 0.5.7
-
-#### 1. `!!gamesai speedtest` — API 延迟测速
-
-新增 `!!gamesai speedtest [model]` 命令，用于测试 API 服务器的连接延迟。不指定模型时测试所有已配置的模型。结果包含毫秒级延迟和 HTTP 状态码。
-
-#### 2. `append_custom_tools` — 更安全的工具追加
-
-新增 AI 工具，可向自定义 `tools.py` 文件末尾追加代码，而非全量覆写。AI 现在会通过 `custom_tools_management.md` 技能引导，优先使用 `append_custom_tools` 而非 `modify_custom_tools` 来添加新工具，降低误删现有代码的风险。
-
-#### 3. 帮助系统重构
-
-所有帮助信息生成现已统一通过 `send_help` 辅助函数完成，大幅减少代码重复。修复了高权限用户在 `!!gamesai` 帮助中看不到基础命令（如 `!!ask`、`!!gamesai clear`）的问题——基础命令现在无论权限等级都始终显示。
-
-#### 4. 更新 `custom_tools_management.md` 技能
-
-内置 `custom_tools_management.md` 技能已更新，记录了 `append_custom_tools` 工具的使用方法。工作流现在推荐在可能的情况下使用追加而非全量替换来添加新工具。
 
 ## 鸣谢与声明
 特别感谢望海公社服务器为此插件的测试提供了基础
