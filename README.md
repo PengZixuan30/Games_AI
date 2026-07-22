@@ -1,21 +1,20 @@
 <div align="center">
 
-# GamesAI
+# GamesAI for MCDReforged
 
 English  |  [简体中文](/README.zh-CN.md)  |  [繁體中文](/README.zh-TW.md)
 
 [Report an Issue](https://github.com/PengZixuan30/Games_AI/issues/new)  |  [Share an Idea](https://github.com/PengZixuan30/Games_AI/discussions/new/choose)  |  [Join QQ Group](https://qm.qq.com/q/jDQQaUPNmw)
 
-</div>
+[Go to Fabric Version](https://github.com/PengZixuan30/GamesAI)
 
-> [!NOTE]
-> GamesAI has now updated its Fabric version. See [GamesAI](https://github.com/PengZixuan30/GamesAI)
+</div>
 
 > [!NOTE]
 > **GamesAI Plugin/Mod QQ Group: 849544707** — Join us to discuss issues, share feedback, and exchange prompt, skills, tools configurations!
 
 > [!NOTE]
-> Welcome to version 0.5.8! This release introduces **permission control for skills and custom tools**. See [What's New](#whats-new)
+> Welcome to version 0.5.9! This release introduces **ai_read_all_data tool**, **system message refactoring**, and **real-time database injection**. See [What's New](#whats-new)
 
 > [!IMPORTANT]
 > The 0.5.x series versions add `tools`, `skills`, `prompt` folders and a `tools.py` file in the GamesAI config folder to support ToolCalls, skills, and prompt file-ization.
@@ -23,7 +22,7 @@ English  |  [简体中文](/README.zh-CN.md)  |  [繁體中文](/README.zh-TW.md
 <details>
 <summary>Table of Contents (click to expand)</summary>
 
-- [GamesAI](#gamesai)
+- [GamesAI for MCDReforged](#gamesai-for-mcdreforged)
   - [Installation](#installation)
   - [Usage](#usage)
   - [Configuration](#configuration)
@@ -37,6 +36,12 @@ English  |  [简体中文](/README.zh-CN.md)  |  [繁體中文](/README.zh-TW.md
     - [Skills](#skills)
     - [Custom Tools](#custom-tools)
   - [What's New](#whats-new)
+    - [Version 0.5.9](#version-059)
+      - [1. System Message Refactoring](#1-system-message-refactoring)
+      - [2. New `ai_read_all_data` Tool](#2-new-ai_read_all_data-tool)
+      - [3. Real-Time Database Injection](#3-real-time-database-injection)
+      - [4. Thinking Message Style](#4-thinking-message-style)
+      - [5. Bug Fixes \& Stability](#5-bug-fixes--stability)
     - [Version 0.5.8](#version-058)
       - [1. Permission Control for Skills \& Custom Tools](#1-permission-control-for-skills--custom-tools)
     - [Version 0.5.7](#version-057)
@@ -199,6 +204,7 @@ The GamesAI plugin provides many built-in tools, listed in the table below. If y
 |get_all_pos|None|Get a list of all waypoints. Depends on the `where2go` or `location_marker` plugin; prioritizes `where2go` when both are present; automatically disabled when neither is available.|
 |ai_read_data|`key`|Read a single entry from the database.|
 |ai_read_all_keys|None|Get all keys from the database.|
+|ai_read_all_data|None|Read all key-value pairs from the database at once.|
 |ai_write_data|`key`, `value`|Write a data entry to the database (overwrite mode).|
 |ai_add_data|`key`, `value`|Write a data entry to the database (append mode).|
 |read_skills|`skills`|Read a registered skill instruction file to guide AI behavior for specific tasks.|
@@ -404,6 +410,35 @@ def search_baidu(source, ai_prefix: str, query: str):
 
 ## What's New
 
+### Version 0.5.9
+
+#### 1. System Message Refactoring
+
+The system prompt sent to the AI has been restructured into **four independent messages**:
+
+1. **Current time & language** — the current server time and MCDR language setting
+2. **AI prompt** — the model-specific system prompt configured in `all_ai`
+3. **Registered skills** — the list of currently registered skills (including built-in ones)
+4. **Database content** — the current public database data
+
+This separation improves compatibility with models that have strict requirements on system message formatting (e.g., DeepSeek), and makes the prompt structure cleaner and more maintainable.
+
+#### 2. New `ai_read_all_data` Tool
+
+A new built-in tool `ai_read_all_data` has been added, allowing the AI to read all key-value pairs from the public database in a single call. Previously, the AI had to first call `ai_read_all_keys` to get all keys, then call `ai_read_data` for each key — now it can retrieve everything at once.
+
+#### 3. Real-Time Database Injection
+
+The current public database content is now automatically injected into the system message on every `!!ask` request. This means the AI always has up-to-date knowledge of the database without needing to call any tools first, improving response quality for data-related queries.
+
+#### 4. Thinking Message Style
+
+The "Thinking..." status message now uses Minecraft gray formatting (`§7...§r`), making it visually distinct from the AI's actual response.
+
+#### 5. Bug Fixes & Stability
+
+- Fixed `ai_read_all_data` returning a non-string value (`list[tuple]`) that caused HTTP 400 errors on DeepSeek and other strict API implementations. Tool call results now always return properly formatted strings.
+
 ### Version 0.5.8
 
 #### 1. Permission Control for Skills & Custom Tools
@@ -460,6 +495,6 @@ MIT License, Copyright (c) 2026 yello
 
 ---
 
-[Back to Top](#gamesai)
+[Back to Top](#gamesai-for-mcdreforged)
 
 </div>

@@ -1,21 +1,20 @@
 <div align="center">
 
-# GamesAI
+# GamesAI for MCDReforged
 
 [English](/README.md)  |  简体中文  |  [繁體中文](/README.zh-TW.md)
 
 [反馈问题](https://github.com/PengZixuan30/Games_AI/issues/new)  |  [反馈想法](https://github.com/PengZixuan30/Games_AI/discussions/new/choose)  |  [加入Q群](https://qm.qq.com/q/jDQQaUPNmw)
 
-</div>
+[转至Fabric版本](https://github.com/PengZixuan30/GamesAI)
 
-> [!NOTE]
-> GamesAI现已更新Fabric版本。见[GamesAI](https://github.com/PengZixuan30/GamesAI)
+</div>
 
 > [!NOTE]
 > **GamesAI 插件/模组 QQ 交流群：849544707** — 欢迎加入交流群讨论问题、反馈建议，以及分享 prompt、skills、tools 等配置！
 
 > [!NOTE]
-> 欢迎使用版本 0.5.8！当前版本新增了 **Skills 与自定义工具的权限控制**。见[本次更新](#本次更新)
+> 欢迎使用版本 0.5.9！当前版本新增了 **ai_read_all_data 工具**、**System 消息重构** 和 **数据库实时注入**。见[本次更新](#本次更新)
 
 > [!IMPORTANT]
 > 0.5.x系列版本会在GamesAI的配置文件夹中加入 `tools`、`skills`、`prompt` 文件夹及 `tools.py` 文件，用于支持 ToolCalls、技能、提示词文件化。
@@ -23,7 +22,7 @@
 <details>
 <summary>目录(点击展示)</summary>
 
-- [GamesAI](#gamesai)
+- [GamesAI for MCDReforged](#gamesai-for-mcdreforged)
   - [安装](#安装)
   - [使用](#使用)
   - [配置](#配置)
@@ -37,6 +36,12 @@
     - [Skills 技能](#skills-技能)
     - [自定义工具](#自定义工具)
   - [本次更新](#本次更新)
+    - [Version 0.5.9](#version-059)
+      - [1. System 消息重构](#1-system-消息重构)
+      - [2. 新增 `ai_read_all_data` 工具](#2-新增-ai_read_all_data-工具)
+      - [3. 数据库实时注入](#3-数据库实时注入)
+      - [4. Thinking 消息样式](#4-thinking-消息样式)
+      - [5. Bug 修复与稳定性](#5-bug-修复与稳定性)
     - [Version 0.5.8](#version-058)
       - [1. Skills 与自定义工具的权限控制](#1-skills-与自定义工具的权限控制)
     - [Version 0.5.7](#version-057)
@@ -198,6 +203,7 @@ GamesAI插件提供了很多自带的工具，见下表。如果你想要更多�
 |get_all_pos|无|获取所有的坐标点列表.依赖于`where2go`或`location_marker`插件，两者都存在时，优先使用`where2go`，均不存在时，自动关闭此工具|
 |ai_read_data|`key`|读取一条数据库内容|
 |ai_read_all_keys|无|获取数据库中所有的键|
+|ai_read_all_data|无|一次性读取数据库中所有键值对|
 |ai_write_data|`key`,`value`|向数据库中写入一条数据\(覆写模式\)|
 |ai_add_data|`key`,`value`|向数据库中写入一条数据\(追加模式\)|
 |read_skills|`skills`|读取已注册的技能指导文件，引导 AI 执行特定任务|
@@ -398,6 +404,35 @@ def search_baidu(source, ai_prefix: str, query: str):
 
 ## 本次更新
 
+### Version 0.5.9
+
+#### 1. System 消息重构
+
+发送给 AI 的 system 提示词现已重构为 **四条独立消息**：
+
+1. **当前时间与语言** — 当前服务器时间和 MCDR 语言设置
+2. **AI 提示词** — `all_ai` 中配置的模型专属 system prompt
+3. **已注册 Skills** — 当前已注册的技能列表（含内置技能）
+4. **数据库内容** — 当前公共数据库的数据
+
+这一分离提升了对 system 消息格式有严格要求的模型（如 DeepSeek）的兼容性，同时也让提示词结构更加清晰、便于维护。
+
+#### 2. 新增 `ai_read_all_data` 工具
+
+新增内置工具 `ai_read_all_data`，允许 AI 一次性读取公共数据库中的所有键值对。此前 AI 需要先调用 `ai_read_all_keys` 获取所有 key，再逐个调用 `ai_read_data` 读取——现在可以一步完成。
+
+#### 3. 数据库实时注入
+
+每次 `!!ask` 请求时，当前公共数据库的内容会自动注入到 system 消息中。这意味着 AI 无需先调用工具就能掌握最新的数据库状态，提升数据相关查询的响应质量。
+
+#### 4. Thinking 消息样式
+
+「正在思考...」状态消息现在使用 Minecraft 灰色格式（`§7...§r`），使其与 AI 的实际回复在视觉上有明显区分。
+
+#### 5. Bug 修复与稳定性
+
+- 修复了 `ai_read_all_data` 返回非字符串值（`list[tuple]`）导致 DeepSeek 等严格 API 返回 HTTP 400 错误的问题。工具调用结果现在始终返回正确格式的字符串。
+
 ### Version 0.5.8
 
 #### 1. Skills 与自定义工具的权限控制
@@ -452,6 +487,6 @@ MIT License, Copyright (c) 2026 yello
 
 ---
 
-[回到顶部](#gamesai)
+[回到顶部](#gamesai-for-mcdreforged)
 
 </div>

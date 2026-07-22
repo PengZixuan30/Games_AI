@@ -10,7 +10,7 @@ import time,os,requests,lzma,json,threading,datetime
 
 PLUGIN_METADATA = {
     "id": "games_ai",
-    "version": "0.5.8",
+    "version": "0.5.9",
     "name": "GamesAI",
     "description": {
         "zh_cn": "此插件可以让你在游戏中使用AI",
@@ -383,11 +383,12 @@ def ask_ai(source: CommandSource, context: dict, no_history: bool = False):
         user_name = "Server Control Panel"
     user_message = {"role": "user","content": f'{server.rtr("games_ai.user_message.username")}{user_name}\n{server.rtr("games_ai.user_message.message")}{content}'}
     response_message = [
-        {"role": "system","content": skills_file_list + now_time + mcdr_lang + prompt},
+        {"role": "system","content": now_time + mcdr_lang},
+        {"role": "system", "content": prompt},
+        {"role": "system","content": skills_file_list},
     ]
     data = DataManager(data_path).ask_ai_read_data()
-    source.reply(f'{ai_prefix}{server.rtr("games_ai.user_message.get_data")}')
-    data_message = {"role": "assistant","content": f'{str(server.rtr("games_ai.user_message.data_list"))}{data}'}
+    data_message = {"role": "system","content": f'{str(server.rtr("games_ai.user_message.data_list"))}{data}'}
     response_message.append(data_message)
     if not no_history:
         response_message.extend(history)
@@ -397,6 +398,8 @@ def ask_ai(source: CommandSource, context: dict, no_history: bool = False):
         source.reply(f"[DEBUG]{response_message}")
     
     history.append(user_message)
+
+    source.reply(f"{ai_prefix}{server.rtr("games_ai.user_message.thinking")}")
 
     while True:
         try:
@@ -704,6 +707,14 @@ class AiDataManager:
             return f'向你发起这项命令的玩家没有权限使用此功能'
         PublicDatabase(data_path).delete_data(key)
         return f"已删除键 {key} 的数据"
+    
+    @staticmethod
+    @register_tool(description="读取公共数据中的所有键值对", tr_key="reading_all_data")
+    def ai_read_all_data(source: CommandSource, ai_prefix: str):
+        server = source.get_server()
+        source.reply(f'{ai_prefix}{server.rtr("games_ai.tools.reading_all_data")}')
+        value = PublicDatabase(data_path).data_list()
+        return f'当前数据库中的所有数据: {value}'
 
 @new_thread("games_ai@update")
 def check_update(source: CommandSource, context: dict):

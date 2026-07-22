@@ -57,8 +57,8 @@ games_ai:
     model_error: "錯誤的 AI 模型！目前有這些 AI 模型："
     model_more: "無法正確比對！現在比對到了如下 AI 模型："
 
-    get_data: "正在取得公共資料⋯⋯"
     data_list: "公共資料列表："
+    thinking: "§7正在思考⋯⋯§r"
 
   tools:
     execution_error: "函式 {func_name} 執行出錯！原因：{ex}"
@@ -79,6 +79,7 @@ games_ai:
 
     reading_data: "正在讀取公共資料，key：{key}"
     reading_all_keys: "正在讀取所有公共資料的 key"
+    reading_all_data: "正在讀取公共資料中的所有鍵值對"
     writing_data: "正在寫入公共資料，key：{key}，value：{value}"
     adding_data: "正在追加公共資料，key：{key}，value：{value}"
     deleting_data: "正在刪除公共資料，key：{key}"

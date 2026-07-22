@@ -57,8 +57,8 @@ games_ai:
     model_error: "Invalid AI model! Available AI models: "
     model_more: "Unable to match precisely! The following AI models were matched: "
 
-    get_data: "Fetching public data..."
     data_list: "Public data list:"
+    thinking: "§7Thinking...§r"
 
   tools:
     execution_error: "Function {func_name} execution error! Reason: {ex}"
@@ -79,6 +79,7 @@ games_ai:
 
     reading_data: "Reading public data, key: {key}"
     reading_all_keys: "Reading all public data keys"
+    reading_all_data: "Reading all public data entries (key/value pairs)"
     writing_data: "Writing public data, key: {key}, value: {value}"
     adding_data: "Appending public data, key: {key}, value: {value}"
     deleting_data: "Deleting public data, key: {key}"
