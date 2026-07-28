@@ -14,10 +14,13 @@
 > **GamesAI 插件/模组 QQ 交流群：849544707** — 欢迎加入交流群讨论问题、反馈建议，以及分享 prompt、skills、tools 等配置！
 
 > [!NOTE]
-> 欢迎使用版本 0.5.10！当前版本引入了 **通用 `extra_body` 配置** 替代 `thinking` 布尔开关，支持完整的 API 请求参数自定义。见[本次更新](#本次更新)
+> 欢迎使用版本 0.5.11！当前版本修复了一个关键竞态条件 Bug，该 Bug 在使用阻塞工具（如 `setting_timer`）时会导致 HTTP 400 错误和历史记录损坏。见[本次更新](#本次更新)
 
 > [!IMPORTANT]
 > **0.5.10 破坏性变更**：`thinking` 布尔配置已被通用 `extra_body` 字典替代。如果你使用了 `"thinking": true`，必须迁移为 `"extra_body": {"thinking": {"type": "enabled"}}`。详见[迁移指南](#1-extra_body--通用-api-参数配置破坏性变更)。
+
+> [!NOTE]
+> **0.5.11 Bug 修复**：修复了阻塞工具（如 `setting_timer`）执行期间，不完整的 tool_calls 泄露到共享历史导致的竞态条件，该问题会造成持续的 HTTP 400 错误和历史记录损坏。详见[本次更新](#version-0511)。
 
 <details>
 <summary>目录(点击展示)</summary>
@@ -36,6 +39,8 @@
     - [Skills 技能](#skills-技能)
     - [自定义工具](#自定义工具)
   - [本次更新](#本次更新)
+    - [Version 0.5.11](#version-0511)
+      - [1. 历史记录竞态条件修复](#1-历史记录竞态条件修复)
     - [Version 0.5.10](#version-0510)
       - [1. `extra_body` — 通用 API 参数配置（破坏性变更）](#1-extra_body--通用-api-参数配置破坏性变更)
     - [Version 0.5.9](#version-059)
@@ -398,6 +403,15 @@ def search_baidu(source, ai_prefix: str, query: str):
 </details>
 
 ## 本次更新
+
+### Version 0.5.11
+
+#### 1. 历史记录竞态条件修复
+
+修复了对话历史系统中的一个关键竞态条件，该问题在使用 `setting_timer` 等阻塞工具时触发：
+
+- **问题**：当工具函数阻塞请求线程时（如定时器中的 `time.sleep()`），包含 `tool_calls` 的 assistant 消息会立即写入共享历史列表，而此时工具结果尚未返回。如果在阻塞期间发起另一个请求，该请求会读到不完整的对话（有 assistant tool_calls 但无 tool result），导致 API 返回 HTTP 400 错误。此污染状态会持续影响后续所有请求，直到手动清除历史记录。
+- **修复**：引入基于 `threading.Lock` 的线程安全历史管理，按用户+AI 组合加锁。每个请求现在操作历史的本地副本，保存时使用 `extend`（追加模式）而非覆盖写入，确保多线程历史按时间顺序正确保留，互不覆盖。
 
 ### Version 0.5.10
 

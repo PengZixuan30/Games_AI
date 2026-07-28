@@ -10,7 +10,7 @@ import time,os,requests,lzma,json,threading,datetime
 
 PLUGIN_METADATA = {
     "id": "games_ai",
-    "version": "0.5.10",
+    "version": "0.5.11",
     "name": "GamesAI",
     "description": {
         "zh_cn": "此插件可以让你在游戏中使用AI",
@@ -27,6 +27,15 @@ history_conversation = {}
 unload_status_code = 0
 debug_mode = False
 user_tool_counts = {}
+_history_locks: dict[tuple, threading.Lock] = {}
+
+def _get_history_lock(username: str, ai_prefix: str) -> threading.Lock:
+    key = (username, ai_prefix)
+    lock = _history_locks.get(key)
+    if lock is None:
+        lock = threading.Lock()
+        _history_locks[key] = lock
+    return lock
 
 def on_load(server: PluginServerInterface, old):
     global prefix,allow_permission,max_history,mcdr_lang,_timer,ai_dict,default_ai,name_to_id,data_path,skills
@@ -370,8 +379,12 @@ def ask_ai(source: CommandSource, context: dict, no_history: bool = False):
     now_time = datetime.datetime.now()
     now_time = str(server.rtr("games_ai.user_message.time", time=now_time.strftime('%Y-%m-%d %H:%M:%S')))
     username = get_username(source)
-    history = history_conversation.get(username, {}).get(ai_prefix, [])
-    current_tool_count = user_tool_counts.get(username, {}).get(ai_prefix, 0)
+    lock = _get_history_lock(username, ai_prefix)
+    with lock:
+        shared = history_conversation.setdefault(username, {}).setdefault(ai_prefix, [])
+        base_len = len(shared)
+        history = list(shared)
+        current_tool_count = user_tool_counts.setdefault(username, {}).get(ai_prefix, 0)
     content = context['content']
     if source.is_player:
         user_name = f'{username}'
@@ -445,13 +458,18 @@ def ask_ai(source: CommandSource, context: dict, no_history: bool = False):
 
                 if max_history > 0:
                     history.append(ai_reply)
-                    max_len = max_history * 2 + current_tool_count * 2
-                    if debug_mode:
-                        source.reply(f"{ai_prefix}当前最大历史记录数: {max_len}")
-                    if len(history) > max_len:
-                        history = _safe_trim_history(history, max_len)
-                    history_conversation.setdefault(username, {})[ai_prefix] = history
-                    user_tool_counts.setdefault(username, {})[ai_prefix] = current_tool_count
+                    with lock:
+                        shared = history_conversation.setdefault(username, {}).setdefault(ai_prefix, [])
+                        new_msgs = history[base_len:]
+                        shared.extend(new_msgs)
+                        max_len = max_history * 2 + current_tool_count * 2
+                        if debug_mode:
+                            source.reply(f"{ai_prefix}当前最大历史记录数: {max_len}")
+                        if len(shared) > max_len:
+                            trimmed = _safe_trim_history(list(shared), max_len)
+                            shared.clear()
+                            shared.extend(trimmed)
+                        user_tool_counts.setdefault(username, {})[ai_prefix] = current_tool_count
                 
                 source.reply(message)
                 break
@@ -491,7 +509,7 @@ def ask_ai(source: CommandSource, context: dict, no_history: bool = False):
                 source.reply(f'{ai_prefix}ERROR!\n{ai_prefix}{e}')
             raise e
 
-def get_username(source: CommandSource):
+def get_username(source: CommandSource) -> str:
     if source.is_player:
         return source.player
     else:

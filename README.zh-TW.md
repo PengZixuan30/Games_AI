@@ -14,10 +14,13 @@
 > **GamesAI 插件/模組 QQ 交流群：849544707** — 歡迎加入交流群討論問題、回饋建議，以及分享 prompt、skills、tools 等設定！
 
 > [!NOTE]
-> 歡迎使用版本 0.5.10！當前版本引入了 **通用 `extra_body` 設定** 替代 `thinking` 布林開關，支援完整的 API 請求參數自訂。見[本次更新](#本次更新)
+> 歡迎使用版本 0.5.11！當前版本修復了一個關鍵競態條件 Bug，該 Bug 在使用阻塞工具（如 `setting_timer`）時會導致 HTTP 400 錯誤和歷史記錄損壞。見[本次更新](#本次更新)
 
 > [!IMPORTANT]
 > **0.5.10 破壞性變更**：`thinking` 布林設定已被通用 `extra_body` 字典替代。如果你使用了 `"thinking": true`，必須遷移為 `"extra_body": {"thinking": {"type": "enabled"}}`。詳見[遷移指南](#1-extra_body--通用-api-參數設定破壞性變更)。
+
+> [!NOTE]
+> **0.5.11 Bug 修復**：修復了阻塞工具（如 `setting_timer`）執行期間，不完整的 tool_calls 洩露到共享歷史導致的競態條件，該問題會造成持續的 HTTP 400 錯誤和歷史記錄損壞。詳見[本次更新](#version-0511)。
 
 <details>
 <summary>目錄（點擊展開）</summary>
@@ -36,6 +39,8 @@
     - [Skills 技能](#skills-技能)
     - [自訂工具](#自訂工具)
   - [本次更新](#本次更新)
+    - [Version 0.5.11](#version-0511)
+      - [1. 歷史記錄競態條件修復](#1-歷史記錄競態條件修復)
     - [Version 0.5.10](#version-0510)
       - [1. `extra_body` — 通用 API 參數設定（破壞性變更）](#1-extra_body--通用-api-參數設定破壞性變更)
     - [Version 0.5.9](#version-059)
@@ -402,6 +407,15 @@ def search_baidu(source, ai_prefix: str, query: str):
 </details>
 
 ## 本次更新
+
+### Version 0.5.11
+
+#### 1. 歷史記錄競態條件修復
+
+修復了對話歷史系統中的一個關鍵競態條件，該問題在使用 `setting_timer` 等阻塞工具時觸發：
+
+- **問題**：當工具函式阻塞請求執行緒時（如計時器中的 `time.sleep()`），包含 `tool_calls` 的 assistant 訊息會立即寫入共享歷史列表，但此時工具結果尚未回傳。如果在阻塞期間發起另一個請求，該請求會讀到不完整的對話（有 assistant tool_calls 但無 tool result），導致 API 回傳 HTTP 400 錯誤。此污染狀態會持續影響後續所有請求，直到手動清除歷史記錄。
+- **修復**：引入基於 `threading.Lock` 的執行緒安全歷史管理，按使用者+AI 組合加鎖。每個請求現在操作歷史的本地副本，儲存時使用 `extend`（追加模式）而非覆寫寫入，確保多執行緒歷史按時間順序正確保留，互不覆蓋。
 
 ### Version 0.5.10
 

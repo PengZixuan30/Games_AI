@@ -14,10 +14,13 @@ English  |  [简体中文](/README.zh-CN.md)  |  [繁體中文](/README.zh-TW.md
 > **GamesAI Plugin/Mod QQ Group: 849544707** — Join us to discuss issues, share feedback, and exchange prompt, skills, tools configurations!
 
 > [!NOTE]
-> Welcome to version 0.5.10! This release introduces **generic `extra_body` configuration** replacing the `thinking` boolean flag, enabling full control over API request parameters. See [What's New](#whats-new)
+> Welcome to version 0.5.11! This release fixes a critical race condition bug that caused HTTP 400 errors and history corruption when using blocking tools (like `setting_timer`). See [What's New](#whats-new)
 
 > [!IMPORTANT]
 > **Breaking Change in 0.5.10**: The `thinking` boolean config has been replaced by a generic `extra_body` dict. If you were using `"thinking": true`, you must migrate to `"extra_body": {"thinking": {"type": "enabled"}}`. See [What's New](#1-extra_body--generic-api-parameter-configuration-breaking) for migration guide.
+
+> [!NOTE]
+> **Bug Fix in 0.5.11**: Fixed a race condition where blocking tools (e.g., `setting_timer`) would leak incomplete tool_calls into shared history, causing persistent HTTP 400 errors and history corruption. See [What's New](#version-0511).
 
 <details>
 <summary>Table of Contents (click to expand)</summary>
@@ -36,6 +39,8 @@ English  |  [简体中文](/README.zh-CN.md)  |  [繁體中文](/README.zh-TW.md
     - [Skills](#skills)
     - [Custom Tools](#custom-tools)
   - [What's New](#whats-new)
+    - [Version 0.5.11](#version-0511)
+      - [1. History Race Condition Fix](#1-history-race-condition-fix)
     - [Version 0.5.10](#version-0510)
       - [1. `extra_body` — Generic API Parameter Configuration (BREAKING)](#1-extra_body--generic-api-parameter-configuration-breaking)
     - [Version 0.5.9](#version-059)
@@ -404,6 +409,15 @@ def search_baidu(source, ai_prefix: str, query: str):
 </details>
 
 ## What's New
+
+### Version 0.5.11
+
+#### 1. History Race Condition Fix
+
+Fixed a critical race condition in the conversation history system that occurred when using blocking tools such as `setting_timer`:
+
+- **Problem**: When a tool blocked the request thread (e.g., `time.sleep()` in a timer), the assistant message containing `tool_calls` was immediately written to the shared history list before the tool result was available. If another request was made during this blocking period, it would read an incomplete conversation (assistant with tool_calls but no tool result), causing HTTP 400 errors from the API. This corrupted state would persist for all subsequent requests until history was manually cleared.
+- **Fix**: Introduced thread-safe history management with `threading.Lock` per user+AI pair. Each request now works on a local copy of the history and uses `extend` (append-only) when saving, preventing any thread from overwriting another's history. Both concurrent and blocking-tool histories are now correctly preserved in chronological order.
 
 ### Version 0.5.10
 
