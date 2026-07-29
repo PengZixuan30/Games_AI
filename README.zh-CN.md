@@ -462,7 +462,7 @@ def search_baidu(source, ai_prefix: str, query: str):
 - 修复了 `ai_read_all_data` 返回非字符串值（`list[tuple]`）导致 DeepSeek 等严格 API 返回 HTTP 400 错误的问题。工具调用结果现在始终返回正确格式的字符串。
 
 ## 鸣谢与声明
-特别感谢望海公社服务器为此插件的测试提供了基础
+特别感谢 [WangHai Server](https://github.com/Wanghai-Server) 为此插件的测试提供了基础
 
 特别感谢 [william-song-shy (William Song)](https://github.com/william-song-shy) 为 `!!ask` 无历史模式提供的建议。
 

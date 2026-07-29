@@ -467,7 +467,7 @@ def search_baidu(source, ai_prefix: str, query: str):
 
 ## 致謝與聲明
 
-特別感謝望海公社伺服器為此插件的測試提供了基礎。
+特別感謝 [WangHai Server](https://github.com/Wanghai-Server) 為此插件的測試提供了基礎。
 
 特別感謝 [william-song-shy (William Song)](https://github.com/william-song-shy) 為 `!!ask` 無歷史模式提供的建議。
 

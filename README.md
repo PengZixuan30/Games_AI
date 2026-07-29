@@ -469,7 +469,7 @@ The "Thinking..." status message now uses Minecraft gray formatting (`§7...§r`
 
 ## Acknowledgements & Disclaimer
 
-Special thanks to the Wanghai Commune server for providing the foundation for testing this plugin.
+Special thanks to [WangHai Server](https://github.com/Wanghai-Server) for providing the foundation for testing this plugin.
 
 Special thanks to [william-song-shy (William Song)](https://github.com/william-song-shy) for suggesting the `!!ask` no-history mode.
 
