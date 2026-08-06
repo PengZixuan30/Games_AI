@@ -14,13 +14,7 @@
 > **GamesAI 插件/模组 QQ 交流群：849544707** — 欢迎加入交流群讨论问题、反馈建议，以及分享 prompt、skills、tools 等配置！
 
 > [!NOTE]
-> 欢迎使用版本 0.5.11！当前版本修复了一个关键竞态条件 Bug，该 Bug 在使用阻塞工具（如 `setting_timer`）时会导致 HTTP 400 错误和历史记录损坏。见[本次更新](#本次更新)
-
-> [!IMPORTANT]
-> **0.5.10 破坏性变更**：`thinking` 布尔配置已被通用 `extra_body` 字典替代。如果你使用了 `"thinking": true`，必须迁移为 `"extra_body": {"thinking": {"type": "enabled"}}`。详见[迁移指南](#1-extra_body--通用-api-参数配置破坏性变更)。
-
-> [!NOTE]
-> **0.5.11 Bug 修复**：修复了阻塞工具（如 `setting_timer`）执行期间，不完整的 tool_calls 泄露到共享历史导致的竞态条件，该问题会造成持续的 HTTP 400 错误和历史记录损坏。详见[本次更新](#version-0511)。
+> 欢迎使用版本 0.6.0！本次大版本引入了 **Mineflayer Bot**——由 AI 全自主控制的 Minecraft 机器人。见[本次更新](#本次更新)
 
 <details>
 <summary>目录(点击展示)</summary>
@@ -28,27 +22,36 @@
 - [GamesAI for MCDReforged](#gamesai-for-mcdreforged)
   - [安装](#安装)
   - [使用](#使用)
-  - [配置](#配置)
+  - [使用 Mineflayer Bot](#使用-mineflayer-bot)
+    - [环境要求](#环境要求)
+    - [指令](#指令)
+    - [工作原理](#工作原理)
+    - [支持的操作](#支持的操作)
+    - [Bot 控制 AI 工具](#bot-控制-ai-工具)
+    - [配置](#配置)
+  - [配置](#配置-1)
     - [1.prefix](#1prefix)
     - [2.permission](#2permission)
     - [3.max\_history](#3max_history)
     - [4.all\_ai](#4all_ai)
     - [5.default\_ai](#5default_ai)
-  - [工具、Skills 与自定义工具](#工具skills-与自定义工具)
-    - [工具](#工具)
-    - [Skills 技能](#skills-技能)
-    - [自定义工具](#自定义工具)
+    - [6.mineflayer\_bot](#6mineflayer_bot)
+  - [工具与Skills](#工具与skills)
+    - [内置工具](#内置工具)
+    - [在配置文件中自定义工具](#在配置文件中自定义工具)
+    - [在自己的MCDR插件中自定义工具](#在自己的mcdr插件中自定义工具)
+    - [内置Skills](#内置skills)
+    - [在配置文件中添加Skills](#在配置文件中添加skills)
+  - [故障排查](#故障排查)
+    - [`!!ask` 错误](#ask-错误)
+    - [Mineflayer Bot 错误](#mineflayer-bot-错误)
+    - [日志与调试](#日志与调试)
   - [本次更新](#本次更新)
-    - [Version 0.5.11](#version-0511)
-      - [1. 历史记录竞态条件修复](#1-历史记录竞态条件修复)
-    - [Version 0.5.10](#version-0510)
-      - [1. `extra_body` — 通用 API 参数配置（破坏性变更）](#1-extra_body--通用-api-参数配置破坏性变更)
-    - [Version 0.5.9](#version-059)
-      - [1. System 消息重构](#1-system-消息重构)
-      - [2. 新增 `ai_read_all_data` 工具](#2-新增-ai_read_all_data-工具)
-      - [3. 数据库实时注入](#3-数据库实时注入)
-      - [4. Thinking 消息样式](#4-thinking-消息样式)
-      - [5. Bug 修复与稳定性](#5-bug-修复与稳定性)
+    - [Version 0.6.0](#version-060)
+      - [🎯 核心亮点](#-核心亮点)
+      - [1. Mineflayer Bot 集成](#1-mineflayer-bot-集成)
+      - [2. 配置系统重制](#2-配置系统重制)
+      - [3. OpenAI 日志桥接](#3-openai-日志桥接)
   - [鸣谢与声明](#鸣谢与声明)
   - [赞助与贡献者名单](#赞助与贡献者名单)
   - [许可证](#许可证)
@@ -57,7 +60,7 @@
 
 ## 安装
 
-在MCDR控制台中使用如下命令以安装插件\(鉴于现版本的MCDR下载器并不稳定，使用此命令可能无法下载最新版，不建议使用此命令安装\)
+在MCDR控制台中使用如下命令以安装插件
 
 `!!MCDR plugin install games_ai`
 
@@ -65,9 +68,9 @@
 
 或者在[MCDR插件仓库](https://mcdreforged.com/plugin/games_ai)中获取并安装到你的插件目录内
 
-如果选择手动安装，请先安装Python包OpenAI和requests，使用如下命令安装
+如果选择手动安装，请先安装Python包OpenAI、requests和websockets，使用如下命令安装
 ```bash
-pip install openai requests
+pip install openai requests websockets
 ```
 
 ## 使用
@@ -81,6 +84,8 @@ pip install openai requests
 |`!!gamesai reload`|重新加载插件配置文件|
 |`!!gamesai check`|检查插件更新|
 |`!!gamesai speedtest [model]`|测试 API 服务器连接延迟，不指定模型时测试全部|
+|`!!gamesai config get <key>`|读取一个配置项的值。|
+|`!!gamesai config set <key> <value>`|修改一个配置项的值（自动适配旧值类型）。|
 
 ---
 
@@ -109,6 +114,84 @@ pip install openai requests
 |`!!data list`|读取公共数据库中的所有内容|
 |`!!data list keys`|读取公共数据库中的所有key|
 
+---
+
+## 使用 Mineflayer Bot
+
+GamesAI 0.6.0 引入了基于 [Mineflayer](https://github.com/PrismarineJS/mineflayer) 的全自主 Minecraft 机器人。AI 可以直接控制机器人在游戏世界中寻路、挖掘、建造、合成、战斗和交互。
+
+### 环境要求
+
+- 服务器需安装 **Node.js >= 18** 和 **npm**
+- 插件首次启动时自动安装 npm 依赖（`mineflayer`、`ws`、`vec3`、`mineflayer-pathfinder`、`mineflayer-mcefly`）
+- 一个用于 Bot 的 Minecraft 账号（Microsoft/Mojang/离线）
+
+### 指令
+
+|指令|用途|
+|---|---|
+|`!!aibot join`|启用 Bot 并让其加入服务器。|
+|`!!aibot leave`|让 Bot 离开服务器并禁用。|
+|`!!aibot set <key> <value>`|配置 Bot 身份（`username`/`password`/`auth`）。|
+
+### 工作原理
+
+```
+玩家 !!ask → GamesAI 插件 → WS 客户端 (Python) → WS 服务器 (Node.js) → Mineflayer Bot
+                                                                           ↓
+                                                                    Minecraft 服务器
+
+AI（自主控制器）:
+  get_state → 分析状态 → bot_call_action(goto/dig/attack/...) → 循环
+```
+
+插件启动一个 Node.js 进程运行 WebSocket 服务器，Python WebSocket 客户端（插件内置）通过本地连接与其通信，形成 MCDR 与 Mineflayer Bot 之间的桥梁。Bot 启动后，**自主 AI 控制器**会定时读取机器人状态、检查聊天消息，并自主决定执行什么操作。
+
+### 支持的操作
+
+Bot 支持 20+ 种操作，通过 `bot_call_action` AI 工具调用：
+
+|操作|描述|
+|---|---|
+|`goto`|A* 寻路到坐标 `{x, y, z, range?}`|
+|`efly`|鞘翅飞行到坐标（需装备鞘翅）|
+|`dig`|挖掘指定坐标的方块|
+|`place`|在指定坐标放置方块|
+|`attack`|按名称攻击附近实体，或攻击最近敌对生物|
+|`useOn`|右键实体（如村民交易）|
+|`equip` / `unequip`|装备/卸下盔甲或手持物品|
+|`mount` / `dismount`|骑乘或离开载具和动物|
+|`craft`|合成物品（背包或工作台）|
+|`lookAt`|看向坐标或直接设置 yaw/pitch|
+|`sleep` / `wake`|在床上睡觉或起床|
+|`activateBlock`|右键方块（打开箱子、按下按钮）|
+|`setControlState`|控制载具移动（前进/后退/跳跃）|
+|`viewContainer` / `takeFromContainer` / `putToContainer`|容器管理|
+|`openFurnace` / `furnacePutInput` / `furnacePutFuel` / `furnaceTakeOutput`|熔炉操作|
+|`nearbyEntities` / `findBlocks` / `getBlock`|世界查询|
+|`stop` / `stopEfly`|停止所有移动或鞘翅飞行|
+
+### Bot 控制 AI 工具
+
+除 `bot_call_action` 外，还有以下专用 AI 工具：
+
+|工具|描述|
+|---|---|
+|`bot_chat`|让 Bot 在公共聊天中发送消息。|
+|`bot_whisper`|让 Bot 向某个玩家发送私聊消息。|
+|`bot_get_state`|获取 Bot 完整状态（30+ 字段）。|
+|`bot_start` / `bot_stop`|启动或停止 Bot。|
+|`delegate_to_bot`|将复杂的 Minecraft 任务委派给自主控制器。|
+
+### 配置
+
+完整配置参考见 [6.mineflayer_bot](#6mineflayer_bot)。关键要点：
+
+- 将 `mineflayer_bot.enabled` 设为 `true`（或使用 `!!aibot join`）以启动 Bot
+- `mineflayer_bot.bot.username` / `password` / `auth` — Bot 的 Minecraft 登录凭据
+- `mineflayer_bot.cycle_interval` — 自主 AI 决策间隔（秒）
+- `mineflayer_bot.websocket` — 内部设置，除非明确知道用途否则不要修改
+
 ## 配置
 
 默认配置文件结构如下:
@@ -128,8 +211,22 @@ pip install openai requests
           "extra_body": {}
       }
     },
-  "default_ai": "<Your AI ID>"
+  "default_ai": "<Your AI ID>",
+  "mineflayer_bot": {
+      "enabled": false,
+      "cycle_interval": 15.0,
+      "websocket": {
+          "url": "ws://127.0.0.1:8080",
+          "reconnect_interval": 10,
+          "timeout": 60
+      },
+      "bot": {
+          "username": "<Your Minecraft Bot Username>",
+          "password": "<Your Minecraft Bot Password>",
+          "auth": "microsoft"
+      }
   }
+}
 ```
 
 ---
@@ -178,14 +275,35 @@ pip install openai requests
 
 默认值: \<Your AI ID\>
 
-填入当用户直接使用`!!ask`时使用的模型，应该填入all_ai字典中的某一个键\(即为插件内部的AI_ID\)，如果错填，会导致无法正常使用`!!ask`指令
+填入当用户直接使用`!!ask`时使用的模型，应该填入all_ai字典中的某一个键(即为插件内部的AI_ID)，如果错填，会导致无法正常使用`!!ask`指令
 
-## 工具、Skills 与自定义工具
-### 工具
-GamesAI插件提供了很多自带的工具，见下表。如果你想要更多的工具，可以选择[向作者投稿](https://github.com/PengZixuan30/Games_AI/issues/new)或者选择[自定义工具](#自定义工具)
+### 6.mineflayer_bot
+值的类型: `dict`
+
+默认值: 见上方
+
+Mineflayer 自主 Bot 代理的配置项。
+
+**enabled**: 是否在启动时拉起 Bot。需要 Node.js >= 18。
+
+**cycle_interval**: 自主 AI 决策循环间隔秒数（默认: 15.0）。
+
+**websocket**: 内部 WebSocket 连接参数 — `url`、`reconnect_interval`、`timeout`。
+
+> [!WARNING]
+> WebSocket 的 `url` 中 host **必须**设为 `127.0.0.1`。请确保所选端口未被占用——插件会在启动时自动检查端口冲突，若端口被占用将自动禁用 Bot。
+> 除非你明确知道自己在做什么，否则我们不建议你修改 `websocket` 内的配置。
+
+**bot**: Minecraft 账号凭据 — `username`、`password`、`auth`（microsoft/mojang/offline）。服务器地址自动从 `server.properties` 中检测。
+
+## 工具与Skills
+
+### 内置工具
+
+GamesAI插件提供了很多内置的工具，见下表。如果你想要更多的工具，可以选择[向作者投稿](https://github.com/PengZixuan30/Games_AI/issues/new)、[在配置文件中自定义工具](#在配置文件中自定义工具)、或[在自己的MCDR插件中注册工具](#在自己的mcdr插件中自定义工具)。
 
 <details>
-<summary>点击查看所有的自带工具</summary>
+<summary>点击查看所有的内置工具</summary>
 
 |工具ID|传入参数|用途|
 |:---:|:---:|:---|
@@ -216,10 +334,90 @@ GamesAI插件提供了很多自带的工具，见下表。如果你想要更多�
 |setting_timer|`duration`|暂停执行指定秒数后再继续下一步操作|
 |reload_plugin|无|热重载插件以应用配置、技能和自定义工具的更改，不会丢失聊天记录|
 |ai_del_data|`key`|删除数据库中的一条数据|
+|bot_chat|`message`|让 Mineflayer 机器人在 Minecraft 聊天中发送消息。|
+|bot_whisper|`username`, `message`|让机器人私聊某个玩家。|
+|bot_get_state|无|获取机器人完整状态（30+ 字段）。|
+|bot_call_action|`action`, `params`|向机器人发送任意指令（goto，dig，place，attack 等）。|
+|bot_start|无|启动 Mineflayer 机器人（如果未运行）。|
+|bot_stop|无|停止 Mineflayer 机器人。|
+|delegate_to_bot|`task`|将复杂的 Minecraft 任务委派给自主 Bot 控制器。|
 
 </details>
 
-### Skills 技能
+### 在配置文件中自定义工具
+
+通过修改`config/games_ai/tools/tools.py`文件来实现自定义修改工具。
+
+先来看看默认值如何：
+
+```python
+from mcdreforged.command.command_source import CommandSource
+from games_ai.games_ai_tool import register_tool
+
+@register_tool(description="My Custom Tool")
+def my_custom_tool(source: CommandSource, ai_prefix: str):
+    return "Tool execution completed"
+```
+
+> [!IMPORTANT]
+> 代码中的`from games_ai.games_ai_tool import register_tool`和函数定义前的`@register_tool`必须存在。
+
+> [!TIP]
+> 在 0.5.7+ 版本中，AI 可以**自主读取、修改和追加**自定义工具文件。只需让 AI 帮你添加新工具——它会先读取当前文件，编写新代码，然后重载插件。
+
+`description` 是必填项，告诉 AI 此工具的用途。`parameters` 字典（可选）定义了 AI 应传入的参数，遵循 [OpenAI function calling 格式](https://platform.openai.com/docs/guides/function-calling)。函数签名必须包含 `source: CommandSource` 和 `ai_prefix: str` 作为前两个参数，其后跟随 `parameters` 中定义的参数。
+
+> [!TIP]
+> 在 `@register_tool` 旁添加 `@register_bot_tool()` 装饰器（同样从 `games_ai.games_ai_tool` 导入），可以让该工具被自主 Mineflayer Bot 控制器使用。不加则只能通过 `!!ask` 由聊天 AI 调用。
+
+### 在自己的MCDR插件中自定义工具
+
+如果你在开发独立的 MCDR 插件，可以直接在插件代码中注册工具，无需修改 `tools.py`：
+
+```python
+from games_ai.games_ai_tool import register_tool, register_bot_tool
+
+@register_tool(
+    description="你的自定义工具的描述",
+    parameters={...}  # 可选
+)
+@register_bot_tool()  # 可选 — 让该工具可被 Mineflayer Bot 控制器使用
+def my_plugin_tool(source: CommandSource, ai_prefix: str, ...):
+    source.reply(f'{ai_prefix}正在执行我的工具...')
+    return "工具执行结果"
+```
+
+> [!IMPORTANT]
+> 你的插件**必须**在 `mcdreforged.plugin.json` 中将 `games_ai` 的版本依赖设为 `>= 0.4.1`，否则导入会失败。如果使用了 `@register_bot_tool()`，最低版本应为 `>= 0.6.0`。
+
+你的插件需要在 `mcdreforged.plugin.json` 中将 `games_ai` 列为依赖，以确保 GamesAI 先加载：
+
+```json
+{
+    "id": "my_plugin",
+    "dependencies": {
+        "mcdreforged": ">=2.15.0",
+        "games_ai": ">=0.4.1"
+    }
+}
+```
+
+以此方式注册的工具与内置工具完全相同——AI 可以直接调用，如果需要也可以使用 `@register_bot_tool()` 标记为 Bot 可用工具。
+
+### 内置Skills
+
+GamesAI 内置了以下技能文件，AI 在执行相关操作前会自动读取：
+
+| 技能文件 | 描述 |
+|---|---|
+| `skills_management.md` | 指导 AI 如何正确读取、写入、修改和删除技能文件。 |
+| `custom_tools_management.md` | 指导 AI 如何安全地读取、修改和追加自定义工具代码。 |
+| `mineflayer_bot_guide.md` | 指导 AI 如何操控 Mineflayer 机器人（仅在 Bot 运行时可用）。 |
+
+> [!TIP]
+> Skills 就像 AI 的「标准作业程序 (SOP)」——确保 AI 每次都遵循正确的工作流程。
+
+### 在配置文件中添加Skills
 
 Skills 技能系统让你可以编写指导文件来规范 AI 处理特定任务的方式——例如白名单管理、假人控制等。
 
@@ -243,223 +441,81 @@ Skills 技能系统让你可以编写指导文件来规范 AI 处理特定任务
 
 技能注册后会出现在 AI 的系统提示中。AI 可以使用 **`read_skills`** 工具在执行相关任务前读取技能文件的完整内容。
 
-> [!TIP]
-> GamesAI 内置了两个**技能文件**：`skills_management.md`（如何管理技能文件）和 `custom_tools_management.md`（如何修改自定义工具）。AI 在修改技能或工具之前会自动读取这些文件。
+## 故障排查
 
-> [!TIP]
-> Skills 就像 AI 的「标准作业程序 (SOP)」——确保 AI 每次都遵循正确的工作流程。
+### `!!ask` 错误
 
-### 自定义工具
-通过修改`config/games_ai/tools/tools.py`文件来实现自定义修改工具
+|症状|可能原因|解决方法|
+|---|---|---|
+|HTTP 400|请求体格式错误|检查 `extra_body` 格式是否与 API 提供商的要求一致。|
+|HTTP 401|API Key 无效|检查 AI 配置中的 `api_key`。|
+|HTTP 404|模型不存在|检查 `ai_model` 名称是否正确。|
+|HTTP 429|请求频率过高|稍后重试，或升级 API 套餐。|
+|超时/无响应|网络问题或 API 响应慢|使用 `!!gamesai speedtest` 检查延迟。尝试更换模型。|
+|「未知函数」回复|AI 调用了不存在的工具|通常无害——AI 会重试其他方法。|
 
-先来看看默认值如何
+### Mineflayer Bot 错误
 
-```python
-from mcdreforged.command.command_source import CommandSource
-from games_ai.games_ai_tool import register_tool
+|症状|相关日志|解决方法|
+|---|---|---|
+|Bot 未启动（完全没有 `[Mineflayer]` 日志）|`Mineflayer bot is enabled but Node.js was not found`|安装 Node.js >= 18。运行 `node --version` 验证。|
+|Bot 在启动时被禁用|`Mineflayer requires Node.js >= 18, but found v{X}`|将 Node.js 升级到 18 或更高版本。|
+|Bot 在启动时被禁用|`WebSocket port {X} is already in use!`|在配置文件中修改 `websocket.url` 为不同端口，然后 `!!gamesai reload`。|
+|`[Bot] Kicked from server` 伴随认证原因|`[Bot] Kicked from server. Reason:` 后跟认证错误|通过 `!!aibot set` 检查 `username`/`password`/`auth`。Microsoft 认证需确保账号已迁移。|
+|Bot 卡住不动|`goto` 操作返回 "No path found" 错误|`goto` 操作现在会在无路径时返回错误。尝试不同的坐标。|
+|`[Bot] Disconnected` 后自动重连|`[Bot] Disconnected. Reason: ...` 后跟 `Reconnecting in 5 seconds...`|服务器重启或短暂断网后的正常行为。Bot 会在 5 秒后自动重连。|
+|`[Bot] Died, respawning...`|`[Bot] Died, respawning...`|正常——Bot 死亡后会自动重生，无需干预。|
+|Bot 不响应指令|日志中无 `[WS]` 活动|使用 `!!aibot leave` 然后 `!!aibot join` 重启。若持续存在，检查 `websocket.url` 端口是否可访问。|
+|日志中出现 `npm install failed`|`npm install failed (exit {X})` 或 `npm is not installed or not in PATH`|确保 npm 已安装且在 PATH 中。检查日志中的详细错误信息定位具体包问题。|
 
-@register_tool(description="My Custom Tool")
-def my_custom_tool(source: CommandSource, ai_prefix: str):
-    return "Tool execution completed"
-```
+### 日志与调试
 
-> [!IMPORTANT]
-> 代码中的`from games_ai.games_ai_tool import register_tool`和函数定义前的`@register_tool`必须存在
-
-> [!TIP]
-> 在 0.5.7+ 版本中，AI 可以**自主读取、修改和追加**自定义工具文件。只需让 AI 帮你添加新工具——它会先读取当前文件，编写新代码（使用 `append_custom_tools` 追加而非覆盖），然后重载插件。
-
-可见，这是十分简单的结构。
-
-接下来我将告诉你如何实践，比如下面的例子：搜索baidu.com
-
-<details>
-
-<summary>点击展开</summary>
-
-想要知道如何实现搜索baidu.com，参考GamesAI源代码中的工具`search_minecraft_wiki`无疑是最好的选择：
-
-```python
-@register_tool(description="搜索Minecraft Wiki以获取相关信息, 请不要使用此方法搜索与Minecraft无关的东西。如果返回了Search results页面, 你可以通过先浏览此页面, 再进行一次精确查询", tr_key="searching_minecraft_wiki", parameters={
-    "type": "object",
-    "properties": {
-        "query": {
-            "type": "string",
-            "description": "要搜索的内容，例如某个物品、怪物、机制等的名称。"
-        }
-    },
-    "required": ["query"]
-})
-def search_minecraft_wiki(source: CommandSource, ai_prefix: str, query: str):
-    source.reply(f'{ai_prefix}{source.get_server().rtr("games_ai.tools.searching_minecraft_wiki", query=query)}')
-    lang = source.get_server().get_mcdr_language()
-    if lang == "en_us":
-        search_url = f"https://minecraft.wiki/?search={query}"
-    else:
-        search_url = f"https://zh.minecraft.wiki/?search={query}"
-    response = requests.get(search_url)
-    if response.status_code == 200:
-        return f"一下是搜索内容 {query} 的结果:\n{response.content.decode('utf-8')}"
-    else:
-        return "无法访问Minecraft Wiki进行搜索"
-```
-
-首先来看工具的注册，其中的`description`类似于提示词，是必填项，是给AI提供的；其中的`tr_key`是内部方法，外部编写tools.py时不需要包含此项；而`parameters`就是AI需要传入的参数，可根据实际情况决定是否填写，其中的`properties`用于填写所有的传入参数，其中的`required`项则表示有哪些参数是必填的，注意`properties`与函数定义中传入参数的位置关系，应该需要一一对应。
-
-例如：
-```python
-@register_tool(description="搜索百度")
-```
-
-但是，搜索百度肯定需要传入搜索内容，所以：
-```python
-@register_tool(description="搜索百度", parameters={
-    "type": "object",
-    "properties": {
-        "query": {
-            "type": "string",
-            "description": "要搜索的内容"
-        }
-    },
-    "required": ["query"]
-})
-```
-
-好了，你已经学会如何注册工具了，接下来就可以写函数定义了：
-```python
-def search_baidu(source: CommandSource, ai_prefix: str, query: str):
-```
-
-上面的代码中，`source`和`ai_prefix`项必须编写，因为它们始终会被传入
-
-接下来写函数体：
-```python
-def search_baidu(source: CommandSource, ai_prefix: str, query: str):
-    ...
-    return ...
-```
-
-函数体中可以是任何你需要的操作，最后记得一定要`return`，否则AI将无法正确处理结果
-
-`tools.py`的完整示例：
-```python
-import requests
-from games_ai.games_ai_tool import register_tool
-
-@register_tool(
-    description="使用百度搜索互联网上的信息。当你需要查找实时信息、新闻、百科知识等时使用此工具。",
-    parameters={
-        "type": "object",
-        "properties": {
-            "query": {
-                "type": "string",
-                "description": "要在百度搜索的关键词或问题"
-            }
-        },
-        "required": ["query"]
-    }
-)
-def search_baidu(source, ai_prefix: str, query: str):
-    source.reply(f'{ai_prefix}正在搜索百度：{query}...')
-
-    try:
-        url = "https://www.baidu.com/s"
-        headers = {
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/120.0.0.0 Safari/537.36"
-            )
-        }
-        response = requests.get(url, params={"wd": query}, headers=headers, timeout=10)
-
-        if response.status_code != 200:
-            return f"百度搜索失败，HTTP 状态码：{response.status_code}"
-
-        # 简单提取页面文本（去除 HTML 标签）
-        import re
-        text = response.text
-        # 移除 script 和 style 标签内容
-        text = re.sub(r'<script[^>]*>.*?</script>', '', text, flags=re.DOTALL | re.IGNORECASE)
-        text = re.sub(r'<style[^>]*>.*?</style>', '', text, flags=re.DOTALL | re.IGNORECASE)
-        # 移除 HTML 标签
-        text = re.sub(r'<[^>]+>', '', text)
-        # 合并多余空白
-        text = re.sub(r'\s+', ' ', text).strip()
-
-        # 截断过长内容（保留前 3000 字符，适合 AI 上下文）
-        max_len = 3000
-        if len(text) > max_len:
-            text = text[:max_len] + "\n...(内容已截断)"
-
-        return f"百度搜索「{query}」的结果：\n{text}"
-
-    except requests.Timeout:
-        return "百度搜索请求超时，请稍后重试"
-    except Exception as e:
-        return f"百度搜索出错：{str(e)}"
-```
-
-</details>
+- 启用调试模式：`!!gamesai debug` — 显示完整 AI 提示词和工具调用结果。
+- Mineflayer Bot 日志在 MCDR 控制台以 `[Mineflayer]` 前缀显示。
+- OpenAI SDK HTTP 日志自动路由至 MCDR 控制台（详见 [OpenAI 日志桥接](#3-openai-日志桥接)）。
+- 如果以上方法均无效，请检查 `config/games_ai/config.json` 是否存在配置错误。
 
 ## 本次更新
 
-### Version 0.5.11
+### Version 0.6.0
 
-#### 1. 历史记录竞态条件修复
+#### 🎯 核心亮点
 
-修复了对话历史系统中的一个关键竞态条件，该问题在使用 `setting_timer` 等阻塞工具时触发：
+- **🤖 Mineflayer Bot** — 由 AI 通过 WebSocket 全自主控制的 Minecraft 机器人
+- **⚙️ 配置系统重制** — 类型自适应配置、`!!aibot` 管理命令、输入验证
+- **📋 日志桥接** — OpenAI/httpx SDK 日志无缝路由至 MCDR 日志系统
 
-- **问题**：当工具函数阻塞请求线程时（如定时器中的 `time.sleep()`），包含 `tool_calls` 的 assistant 消息会立即写入共享历史列表，而此时工具结果尚未返回。如果在阻塞期间发起另一个请求，该请求会读到不完整的对话（有 assistant tool_calls 但无 tool result），导致 API 返回 HTTP 400 错误。此污染状态会持续影响后续所有请求，直到手动清除历史记录。
-- **修复**：引入基于 `threading.Lock` 的线程安全历史管理，按用户+AI 组合加锁。每个请求现在操作历史的本地副本，保存时使用 `extend`（追加模式）而非覆盖写入，确保多线程历史按时间顺序正确保留，互不覆盖。
+#### 1. Mineflayer Bot 集成
 
-### Version 0.5.10
+0.6.0 最大的新特性：基于 Mineflayer 的全自主 Minecraft 机器人，通过 WebSocket 命令接口由 AI 控制。
 
-#### 1. `extra_body` — 通用 API 参数配置（破坏性变更）
+**支持的操作**（20+）：`goto`（A* 寻路）、`efly`（鞘翅飞行）、`dig`、`place`、`attack`、`useOn`、`equip`/`unequip`（装备/卸下盔甲）、`mount`/`dismount`（骑乘/离开）、`craft`（合成）、容器与熔炉管理、`lookAt`、`setControlState` 等。
 
-之前的 `thinking` 布尔配置项已被替换为通用的 `extra_body` 字典。请参考各API提供商的说明以编写此项。
+**扩展 `get_state`**：30+ 字段 — 位置、视角 (yaw/pitch)、速度、盔甲 (head/chest/legs/feet)、氧气、经验、世界时间、天气、维度、睡眠状态等。
 
-> [!WARNING]
-> **破坏性变更**：如果你之前使用了 `"thinking": true`，请按如下方式迁移：
->
-> ```json
-> // 之前 (0.5.9)
-> { "thinking": true }
->
-> // 之后 (0.5.10) — 适用于DeepSeek用户
-> { "extra_body": { "thinking": { "type": "enabled" } } }
-> ```
->
-> 对于其他API提供商，请查阅其文档以了解正确的 `extra_body` 格式。
+**自定义物理引擎**：击退响应（通过 `entity_velocity` 数据包）和实体碰撞/挤压。寻路时自动暂停物理以避免干扰。
 
-### Version 0.5.9
+**Bot 管理**：
+- `!!aibot join` / `!!aibot leave` — 生命周期控制
+- `!!aibot set username/password/auth` — 配置 Bot 身份，含输入验证
+- `bot_start` / `bot_stop` 工具 — AI 自主控制
+- `delegate_to_bot` — 将复杂任务移交给自主控制器
 
-#### 1. System 消息重构
+**其他改进**：死亡自动重生、默认启用物理引擎、`path_update` noPath 检测（无法到达时立即返回错误）、聊天消息自动去除 `§` 字符。
 
-发送给 AI 的 system 提示词现已重构为 **四条独立消息**：
+#### 2. 配置系统重制
 
-1. **当前时间与语言** — 当前服务器时间和 MCDR 语言设置
-2. **AI 提示词** — `all_ai` 中配置的模型专属 system prompt
-3. **已注册 Skills** — 当前已注册的技能列表（含内置技能）
-4. **数据库内容** — 当前公共数据库的数据
+- **类型自适应 `set_config`**：`!!gamesai config set` 现在读取旧值的类型并自动将新值转换为匹配类型。设置 float 为 `"20"` 仍保持 float，bool 保持 bool 等。类型不匹配错误会被捕获并报告。
+- **`!!aibot set` 命令**：无需手动编辑 JSON 即可管理 Bot 的用户名、密码和认证方式。用户名/密码验证为 `[a-zA-Z0-9_]`，auth 限制为 `microsoft`/`mojang`/`offline`。
 
-这一分离提升了对 system 消息格式有严格要求的模型（如 DeepSeek）的兼容性，同时也让提示词结构更加清晰、便于维护。
+#### 3. OpenAI 日志桥接
 
-#### 2. 新增 `ai_read_all_data` 工具
+> [!NOTE]
+> 彻底解决了旧版 OpenAI SDK 原始日志会占用 MCDR 控制台导致输入失常及显示异常的问题。
 
-新增内置工具 `ai_read_all_data`，允许 AI 一次性读取公共数据库中的所有键值对。此前 AI 需要先调用 `ai_read_all_keys` 获取所有 key，再逐个调用 `ai_read_data` 读取——现在可以一步完成。
-
-#### 3. 数据库实时注入
-
-每次 `!!ask` 请求时，当前公共数据库的内容会自动注入到 system 消息中。这意味着 AI 无需先调用工具就能掌握最新的数据库状态，提升数据相关查询的响应质量。
-
-#### 4. Thinking 消息样式
-
-「正在思考...」状态消息现在使用 Minecraft 灰色格式（`§7...§r`），使其与 AI 的实际回复在视觉上有明显区分。
-
-#### 5. Bug 修复与稳定性
-
-- 修复了 `ai_read_all_data` 返回非字符串值（`list[tuple]`）导致 DeepSeek 等严格 API 返回 HTTP 400 错误的问题。工具调用结果现在始终返回正确格式的字符串。
+`openai` 和 `httpx` Python 日志现已完全重定向至 MCDR Logger：
+- 所有 HTTP 请求/响应日志出现在 MCDR 控制台
+- 原始 handler 已清除、propagation 已禁用 — 无重复 stderr 输出
 
 ## 鸣谢与声明
 特别感谢 [WangHai Server](https://github.com/Wanghai-Server) 为此插件的测试提供了基础

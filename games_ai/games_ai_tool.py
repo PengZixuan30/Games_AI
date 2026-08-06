@@ -40,7 +40,25 @@ def register_tool(*, description: str, tr_key: str | None = "", parameters: dict
 def get_tool_handler(name: str) -> ToolHandler | None:
     return _TOOL_REGISTRY.get(name)
 
+
+_BOT_SAFE_TOOL_NAMES: set[str] = set()
+
+
+def register_bot_tool():
+    def decorator(func: Callable):
+        _BOT_SAFE_TOOL_NAMES.add(func.__name__)
+        return func
+    return decorator
+
+
+def get_bot_tool_schemas() -> list[dict]:
+    return [
+        s for s in TOOL_SCHEMAS
+        if s.get("function", {}).get("name") in _BOT_SAFE_TOOL_NAMES
+    ]
+
 @register_tool(description="获取服务器当前的在线玩家列表", tr_key="getting_online_players")
+@register_bot_tool()
 def get_online_players(source: CommandSource, ai_prefix: str):
     server = source.get_server()
     source.reply(f'{ai_prefix}{server.rtr("games_ai.tools.getting_online_players")}')
@@ -119,6 +137,7 @@ def remove_from_whitelist(source: CommandSource, ai_prefix: str, player: str):
     },
     "required": ["query"]
 })
+@register_bot_tool()
 def search_minecraft_wiki(source: CommandSource, ai_prefix: str, query: str):
     source.reply(f'{ai_prefix}{source.get_server().rtr("games_ai.tools.searching_minecraft_wiki", query=query)}')
     lang = source.get_server().get_mcdr_language()
@@ -142,6 +161,7 @@ def search_minecraft_wiki(source: CommandSource, ai_prefix: str, query: str):
     },
     "required": ["expression"]
 })
+@register_bot_tool()
 def calculator(source: CommandSource, ai_prefix: str, expression: str):
     source.reply(f'{ai_prefix}{source.get_server().rtr("games_ai.tools.calculating_expression", expression=expression)}')
     try:
@@ -166,6 +186,7 @@ def calculator(source: CommandSource, ai_prefix: str, expression: str):
     },
     "required": ["expression"]
 })
+@register_bot_tool()
 def item_caculator(source: CommandSource, ai_prefix: str, expression: str, single_limit: int = 64):
     source.reply(f'{ai_prefix}{source.get_server().rtr("games_ai.tools.calculating_expression", expression=expression)}')
     try:
@@ -563,6 +584,7 @@ def delete_skills(source: CommandSource, ai_prefix: str, skills: str):
     },
     "required": ["duration"]
 })
+@register_bot_tool()
 def setting_timer(source: CommandSource, ai_prefix: str, duration: int):
     server = source.get_server()
     source.reply(f"{ai_prefix}{server.rtr("games_ai.tools.setting_timer", duration=duration)}")

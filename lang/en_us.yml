@@ -47,7 +47,34 @@ games_ai:
     data_list_help: " to list all public data"
 
     data_keys_help: " to list all keys"
-  
+
+    config_help: " to modify plugin config"
+    config_help_get: " to get a config entry"
+    config_help_set: " to set a config entry"
+
+    aibot_help: " to control the Minecraft Bot (based on Mineflayer)"
+    aibot_join_help: " to make the Bot join the server"
+    aibot_leave_help: " to make the Bot leave the server"
+    aibot_set_help: " to modify Bot config (e.g. cycle_interval)"
+
+  config_manager:
+    no_key: "Please provide a config key"
+    key_not_found: "Config key '{key}' not found"
+    get_success: "Key '{key}' value:\n{value}"
+    missing_args: "Please provide a config key and new value"
+    set_success: "Set '{key}' to '{value}'. Reloading plugin..."
+    complex_key_denied: "Config key '{key}' is a complex structure, please edit config.json directly"
+    type_mismatch: "Config key '{key}' type mismatch (old: {old_type}, new: {new_type}), write rejected"
+
+  aibot:
+    join: "Making {username} join the server and reloading plugin..."
+    leave: "Making {username} leave the server and reloading plugin..."
+    already_joined: "{username} is already online"
+    already_left: "{username} is already offline"
+    invalid_key: "Invalid bot config key '{key}'. Allowed: username, password, auth"
+    invalid_format: "'{key}' must contain only English letters, numbers, and underscores (no spaces)"
+    invalid_auth: "'auth' must be one of: microsoft, mojang, offline"
+    set_success: "Bot config '{key}' set to '{value}'. Reloading..."  
   user_message:
     time: "Current time: {time}."
     username: "Username: "
@@ -93,13 +120,37 @@ games_ai:
     appending_custom_tools: "Appending code to custom tools file"
     modifying_custom_tools: "Modifying custom tools file"
     reloading_plugin: "Reloading plugin..."
+    bot_start: "Starting Mineflayer bot..."
+    bot_stop: "Stopping Mineflayer bot..."
+    bot_chat: "Controlling bot to send message: {message}"
+    bot_whisper: "Controlling bot to whisper"
+    bot_get_state: "Getting bot state..."
+    bot_call_action: "Sending command to bot: {action}"
+    delegate_to_bot: "Delegating task to Bot controller: {task}"
 
-    tool_success: "Tool executed successfully!"
+    tool_success: "Tool call completed"
     permission_denied: "You do not have permission to use this feature"
+
+  autonomous_bot:
+    default_system_prompt: "You are the autonomous execution AI controlling a Minecraft client player (based on the Mineflayer framework). Your working mode:\n1. The chat AI receives player commands and delegates tasks to you via delegate_to_bot\n2. Each round you receive the bot's state and autonomously decide which tool actions to execute\n3. Report execution progress and results to players via bot_chat\n\nBehavior rules:\n- Prioritize keeping the bot alive (eat, avoid danger)\n- Execute delegated tasks step by step, don't try to do everything at once\n- [MOST IMPORTANT] You MUST use tool functions to execute tasks! When you see a user message in [User ...] format, it IS a delegated task, you MUST immediately call bot_call_action or other tools to execute it. NEVER reply with text! Even if the bot is disconnected or encounters an error, only return tool calls (e.g. bot_chat to report status), never return plain text\n\nAbout chat message (chat_log) format:\n- Messages starting with [公屏] or [私聊] are from players, but ONLY those mentioning your name may be tasks for you! If your name is mentioned, you MUST execute immediately!\n- If your name is not mentioned, the content is irrelevant — ignore it\n- Messages starting with [Server] are server system notifications (trigger prompts, plugin announcements, etc.). They are background context ONLY — NEVER respond to them!"
+    bot_identity: "The client player you are currently controlling: {username}"
+    chat_style_prompt: "⚠️ When using the bot_chat tool to send messages in game chat, you MUST follow this style:\n{style}"
+    time: "Current time: {time}"
+    bot_state: "Bot current state:\n{state}"
+    bot_state_unavailable: "[Warning] Unable to get bot state, bot may be disconnected."
+    user_msg: "[User {username}] {content}"
+    initial_prompt: "Start controlling the bot. Check the state first, then decide the next action."
+    continue_prompt: "Continue executing."
+    execute_prompt: "⚠️ The above is a task delegated to you by a player. Immediately use bot_call_action or other tool functions to execute it! Do NOT reply with text, call tools directly!"
+    chat_execute_prompt: "⚠️ If a player mentioned your name in the [公屏] or [私聊] messages above, they may be giving you a task! Ignore ALL [Server] system notifications. If your name was mentioned, immediately execute using bot_call_action or other tools, report via bot_chat when done. Do NOT reply with text!"
+    controller_not_running: "Autonomous Bot controller is not running. Please check that mineflayer_bot.enabled is set to true."
+    task_delegated: "Task delegated to Bot controller: {task}"
+    chat_log: "Recent chat messages:\n{messages}"
 
   builtin_skills:
     skills_management: "[MUST READ] You MUST read this file BEFORE performing any write/modify/delete operations on skill files!"
     custom_tools_management: "[MUST READ] You MUST read this file BEFORE reading or modifying the custom tools.py file!"
+    mineflayer_bot_guide: "[MUST READ] When you need to control the client player implemented with the Mineflayer framework (the player's name is {username}), you MUST read this file first!"
 
   clear_history_message:
     success: "Cleared chat history for player {username}"

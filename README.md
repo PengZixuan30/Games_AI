@@ -14,13 +14,7 @@ English  |  [简体中文](/README.zh-CN.md)  |  [繁體中文](/README.zh-TW.md
 > **GamesAI Plugin/Mod QQ Group: 849544707** — Join us to discuss issues, share feedback, and exchange prompt, skills, tools configurations!
 
 > [!NOTE]
-> Welcome to version 0.5.11! This release fixes a critical race condition bug that caused HTTP 400 errors and history corruption when using blocking tools (like `setting_timer`). See [What's New](#whats-new)
-
-> [!IMPORTANT]
-> **Breaking Change in 0.5.10**: The `thinking` boolean config has been replaced by a generic `extra_body` dict. If you were using `"thinking": true`, you must migrate to `"extra_body": {"thinking": {"type": "enabled"}}`. See [What's New](#1-extra_body--generic-api-parameter-configuration-breaking) for migration guide.
-
-> [!NOTE]
-> **Bug Fix in 0.5.11**: Fixed a race condition where blocking tools (e.g., `setting_timer`) would leak incomplete tool_calls into shared history, causing persistent HTTP 400 errors and history corruption. See [What's New](#version-0511).
+> Welcome to version 0.6.0! This major release introduces the **Mineflayer Bot** — a fully autonomous Minecraft bot controlled by AI. See [What's New](#whats-new) for details.
 
 <details>
 <summary>Table of Contents (click to expand)</summary>
@@ -28,27 +22,36 @@ English  |  [简体中文](/README.zh-CN.md)  |  [繁體中文](/README.zh-TW.md
 - [GamesAI for MCDReforged](#gamesai-for-mcdreforged)
   - [Installation](#installation)
   - [Usage](#usage)
-  - [Configuration](#configuration)
+  - [Using the Mineflayer Bot](#using-the-mineflayer-bot)
+    - [Prerequisites](#prerequisites)
+    - [Commands](#commands)
+    - [How It Works](#how-it-works)
+    - [Supported Actions](#supported-actions)
+    - [AI Tools for Bot Control](#ai-tools-for-bot-control)
+    - [Configuration](#configuration)
+  - [Configuration](#configuration-1)
     - [1.prefix](#1prefix)
     - [2.permission](#2permission)
     - [3.max\_history](#3max_history)
     - [4.all\_ai](#4all_ai)
     - [5.default\_ai](#5default_ai)
-  - [Tools, Skills \& Custom Tools](#tools-skills--custom-tools)
-    - [Tools](#tools)
-    - [Skills](#skills)
-    - [Custom Tools](#custom-tools)
+    - [6.mineflayer\_bot](#6mineflayer_bot)
+  - [Tools \& Skills](#tools--skills)
+    - [Built-in Tools](#built-in-tools)
+    - [Custom Tools via Config File](#custom-tools-via-config-file)
+    - [Custom Tools in Your MCDR Plugin](#custom-tools-in-your-mcdr-plugin)
+    - [Built-in Skills](#built-in-skills)
+    - [Add Skills via Config File](#add-skills-via-config-file)
+  - [Troubleshooting](#troubleshooting)
+    - [`!!ask` Errors](#ask-errors)
+    - [Mineflayer Bot Errors](#mineflayer-bot-errors)
+    - [Logging \& Debugging](#logging--debugging)
   - [What's New](#whats-new)
-    - [Version 0.5.11](#version-0511)
-      - [1. History Race Condition Fix](#1-history-race-condition-fix)
-    - [Version 0.5.10](#version-0510)
-      - [1. `extra_body` — Generic API Parameter Configuration (BREAKING)](#1-extra_body--generic-api-parameter-configuration-breaking)
-    - [Version 0.5.9](#version-059)
-      - [1. System Message Refactoring](#1-system-message-refactoring)
-      - [2. New `ai_read_all_data` Tool](#2-new-ai_read_all_data-tool)
-      - [3. Real-Time Database Injection](#3-real-time-database-injection)
-      - [4. Thinking Message Style](#4-thinking-message-style)
-      - [5. Bug Fixes \& Stability](#5-bug-fixes--stability)
+    - [Version 0.6.0](#version-060)
+      - [🎯 Highlights](#-highlights)
+      - [1. Mineflayer Bot Integration](#1-mineflayer-bot-integration)
+      - [2. Configuration System Overhaul](#2-configuration-system-overhaul)
+      - [3. OpenAI Logging Bridge](#3-openai-logging-bridge)
   - [Acknowledgements \& Disclaimer](#acknowledgements--disclaimer)
   - [Sponsorship \& Contributors](#sponsorship--contributors)
   - [License](#license)
@@ -65,10 +68,10 @@ Run the following command in the MCDR console to install the plugin:
 
 Alternatively, get it from the [MCDR Plugin Repository](https://mcdreforged.com/plugin/games_ai) and place it in your plugin directory.
 
-If you choose to install manually, install the Python packages `openai` and `requests` first:
+If you choose to install manually, install the Python packages `openai`, `requests`, and `websockets` first:
 
 ```bash
-pip install openai requests
+pip install openai requests websockets
 ```
 
 ## Usage
@@ -82,6 +85,8 @@ Type `!!gamesai` anywhere to display all available features of this plugin.
 |`!!gamesai reload`|Reload the plugin configuration file.|
 |`!!gamesai check`|Check for plugin updates.|
 |`!!gamesai speedtest [model]`|Test API server connection latency. If no model is specified, all models are tested.|
+|`!!gamesai config get <key>`|Read a configuration value.|
+|`!!gamesai config set <key> <value>`|Update a configuration value (auto type-adapts).|
 
 ---
 
@@ -110,6 +115,84 @@ Type `!!data` for information about database commands.
 |`!!data list`|Read all entries in the public database.|
 |`!!data list keys`|Read all keys in the public database.|
 
+---
+
+## Using the Mineflayer Bot
+
+GamesAI 0.6.0 introduces a fully autonomous Minecraft bot powered by [Mineflayer](https://github.com/PrismarineJS/mineflayer). The AI can directly control the bot to navigate, mine, build, craft, fight, and interact with the world.
+
+### Prerequisites
+
+- **Node.js >= 18** and **npm** must be installed on the server
+- The plugin automatically installs npm dependencies (`mineflayer`, `ws`, `vec3`, `mineflayer-pathfinder`, `mineflayer-mcefly`) on first launch
+- A Minecraft account for the bot (Microsoft/Mojang/offline)
+
+### Commands
+
+|Command|Description|
+|---|---|
+|`!!aibot join`|Enable the bot and make it join the server.|
+|`!!aibot leave`|Make the bot leave the server and disable it.|
+|`!!aibot set <key> <value>`|Configure bot identity (`username`/`password`/`auth`).|
+
+### How It Works
+
+```
+Player !!ask → GamesAI Plugin → WS Client (Python) → WS Server (Node.js) → Mineflayer Bot
+                                                                            ↓
+                                                                     Minecraft Server
+
+AI (Autonomous Controller):
+  get_state → analyze → bot_call_action(goto/dig/attack/...) → cycle
+```
+
+The plugin launches a Node.js process running a WebSocket server. A Python WebSocket client (built into the plugin) connects to it locally, forming a bridge between MCDR and the Mineflayer bot. When the bot is enabled, an **autonomous AI controller** periodically reads the bot's state, checks chat messages, and decides what actions to take.
+
+### Supported Actions
+
+The bot supports 20+ actions callable via the `bot_call_action` AI tool:
+
+|Action|Description|
+|---|---|
+|`goto`|A\* pathfinding to coordinates `{x, y, z, range?}`|
+|`efly`|Elytra flight to coordinates (requires elytra)|
+|`dig`|Break a block at coordinates|
+|`place`|Place a block at coordinates|
+|`attack`|Attack a nearby entity by name or nearest hostile|
+|`useOn`|Right-click an entity (e.g. villager trading)|
+|`equip` / `unequip`|Equip/unequip armor or items to hand|
+|`mount` / `dismount`|Ride or dismount vehicles and animals|
+|`craft`|Craft items (inventory or crafting table)|
+|`lookAt`|Look at coordinates or set yaw/pitch directly|
+|`sleep` / `wake`|Sleep in a bed or wake up|
+|`activateBlock`|Right-click a block (open chest, press button)|
+|`setControlState`|Control vehicle movement (forward/back/jump)|
+|`viewContainer` / `takeFromContainer` / `putToContainer`|Container management|
+|`openFurnace` / `furnacePutInput` / `furnacePutFuel` / `furnaceTakeOutput`|Furnace operations|
+|`nearbyEntities` / `findBlocks` / `getBlock`|World query|
+|`stop` / `stopEfly`|Stop all movement or elytra flight|
+
+### AI Tools for Bot Control
+
+In addition to `bot_call_action`, these dedicated AI tools are available:
+
+|Tool|Description|
+|---|---|
+|`bot_chat`|Make the bot send a message in public chat.|
+|`bot_whisper`|Make the bot send a private message to a player.|
+|`bot_get_state`|Get the bot's full state (30+ fields).|
+|`bot_start` / `bot_stop`|Start or stop the bot.|
+|`delegate_to_bot`|Delegate a complex Minecraft task to the autonomous controller.|
+
+### Configuration
+
+See [6.mineflayer_bot](#6mineflayer_bot) for the full configuration reference. Key points:
+
+- Set `mineflayer_bot.enabled` to `true` (or use `!!aibot join`) to launch the bot
+- `mineflayer_bot.bot.username` / `password` / `auth` — the bot's Minecraft credentials
+- `mineflayer_bot.cycle_interval` — how often (in seconds) the autonomous AI makes decisions
+- `mineflayer_bot.websocket` — internal settings; do not modify unless you know what you are doing
+
 ## Configuration
 
 The default configuration file structure is as follows:
@@ -129,7 +212,20 @@ The default configuration file structure is as follows:
           "extra_body": {}
       }
     },
-  "default_ai": "<Your AI ID>"
+  "default_ai": "<Your AI ID>",
+  "mineflayer_bot": {
+      "enabled": false,
+      "cycle_interval": 15.0,
+      "websocket": {
+          "url": "ws://127.0.0.1:8080",
+          "reconnect_interval": 10,
+          "timeout": 60
+      },
+      "bot": {
+          "username": "<Your Minecraft Bot Username>",
+          "password": "<Your Minecraft Bot Password>",
+          "auth": "microsoft"
+      }
   }
 ```
 
@@ -180,10 +276,30 @@ Default: `<Your AI ID>`
 
 The model used when a player simply uses `!!ask`. Should be one of the keys in the `all_ai` dictionary (i.e. the plugin's internal AI_ID). An incorrect value will prevent `!!ask` from working properly.
 
-## Tools, Skills & Custom Tools
+### 6.mineflayer_bot
+Type: `dict`
 
-### Tools
-The GamesAI plugin provides many built-in tools, listed in the table below. If you want more tools, you can [submit a suggestion](https://github.com/PengZixuan30/Games_AI/issues/new) or use [Custom Tools](#custom-tools).
+Default: see above
+
+Configuration for the Mineflayer autonomous bot agent.
+
+**enabled**: Whether to launch the bot on startup. Requires Node.js >= 18.
+
+**cycle_interval**: Seconds between autonomous AI decision cycles (default: 15.0).
+
+**websocket**: Internal WebSocket connection settings. `url`, `reconnect_interval`, and `timeout`.
+
+> [!WARNING]
+> The WebSocket `url` host **must** be `127.0.0.1`. Ensure the chosen port is not already in use — the plugin will automatically check for port conflicts on startup and disable the bot if the port is occupied.
+> Do not modify the `websocket` settings unless you fully understand what you are doing.
+
+**bot**: Minecraft account credentials — `username`, `password`, `auth` (microsoft/mojang/offline). The server address is auto-detected from `server.properties`.
+
+## Tools & Skills
+
+### Built-in Tools
+
+The GamesAI plugin provides many built-in tools, listed in the table below. If you want more tools, you can [submit a suggestion](https://github.com/PengZixuan30/Games_AI/issues/new), use [Custom Tools via Config File](#custom-tools-via-config-file), or [register tools from your own MCDR plugin](#custom-tools-in-your-mcdr-plugin).
 
 <details>
 <summary>Click to view all built-in tools</summary>
@@ -217,12 +333,92 @@ The GamesAI plugin provides many built-in tools, listed in the table below. If y
 |setting_timer|`duration`|Pause execution for the specified number of seconds before continuing.|
 |reload_plugin|None|Hot-reload the plugin to apply configuration, skills, and custom tools changes without losing chat history.|
 |ai_del_data|`key`|Delete a data entry from the database.|
+|bot_chat|`message`|Make the Mineflayer bot send a message in Minecraft chat.|
+|bot_whisper|`username`, `message`|Make the bot send a private message to a player.|
+|bot_get_state|None|Get the bot's full state (30+ fields).|
+|bot_call_action|`action`, `params`|Send arbitrary action to the bot (goto, dig, place, attack, etc.).|
+|bot_start|None|Start the Mineflayer bot if not running.|
+|bot_stop|None|Stop the Mineflayer bot.|
+|delegate_to_bot|`task`|Delegate a complex Minecraft task to the autonomous bot controller.|
 
 </details>
 
-### Skills
+### Custom Tools via Config File
 
-The Skills system lets you write instruction files to guide how the AI handles specific tasks — such as whitelist management, fake player control, and more.
+Customize tools by editing the `config/games_ai/tools/tools.py` file.
+
+Let's start by looking at the default content:
+
+```python
+from mcdreforged.command.command_source import CommandSource
+from games_ai.games_ai_tool import register_tool
+
+@register_tool(description="My Custom Tool")
+def my_custom_tool(source: CommandSource, ai_prefix: str):
+    return "Tool execution completed"
+```
+
+> [!IMPORTANT]
+> The `from games_ai.games_ai_tool import register_tool` import and the `@register_tool` decorator above the function definition **must** be present.
+
+> [!TIP]
+> In version 0.5.7+, the AI can autonomously **read, modify, and append** the custom tools file using the `read_custom_tools`, `modify_custom_tools`, and `append_custom_tools` tools. Just ask the AI to add a new tool for you — it will read the current file, write the new code, and reload the plugin.
+
+The `description` parameter is mandatory and tells the AI what the tool does. The `parameters` dictionary (optional) defines the arguments the AI should pass in, following the [OpenAI function calling schema](https://platform.openai.com/docs/guides/function-calling). The function signature must include `source: CommandSource` and `ai_prefix: str` as the first two parameters, followed by any custom parameters defined in `parameters`.
+
+> [!TIP]
+> Add the `@register_bot_tool()` decorator (from `games_ai.games_ai_tool`) alongside `@register_tool` to make the tool available to the autonomous Mineflayer Bot controller. Without it, the tool can only be used through `!!ask` by the chat AI.
+
+### Custom Tools in Your MCDR Plugin
+
+If you are developing a separate MCDR plugin, you can register tools directly from your plugin code without touching `tools.py`:
+
+```python
+from games_ai.games_ai_tool import register_tool, register_bot_tool
+
+@register_tool(
+    description="Description of your custom tool",
+    parameters={...}  # optional
+)
+@register_bot_tool()  # optional — makes the tool available to the Mineflayer Bot controller
+def my_plugin_tool(source: CommandSource, ai_prefix: str, ...):
+    source.reply(f'{ai_prefix}Running my tool...')
+    return "Result of the tool"
+```
+
+> [!IMPORTANT]
+> Your plugin **must** require `games_ai >= 0.4.1` in its `mcdreforged.plugin.json` dependencies, otherwise the import will fail. If you use `@register_bot_tool()`, the minimum version should be `>= 0.6.0`.
+
+Your plugin should list `games_ai` in its `dependencies` in `mcdreforged.plugin.json` to ensure GamesAI is loaded first:
+
+```json
+{
+    "id": "my_plugin",
+    "dependencies": {
+        "mcdreforged": ">=2.15.0",
+        "games_ai": ">=0.4.1"
+    }
+}
+```
+
+Tools registered this way are identical to built-in tools — the AI can call them directly, and you can mark them as bot-accessible with `@register_bot_tool()` if needed.
+
+### Built-in Skills
+
+GamesAI ships with two **built-in skills** that the AI automatically reads before performing related operations:
+
+| Skill File | Description |
+|---|---|
+| `skills_management.md` | Guides the AI on how to read, write, modify, and delete skill files correctly. |
+| `custom_tools_management.md` | Guides the AI on how to read, modify, and append custom tool code safely. |
+| `mineflayer_bot_guide.md` | Guides the AI on how to control the Mineflayer bot (available only when the bot is running). |
+
+> [!TIP]
+> Skills are like SOPs (Standard Operating Procedures) for the AI — they ensure the AI follows the correct workflow every time.
+
+### Add Skills via Config File
+
+You can create custom skill files to guide how the AI handles specific tasks — such as whitelist management, fake player control, and more.
 
 Skills files are stored in `config/games_ai/skills/` as Markdown (`.md`) files. To register a skill, edit `config/games_ai/skills/skills.json`. The following is an example configuration (`whitelist.md` and `player.md` are example filenames only — they are not built-in files):
 
@@ -244,228 +440,81 @@ Skills files are stored in `config/games_ai/skills/` as Markdown (`.md`) files. 
 
 When a skill is registered, it appears in the AI's system prompt. The AI can then use the **`read_skills`** tool to read the full contents of any skill file before performing related tasks.
 
-> [!TIP]
-> GamesAI ships with two **built-in skills**: `skills_management.md` (how to manage skill files) and `custom_tools_management.md` (how to modify custom tools). The AI will automatically read these before modifying skills or tools.
+## Troubleshooting
 
-> [!TIP]
-> Skills are like SOPs (Standard Operating Procedures) for the AI — they ensure the AI follows the correct workflow every time.
+### `!!ask` Errors
 
-### Custom Tools
-Customize tools by editing the `config/games_ai/tools/tools.py` file.
+|Symptom|Likely Cause|Solution|
+|---|---|---|
+|HTTP 400|Malformed request body|Check `extra_body` format matches your API provider's spec.|
+|HTTP 401|Invalid API key|Verify `api_key` in your AI configuration.|
+|HTTP 404|Model not found|Check `ai_model` name is correct for your provider.|
+|HTTP 429|Rate limit exceeded|Wait and retry, or upgrade your API plan.|
+|Timeout / no response|Network issue or slow API|Use `!!gamesai speedtest` to check latency. Try a different model.|
+|"Unknown function" reply|AI called a tool that doesn't exist|This is usually harmless — the AI will retry with a different approach.|
 
-Let's start by looking at the default content:
+### Mineflayer Bot Errors
 
-```python
-from mcdreforged.command.command_source import CommandSource
-from games_ai.games_ai_tool import register_tool
+|Symptom|Relevant Log Message|Solution|
+|---|---|---|
+|Bot not starting (no `[Mineflayer]` logs at all)|`Mineflayer bot is enabled but Node.js was not found`|Install Node.js >= 18. Run `node --version` to verify.|
+|Bot disabled on startup|`Mineflayer requires Node.js >= 18, but found v{X}`|Upgrade Node.js to version 18 or higher.|
+|Bot disabled on startup|`WebSocket port {X} is already in use!`|Change `websocket.url` to a different port in the config file, then `!!gamesai reload`.|
+|`[Bot] Kicked from server` with auth reason|`[Bot] Kicked from server. Reason:` followed by authentication error|Verify `username`/`password`/`auth` via `!!aibot set`. For Microsoft auth, ensure the account has migrated.|
+|Bot stuck / not moving|No path error from `goto` action|The `goto` action now returns an error if no path is found. Try different coordinates.|
+|`[Bot] Disconnected` then reconnects|`[Bot] Disconnected. Reason: ...` followed by `Reconnecting in 5 seconds...`|This is normal after a server restart or network hiccup. Bot auto-reconnects after 5 seconds.|
+|`[Bot] Died, respawning...`|`[Bot] Died, respawning...`|Normal — the bot auto-respawns on death. No action needed.|
+|Bot not responding to commands|No `[WS]` activity in logs|Restart with `!!aibot leave` then `!!aibot join`. If persistent, check that the `websocket.url` port is accessible.|
+|`npm install failed` in logs|`npm install failed (exit {X})` or `npm is not installed or not in PATH`|Ensure npm is installed and available in PATH. Check the error details in the log for specific package issues.|
 
-@register_tool(description="My Custom Tool")
-def my_custom_tool(source: CommandSource, ai_prefix: str):
-    return "Tool execution completed"
-```
+### Logging & Debugging
 
-> [!IMPORTANT]
-> The `from games_ai.games_ai_tool import register_tool` import and the `@register_tool` decorator above the function definition **must** be present.
-
-> [!TIP]
-> In version 0.5.7+, the AI can autonomously **read, modify, and append** the custom tools file using the `read_custom_tools`, `modify_custom_tools`, and `append_custom_tools` tools. Just ask the AI to add a new tool for you — it will read the current file, write the new code, and reload the plugin.
-
-As you can see, the structure is very simple.
-
-Now I'll show you how to build a real tool. Let's use searching `baidu.com` as an example.
-
-<details>
-
-<summary>Click to expand</summary>
-
-The best way to understand how to implement a Baidu search is to look at the built-in `search_minecraft_wiki` tool in the GamesAI source code:
-
-```python
-@register_tool(description="Search Minecraft Wiki for relevant information. Do not use this method to search for non-Minecraft content. If the search results page is returned, you can browse that page first and then perform a more precise query.", tr_key="searching_minecraft_wiki", parameters={
-    "type": "object",
-    "properties": {
-        "query": {
-            "type": "string",
-            "description": "The search term, e.g. the name of an item, mob, or game mechanic."
-        }
-    },
-    "required": ["query"]
-})
-def search_minecraft_wiki(source: CommandSource, ai_prefix: str, query: str):
-    source.reply(f'{ai_prefix}{source.get_server().rtr("games_ai.tools.searching_minecraft_wiki", query=query)}')
-    lang = source.get_server().get_mcdr_language()
-    if lang == "en_us":
-        search_url = f"https://minecraft.wiki/?search={query}"
-    else:
-        search_url = f"https://zh.minecraft.wiki/?search={query}"
-    response = requests.get(search_url)
-    if response.status_code == 200:
-        return f"Search results for {query}:\n{response.content.decode('utf-8')}"
-    else:
-        return "Unable to access Minecraft Wiki for searching."
-```
-
-Let's start by looking at the tool registration. `description` is like a system prompt — it's mandatory and is provided to the AI. `tr_key` is an internal identifier; you do **not** need to include it when writing external `tools.py`. `parameters` defines the arguments the AI should pass in. You can decide whether to include it based on your actual needs. `properties` lists all the input parameters, and `required` specifies which are mandatory. Make sure `properties` and the function's parameter list correspond one-to-one.
-
-For example:
-
-```python
-@register_tool(description="Search Baidu")
-```
-
-However, searching Baidu obviously requires a search term, so:
-
-```python
-@register_tool(description="Search Baidu", parameters={
-    "type": "object",
-    "properties": {
-        "query": {
-            "type": "string",
-            "description": "The search term"
-        }
-    },
-    "required": ["query"]
-})
-```
-
-Great — you now know how to register a tool! Next, write the function definition:
-
-```python
-def search_baidu(source: CommandSource, ai_prefix: str, query: str):
-```
-
-In the code above, the `source` and `ai_prefix` parameters **must** be included because they are always passed in.
-
-Then write the function body:
-
-```python
-def search_baidu(source: CommandSource, ai_prefix: str, query: str):
-    ...
-    return ...
-```
-
-The function body can contain any operations you need. Just remember to always `return` a result — otherwise the AI won't be able to process the output properly.
-
-Complete `tools.py` example:
-
-```python
-import requests
-from games_ai.games_ai_tool import register_tool
-
-@register_tool(
-    description="Use Baidu to search for information on the internet. Use this tool when you need real-time info, news, encyclopedia knowledge, etc.",
-    parameters={
-        "type": "object",
-        "properties": {
-            "query": {
-                "type": "string",
-                "description": "The keyword or question to search for on Baidu"
-            }
-        },
-        "required": ["query"]
-    }
-)
-def search_baidu(source, ai_prefix: str, query: str):
-    source.reply(f'{ai_prefix}Searching Baidu: {query}...')
-
-    try:
-        url = "https://www.baidu.com/s"
-        headers = {
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/120.0.0.0 Safari/537.36"
-            )
-        }
-        response = requests.get(url, params={"wd": query}, headers=headers, timeout=10)
-
-        if response.status_code != 200:
-            return f"Baidu search failed, HTTP status code: {response.status_code}"
-
-        # Extract plain text from page (strip HTML tags)
-        import re
-        text = response.text
-        # Remove script and style tag contents
-        text = re.sub(r'<script[^>]*>.*?</script>', '', text, flags=re.DOTALL | re.IGNORECASE)
-        text = re.sub(r'<style[^>]*>.*?</style>', '', text, flags=re.DOTALL | re.IGNORECASE)
-        # Remove HTML tags
-        text = re.sub(r'<[^>]+>', '', text)
-        # Collapse extra whitespace
-        text = re.sub(r'\s+', ' ', text).strip()
-
-        # Truncate long content (keep first 3000 characters, suitable for AI context)
-        max_len = 3000
-        if len(text) > max_len:
-            text = text[:max_len] + "\n...(content truncated)"
-
-        return f"Baidu search results for 「{query}」:\n{text}"
-
-    except requests.Timeout:
-        return "Baidu search request timed out. Please try again later."
-    except Exception as e:
-        return f"Baidu search error: {str(e)}"
-```
-
-</details>
+- Enable debug mode: `!!gamesai debug` — shows full AI prompts and tool call results.
+- Mineflayer bot logs are prefixed with `[Mineflayer]` in the MCDR console.
+- OpenAI SDK HTTP logs are routed to the MCDR console automatically (see [OpenAI Logging Bridge](#3-openai-logging-bridge)).
+- If all else fails, check `config/games_ai/config.json` for misconfiguration.
 
 ## What's New
 
-### Version 0.5.11
+### Version 0.6.0
 
-#### 1. History Race Condition Fix
+#### 🎯 Highlights
 
-Fixed a critical race condition in the conversation history system that occurred when using blocking tools such as `setting_timer`:
+- **🤖 Mineflayer Bot** — Fully autonomous Minecraft bot with AI-driven control via WebSocket
+- **⚙️ Configuration Overhaul** — Type-adaptive config, `!!aibot` management, input validation
+- **📋 Logging Bridge** — OpenAI/httpx SDK logs seamlessly routed to the MCDR logger
 
-- **Problem**: When a tool blocked the request thread (e.g., `time.sleep()` in a timer), the assistant message containing `tool_calls` was immediately written to the shared history list before the tool result was available. If another request was made during this blocking period, it would read an incomplete conversation (assistant with tool_calls but no tool result), causing HTTP 400 errors from the API. This corrupted state would persist for all subsequent requests until history was manually cleared.
-- **Fix**: Introduced thread-safe history management with `threading.Lock` per user+AI pair. Each request now works on a local copy of the history and uses `extend` (append-only) when saving, preventing any thread from overwriting another's history. Both concurrent and blocking-tool histories are now correctly preserved in chronological order.
+#### 1. Mineflayer Bot Integration
 
-### Version 0.5.10
+The biggest feature in 0.6.0: a fully autonomous Minecraft bot powered by Mineflayer, controlled by AI through a WebSocket command interface.
 
-#### 1. `extra_body` — Generic API Parameter Configuration (BREAKING)
+**Supported actions** (20+): `goto` (A\* pathfinding), `efly` (elytra flight), `dig`, `place`, `attack`, `useOn`, `equip`/`unequip`, `mount`/`dismount`, `craft`, container & furnace management, `lookAt`, `setControlState`, and more.
 
-The previous `thinking` boolean configuration option has been replaced with a generic `extra_body` dictionary. Please refer to your API provider's documentation for available options.
+**Extended `get_state`**: 30+ fields — position, yaw/pitch, velocity, armor (head/chest/legs/feet), oxygen, experience, world time, weather, dimension, sleeping status, and more.
 
-> [!WARNING]
-> **Breaking Change**: If you were using `"thinking": true`, you must now migrate as shown below:
->
-> ```json
-> // Before (0.5.9)
-> { "thinking": true }
->
-> // After (0.5.10) — for DeepSeek users
-> { "extra_body": { "thinking": { "type": "enabled" } } }
-> ```
->
-> For other API providers, consult their documentation for the correct `extra_body` format.
+**Custom physics engine**: Knockback response (via `entity_velocity` packets) and entity collision/cramming. Physics automatically pauses during pathfinding to avoid interference.
 
-### Version 0.5.9
+**Bot management**:
+- `!!aibot join` / `!!aibot leave` — lifecycle control
+- `!!aibot set username/password/auth` — configure bot identity with validation
+- `bot_start` / `bot_stop` AI tools for autonomous control
+- `delegate_to_bot` — hand off complex tasks to the autonomous controller
 
-#### 1. System Message Refactoring
+**Other improvements**: Death auto-respawn, physics enabled by default, `path_update` noPath detection for unreachable destinations, `§` character stripping from chat messages.
 
-The system prompt sent to the AI has been restructured into **four independent messages**:
+#### 2. Configuration System Overhaul
 
-1. **Current time & language** — the current server time and MCDR language setting
-2. **AI prompt** — the model-specific system prompt configured in `all_ai`
-3. **Registered skills** — the list of currently registered skills (including built-in ones)
-4. **Database content** — the current public database data
+- **Type-adaptive `set_config`**: `!!gamesai config set` now reads the existing value's type and auto-converts the new value to match. Setting a float to `"20"` stays float, bool stays bool, etc. Type mismatch errors are caught and reported.
+- **`!!aibot set` command**: Manage bot username, password, and auth without editing JSON manually. Username/password validated to `[a-zA-Z0-9_]`, auth restricted to `microsoft`/`mojang`/`offline`.
 
-This separation improves compatibility with models that have strict requirements on system message formatting (e.g., DeepSeek), and makes the prompt structure cleaner and more maintainable.
+#### 3. OpenAI Logging Bridge
 
-#### 2. New `ai_read_all_data` Tool
+> [!NOTE]
+> This completely resolves the long-standing issue where raw OpenAI SDK logs would interfere with the MCDR console input and cause display glitches.
 
-A new built-in tool `ai_read_all_data` has been added, allowing the AI to read all key-value pairs from the public database in a single call. Previously, the AI had to first call `ai_read_all_keys` to get all keys, then call `ai_read_data` for each key — now it can retrieve everything at once.
-
-#### 3. Real-Time Database Injection
-
-The current public database content is now automatically injected into the system message on every `!!ask` request. This means the AI always has up-to-date knowledge of the database without needing to call any tools first, improving response quality for data-related queries.
-
-#### 4. Thinking Message Style
-
-The "Thinking..." status message now uses Minecraft gray formatting (`§7...§r`), making it visually distinct from the AI's actual response.
-
-#### 5. Bug Fixes & Stability
-
-- Fixed `ai_read_all_data` returning a non-string value (`list[tuple]`) that caused HTTP 400 errors on DeepSeek and other strict API implementations. Tool call results now always return properly formatted strings.
+The `openai` and `httpx` Python loggers are now fully redirected to the MCDR logger:
+- All HTTP request/response logs appear in the MCDR console
+- Original handlers cleared and propagation disabled — no duplicate stderr output
 
 ## Acknowledgements & Disclaimer
 

@@ -1,16 +1,23 @@
 from mcdreforged.api.all import *
 
-from .openai_api import response_chat
+from .openai_api import response_chat, setup_openai_logging
 from .games_ai_tool import TOOL_SCHEMAS, get_tool_handler, register_tool
 from .database import PublicDatabase
 from .config import plugin_config
 from .tools_interpreter import load_external_tools
+from .mineflayer import write_default_init, write_package_json, run_node, start_mineflayer_client, stop_mineflayer_client, stop_mineflayer_process, get_default_init_hash, is_node_running, MineflayerWSClient
+from .mineflayer_ai import AutonomousBotController, set_bot_controller
 
-import time,os,requests,lzma,json,threading,datetime
+import time,os,requests,lzma,json,threading,datetime,logging
+
+import shutil
+import subprocess
+import hashlib
+import re
 
 PLUGIN_METADATA = {
     "id": "games_ai",
-    "version": "0.5.11",
+    "version": "0.6.0",
     "name": "GamesAI",
     "description": {
         "zh_cn": "此插件可以让你在游戏中使用AI",
@@ -28,6 +35,9 @@ unload_status_code = 0
 debug_mode = False
 user_tool_counts = {}
 _history_locks: dict[tuple, threading.Lock] = {}
+websocket_connections: dict[str, MineflayerWSClient] = {}
+_autonomous_controller: AutonomousBotController | None = None
+_aibot_lock = threading.Lock()
 
 def _get_history_lock(username: str, ai_prefix: str) -> threading.Lock:
     key = (username, ai_prefix)
@@ -55,7 +65,21 @@ def on_load(server: PluginServerInterface, old):
                 "extra_body": {},
             }
         },
-        "default_ai": "<Your AI ID>"
+        "default_ai": "<Your AI ID>",
+        "mineflayer_bot": {
+            "enabled": False,
+            "cycle_interval": 15.0,
+            "websocket": {
+                "url": "ws://127.0.0.1:8080",
+                "reconnect_interval": 10,
+                "timeout": 60
+            },
+            "bot": {
+                "username": "<Your Minecraft Bot Username>",
+                "password": "<Your Minecraft Bot Password>",
+                "auth": "microsoft"
+            }
+        }
     }
     
     server.register_help_message(prefix="!!gamesai",message=server.rtr("games_ai.mcdr_help_message.gamesai_help"))
@@ -68,6 +92,7 @@ def on_load(server: PluginServerInterface, old):
     )
 
     _apply_config(server, config)
+    setup_openai_logging(server.logger, level=logging.INFO)
 
     server.register_help_message(prefix="!!data",message=server.rtr("games_ai.mcdr_help_message.data"),permission=allow_permission)
 
@@ -75,7 +100,6 @@ def on_load(server: PluginServerInterface, old):
     server.say(f'{prefix}{server.rtr("games_ai.load_message.client_info",v=PLUGIN_METADATA.get("version"))}')
 
     builder = SimpleCommandBuilder()
-    helper = gamesai_help()
 
     data_path = os.path.join(server.get_data_folder(), "database", "public_database.db")
     data_dir = os.path.dirname(data_path)
@@ -112,15 +136,32 @@ def my_custom_tool(source: CommandSource, ai_prefix: str):
         content = f.read()
         skills = json.loads(content)
 
+    mineflayer_path = os.path.join(server.get_data_folder(), "mineflayer", "init.js")
+    mineflayer_dir = os.path.dirname(mineflayer_path)
+    mineflayer_package_json_path = os.path.join(server.get_data_folder(), "mineflayer", "package.json")
+    if not os.path.exists(mineflayer_dir):
+        os.makedirs(mineflayer_dir, exist_ok=True)
+    _write_mineflayer_config(server, config)
+    if not os.path.exists(mineflayer_path) or hashlib.md5(open(mineflayer_path, "rb").read()).hexdigest() != get_default_init_hash():
+        write_default_init(mineflayer_path)
+    if not os.path.exists(mineflayer_package_json_path):
+        write_package_json(mineflayer_package_json_path)
 
     plugin_config.data_path = data_path
     plugin_config.tools_path = tools_path
     plugin_config.skills_path = skills_path
     plugin_config.builtin_skills_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "skills")
+    plugin_config.mineflayer_init_js_path = mineflayer_path
 
     load_external_tools(log=server.logger.info)
 
+    mineflayer_cfg = config.get("mineflayer_bot", {})
+    if mineflayer_cfg.get("enabled", False):
+        _run_mineflayer_bot(server, mineflayer_cfg, mineflayer_path)
+
     data_manager = DataManager(data_path)
+    config_manager = ConfigManager(config)
+    helper = gamesai_help()
 
     builder.command('!!gamesai', helper.all_help)
     builder.command('!!gamesai help', helper.all_help)
@@ -136,6 +177,13 @@ def my_custom_tool(source: CommandSource, ai_prefix: str):
 
     builder.command('!!gamesai speedtest', speed_test)
     builder.command('!!gamesai speedtest <model>', speed_test)
+
+    builder.command('!!gamesai config', helper.config_help)
+    builder.command('!!gamesai config get', helper.config_help)
+    builder.command('!!gamesai config get <key>', config_manager.get_config)
+    builder.command('!!gamesai config set', helper.config_help)
+    builder.command('!!gamesai config set <key>', helper.config_help)
+    builder.command('!!gamesai config set <key> <value>', config_manager.set_config)
 
     builder.command('!!ask', helper.ask_help)
     builder.command('!!ask <content>', ask_ai)
@@ -167,6 +215,13 @@ def my_custom_tool(source: CommandSource, ai_prefix: str):
     builder.command('!!data list', data_manager.read_data_list)
     builder.command('!!data list keys', data_manager.read_all_keys)
 
+    builder.command('!!aibot', helper.aibot_help)
+    builder.command('!!aibot join', aibot_join)
+    builder.command('!!aibot leave', aibot_leave)
+    builder.command('!!aibot set', helper.aibot_help)
+    builder.command('!!aibot set <key>', helper.aibot_help)
+    builder.command('!!aibot set <key> <value>', config_manager.aibot_config)
+
     builder.arg('model', Text)
     builder.arg('content',GreedyText)
 
@@ -179,6 +234,150 @@ def my_custom_tool(source: CommandSource, ai_prefix: str):
 
 def on_server_startup(server: PluginServerInterface):
     server.say(f'{prefix}{server.rtr("games_ai.load_message.client_info", v=PLUGIN_METADATA.get('version'))}')
+
+
+def _disable_mineflayer_and_reload(server: PluginServerInterface):
+    config_path = os.path.join(os.path.dirname(os.path.dirname(plugin_config.skills_path)), "config.json")
+    with open(config_path, "r", encoding="utf-8") as f:
+        config = json.load(f)
+    config.setdefault("mineflayer_bot", {})["enabled"] = False
+    with open(config_path, "w", encoding="utf-8") as f:
+        json.dump(config, f, indent=4, ensure_ascii=False)
+    server.execute_command("!!gamesai reload")
+
+
+def _get_minecraft_server_address() -> tuple[str, int]:
+    host = "127.0.0.1"
+    port = 25565
+    for candidate in ("server.properties", "server/server.properties"):
+        if os.path.isfile(candidate):
+            with open(candidate, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line.startswith("server-ip="):
+                        v = line.split("=", 1)[1].strip()
+                        if v:
+                            host = v
+                    elif line.startswith("server-port="):
+                        try:
+                            port = int(line.split("=", 1)[1].strip())
+                        except ValueError:
+                            pass
+            break
+    return host, port
+
+
+def _write_mineflayer_config(server: PluginServerInterface, config: dict):
+    mineflayer_dir = os.path.dirname(plugin_config.mineflayer_init_js_path)
+    mineflayer_config_path = os.path.join(mineflayer_dir, "config.json")
+    cfg = dict(config.get("mineflayer_bot", {}))
+    host, port = _get_minecraft_server_address()
+    cfg.setdefault("bot", {})
+    cfg["bot"]["server_host"] = host
+    cfg["bot"]["server_port"] = port
+    with open(mineflayer_config_path, mode='w', encoding='utf-8') as f:
+        json.dump(cfg, f, indent=4, ensure_ascii=False)
+
+
+@register_tool(
+    description="启动 Mineflayer 机器人，使其加入 Minecraft 服务器。如果机器人已在运行则不做任何操作。",
+    tr_key="bot_start",
+)
+def run_mineflayer_bot(source: CommandSource, ai_prefix: str):
+    server = source.get_server()
+    if is_node_running():
+        return f"Mineflayer 机器人已在运行（{plugin_config.bot_username}）"
+    source.reply(f"{ai_prefix}{server.rtr('games_ai.tools.bot_start')}")
+    _toggle_aibot(server, True)
+    return "正在启动 Mineflayer 机器人..."
+
+
+@register_tool(
+    description="停止 Mineflayer 机器人，使其离开 Minecraft 服务器。",
+    tr_key="bot_stop",
+)
+def stop_mineflayer_bot(source: CommandSource, ai_prefix: str):
+    server = source.get_server()
+    if not is_node_running():
+        return "Mineflayer 机器人未在运行"
+    source.reply(f"{ai_prefix}{server.rtr('games_ai.tools.bot_stop')}")
+    _toggle_aibot(server, False)
+    return "正在停止 Mineflayer 机器人..."
+
+def _run_mineflayer_bot(server: ServerInterface, bot_config: dict, mineflayer_init_js_path: str):
+    node_path = shutil.which("node")
+    if not node_path:
+        server.logger.warning(f"{prefix} Mineflayer bot is enabled but Node.js was not found. Disabling and reloading...")
+        _disable_mineflayer_and_reload(server)
+    else:
+        ws_cfg = bot_config.get("websocket", {})
+        ws_url = ws_cfg.get("url", "ws://127.0.0.1:8080")
+        try:
+            import socket as _socket
+            m = re.match(r'^ws://([^/:]+)(?::(\d+))?', ws_url)
+            host = m.group(1) if m else "127.0.0.1"
+            port = int(m.group(2)) if m and m.group(2) else 8080
+            with _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM) as s:
+                s.settimeout(1)
+                s.bind((host, port))
+        except OSError:
+            server.logger.warning(
+                f"{prefix} WebSocket port {port} is already in use! "
+                f"Please change mineflayer_bot.websocket.url to a different port and reload."
+            )
+            _disable_mineflayer_and_reload(server)
+            return
+        try:
+            version_output = subprocess.check_output([node_path, "--version"], text=True, timeout=5).strip()
+            if version_output.startswith("v"):
+                version_output = version_output[1:]
+            major = int(version_output.split(".")[0])
+            if major < 18:
+                server.logger.warning(
+                    f"{prefix} Mineflayer requires Node.js >= 18, but found v{version_output}. "
+                    f"Disabling and reloading..."
+                )
+                _disable_mineflayer_and_reload(server)
+            else:
+                try:
+                    run_node(mineflayer_init_js_path, logger=server.logger)
+                except (RuntimeError, FileNotFoundError) as e:
+                    server.logger.error(f"{prefix} Failed to launch Mineflayer bot: {e}")
+                    return
+                server.logger.info(f"{prefix} Mineflayer JS bot launched (Node.js v{version_output})")
+                ws_reconnect = ws_cfg.get("reconnect_interval", 10)
+                ws_timeout = ws_cfg.get("timeout", 60)
+                try:
+                    client = start_mineflayer_client(ws_url, server.logger, ws_reconnect, ws_timeout)
+                    websocket_connections["mineflayer"] = client
+                    server.logger.info(f"{prefix} Mineflayer WS client started (Node.js v{version_output}), connecting to {ws_url}")
+
+                    default_ai_info = ai_dict.get(default_ai, None)
+                    if default_ai_info is not None:
+                        global _autonomous_controller
+                        _autonomous_controller = AutonomousBotController(
+                            ws_client=client,
+                            model=default_ai_info.get("ai_model", ""),
+                            base_url=default_ai_info.get("base_url", ""),
+                            api_key=default_ai_info.get("api_key", ""),
+                            system_prompt=str(server.rtr("games_ai.autonomous_bot.default_system_prompt")),
+                            chat_prompt=default_ai_info.get("prompt", ""),
+                            extra_body=default_ai_info.get("extra_body", {}),
+                            cycle_interval=bot_config.get("cycle_interval", 15.0),
+                            bot_username=plugin_config.bot_username,
+                            server=server,
+                            logger=server.logger,
+                            tr=lambda key, **kw: str(server.rtr(key, **kw)),
+                        )
+                        _autonomous_controller.start()
+                        set_bot_controller(_autonomous_controller)
+                        server.logger.info(f"{prefix} AutonomousBot controller started")
+                    else:
+                        server.logger.warning(f"{prefix} No default AI configured, AutonomousBot controller skipped")
+                except Exception as e:
+                    server.logger.warning(f"{prefix} Failed to start Mineflayer WS client: {e}")
+        except (subprocess.TimeoutExpired, ValueError, OSError) as e:
+            server.logger.warning(f"{prefix} Failed to detect Node.js version: {e}. Skipping WS client startup.")
 
 
 def _apply_config(server: PluginServerInterface, config: dict):
@@ -230,9 +429,27 @@ def _apply_config(server: PluginServerInterface, config: dict):
 
     mcdr_lang = str(server.rtr("games_ai.system_message.lang", lang=server.get_mcdr_language()))
 
+    bot_cfg = config.get("mineflayer_bot", {}).get("bot", {})
+    plugin_config.bot_username = bot_cfg.get("username", "Bot")
+
 def on_unload(server: PluginServerInterface):
+    global _autonomous_controller
     if _timer is not None:
         _timer.cancel()
+    try:
+        if _autonomous_controller is not None:
+            _autonomous_controller.stop()
+            _autonomous_controller = None
+        set_bot_controller(None)
+        stop_mineflayer_client()
+        websocket_connections.clear()
+        stop_mineflayer_process()
+    except Exception as e:
+        server.logger.exception(f"{prefix} Unload failed: {e}")
+    else:
+        server.logger.info(f"{prefix} Mineflayer bot stopped successfully!")
+    finally:
+        server.logger.info(f"{prefix} Mineflayer bot process has been terminated successfully!")
     server.logger.info(f"{prefix}{server.rtr("games_ai.unload_message.server_info")}")
     if unload_status_code == 0:
         server.say(f'{prefix}Bye!')
@@ -300,6 +517,30 @@ class gamesai_help:
         send_help(source, prefix, message=server.rtr("games_ai.gamesai_help_message.greeting", v=PLUGIN_METADATA.get("version")))
         send_help(source, prefix, command="!!data add <key> <value>", command_help_key="games_ai.gamesai_help_message.data_add_help")
 
+
+    @staticmethod
+    def config_help(source: CommandSource):
+        server = source.get_server()
+        send_help(source, prefix, message=server.rtr("games_ai.gamesai_help_message.greeting", v=PLUGIN_METADATA.get("version")))
+        if source.get_permission_level() < allow_permission:
+            source.reply(server.rtr("games_ai.no_permission", permission=allow_permission))
+            return
+        send_help(source, prefix, command='!!gamesai config get <key>', command_help_key="games_ai.gamesai_help_message.config_help_get")
+        send_help(source, prefix, command='!!gamesai config set <key> <value>', command_help_key="games_ai.gamesai_help_message.config_help_set")
+
+
+    @staticmethod
+    def aibot_help(source: CommandSource):
+        server = source.get_server()
+        send_help(source, prefix, message=server.rtr("games_ai.gamesai_help_message.greeting", v=PLUGIN_METADATA.get("version")))
+        if source.get_permission_level() < allow_permission:
+            source.reply(server.rtr("games_ai.no_permission", permission=allow_permission))
+            return
+        send_help(source, prefix, command="!!aibot join", command_help_key="games_ai.gamesai_help_message.aibot_join_help")
+        send_help(source, prefix, command="!!aibot leave", command_help_key="games_ai.gamesai_help_message.aibot_leave_help")
+        send_help(source, prefix, command="!!aibot set <key> <value>", command_help_key="games_ai.gamesai_help_message.aibot_set_help")
+
+
     @staticmethod
     def all_help(source: CommandSource):
         server = source.get_server()
@@ -309,7 +550,10 @@ class gamesai_help:
         if source.get_permission_level() >= allow_permission:
             send_help(source, prefix, command="!!gamesai clearall", command_help_key="games_ai.gamesai_help_message.clearall_help")
             send_help(source, prefix, command="!!gamesai check", command_help_key="games_ai.gamesai_help_message.check_update_help")
+            send_help(source, prefix, command='!!gamesai config',command_help_key="games_ai.gamesai_help_message.config_help")
             send_help(source, prefix, command="!!data", command_help_key="games_ai.gamesai_help_message.data_help")
+            send_help(source, prefix, command="!!aibot <join | leave>", command_help_key="games_ai.gamesai_help_message.aibot_help")
+
 
 def send_help(source: CommandSource, prefix: str, message: str|None = None, command: str|None = None, command_help_key: str|None = None):
     server = source.get_server()
@@ -373,6 +617,8 @@ def ask_ai(source: CommandSource, context: dict, no_history: bool = False):
         {"file": "skills_management.md", "description": str(server.rtr("games_ai.builtin_skills.skills_management"))},
         {"file": "custom_tools_management.md", "description": str(server.rtr("games_ai.builtin_skills.custom_tools_management"))},
     ]
+    if is_node_running() and _autonomous_controller is not None and _autonomous_controller.is_running:
+        default_skills.append({"file": "mineflayer_bot_guide.md", "description": str(server.rtr("games_ai.builtin_skills.mineflayer_bot_guide", username=plugin_config.bot_username))})
     skills_file_list = str(server.rtr("games_ai.user_message.skills", skills=[*skills, *default_skills]))
     extra_body = ai_info.get("extra_body", {})
 
@@ -390,7 +636,7 @@ def ask_ai(source: CommandSource, context: dict, no_history: bool = False):
         user_name = f'{username}'
     else:
         user_name = "Server Control Panel"
-    user_message = {"role": "user","content": f'{server.rtr("games_ai.user_message.username")}{user_name}\n{server.rtr("games_ai.user_message.message")}{content}'}
+    user_message = {"role": "user","content": f'{str(server.rtr("games_ai.user_message.username"))}{user_name}\n{str(server.rtr("games_ai.user_message.message"))}{content}'}
     response_message = [
         {"role": "system","content": now_time + mcdr_lang},
         {"role": "system", "content": prompt},
@@ -433,7 +679,7 @@ def ask_ai(source: CommandSource, context: dict, no_history: bool = False):
                     else:
                         try:
                             func_args = json.loads(tool_call.function.arguments) if tool_call.function.arguments else {}
-                            result = handler.func(source, ai_prefix, **func_args)
+                            result = str(handler.func(source, ai_prefix, **func_args))
                             source.reply(f'{ai_prefix}{server.rtr("games_ai.tools.tool_success")}')
                         except Exception as e:
                             result = f"函数 {func_name} 执行出错: {e}"
@@ -806,24 +1052,68 @@ def debug(source: CommandSource, context: dict):
 
 @new_thread("games_ai@reloader")
 def reloader(source: CommandSource, context: dict):
-    global unload_status_code, skills
-    unload_status_code = 2
+    global skills, _autonomous_controller
     server = source.get_server()
 
-    config_path = os.path.join(os.path.dirname(os.path.dirname(plugin_config.skills_path)), 'config.json')
-    with open(config_path, 'r', encoding='utf-8') as f:
-        config = json.load(f)
-    _apply_config(server, config)
-
     try:
-        with open(plugin_config.skills_path, mode="r", encoding="utf-8") as f:
-            skills = json.loads(f.read())
-    except Exception as e:
-        server.logger.warning(f"{prefix} Failed to reload skills: {e}")
+        config_path = os.path.join(os.path.dirname(os.path.dirname(plugin_config.skills_path)), 'config.json')
+        with open(config_path, 'r', encoding='utf-8') as f:
+            config = json.load(f)
+        _apply_config(server, config)
 
-    load_external_tools(log=server.logger.info)
+        try:
+            with open(plugin_config.skills_path, mode="r", encoding="utf-8") as f:
+                skills = json.loads(f.read())
+        except Exception as e:
+            server.logger.warning(f"{prefix} Failed to reload skills: {e}")
+
+        load_external_tools(log=server.logger.info)
+
+        _write_mineflayer_config(server, config)
+        mineflayer_dir = os.path.dirname(plugin_config.mineflayer_init_js_path)
+        mineflayer_package_json_path = os.path.join(mineflayer_dir, "package.json")
+        if not os.path.exists(mineflayer_package_json_path):
+            write_package_json(mineflayer_package_json_path)
+
+        init_js_changed = False
+        if not os.path.exists(plugin_config.mineflayer_init_js_path) or hashlib.md5(open(plugin_config.mineflayer_init_js_path, "rb").read()).hexdigest() != get_default_init_hash():
+            write_default_init(plugin_config.mineflayer_init_js_path)
+            init_js_changed = True
+
+        mineflayer_cfg = config.get("mineflayer_bot", {})
+        new_enabled = mineflayer_cfg.get("enabled", False)
+        was_running = is_node_running()
+
+        if new_enabled and was_running and not init_js_changed:
+            server.logger.info(f"{prefix} Config hot-reloaded, JS bot will pick up changes automatically")
+        else:
+            try:
+                if _autonomous_controller is not None:
+                    _autonomous_controller.stop()
+                    _autonomous_controller = None
+                set_bot_controller(None)
+                stop_mineflayer_client()
+                websocket_connections.clear()
+                stop_mineflayer_process()
+            except Exception as e:
+                server.logger.warning(f"{prefix} Failed to stop existing Mineflayer bot!")
+                server.logger.exception(e)
+            else:
+                server.logger.info(f"{prefix} Mineflayer bot stopped successfully!")
+            finally:
+                server.logger.info(f"{prefix} Mineflayer bot process has been terminated successfully!")
+
+            if new_enabled:
+                try:
+                    _run_mineflayer_bot(server, mineflayer_cfg, plugin_config.mineflayer_init_js_path)
+                except Exception as e:
+                    server.logger.exception(f"{prefix} Failed to start Mineflayer bot: {e}")
+    except Exception as e:
+        server.logger.exception(f"{prefix} Reload failed: {e}")
+        source.reply(f"{prefix}Reload failed: {e}")
 
     server.say(f'{prefix}{server.rtr("games_ai.unload_message.reloader_msg")}')
+    server.logger.info(f'{prefix}{server.rtr("games_ai.unload_message.reloader_msg")}')
     return
 
 @new_thread("games_ai@speed_test")
@@ -885,3 +1175,149 @@ def speed_test(source: CommandSource, context: dict):
         except Exception as e:
             source.reply(f'{ai_prefix}❌ {server.rtr("games_ai.speed_test.error", error=str(e))}')
     return
+
+
+def _toggle_aibot(server: PluginServerInterface, enabled: bool) -> bool:
+    config_path = os.path.join(os.path.dirname(os.path.dirname(plugin_config.skills_path)), "config.json")
+    with open(config_path, "r", encoding="utf-8") as f:
+        config = json.load(f)
+    current = config.get("mineflayer_bot", {}).get("enabled", False)
+    if current == enabled:
+        return True
+    config.setdefault("mineflayer_bot", {})["enabled"] = enabled
+    with open(config_path, "w", encoding="utf-8") as f:
+        json.dump(config, f, indent=4, ensure_ascii=False)
+    server.execute_command("!!gamesai reload")
+    return False
+
+
+def aibot_join(source: CommandSource, context: dict):
+    with _aibot_lock:
+        server = source.get_server()
+        if source.get_permission_level() < plugin_config.allow_permission:
+            source.reply(server.rtr("games_ai.no_permission", permission=plugin_config.allow_permission))
+            return
+        if _toggle_aibot(server, True):
+            server.say(f"{prefix}{server.rtr('games_ai.aibot.already_joined', username=plugin_config.bot_username)}")
+        else:
+            source.reply(f"{prefix}{server.rtr('games_ai.aibot.join', username=plugin_config.bot_username)}")
+
+
+def aibot_leave(source: CommandSource, context: dict):
+    with _aibot_lock:
+        server = source.get_server()
+        if source.get_permission_level() < plugin_config.allow_permission:
+            source.reply(server.rtr("games_ai.no_permission", permission=plugin_config.allow_permission))
+            return
+        if _toggle_aibot(server, False):
+            server.say(f"{prefix}{server.rtr('games_ai.aibot.already_left', username=plugin_config.bot_username)}")
+        else:
+            source.reply(f"{prefix}{server.rtr('games_ai.aibot.leave', username=plugin_config.bot_username)}")
+
+
+class ConfigManager:
+    def __init__(self, config: dict):
+        self.config = config
+        self.config_path = os.path.join(os.path.dirname(os.path.dirname(plugin_config.skills_path)), "config.json")
+
+
+    def get_config(self, source: CommandSource, context: CommandContext):
+        server = source.get_server()
+        if source.get_permission_level() < plugin_config.allow_permission:
+            source.reply(f"{prefix}{server.rtr("games_ai.no_permission", permission=plugin_config.allow_permission)}")
+            return
+
+        config_key = context.get("key")
+        if config_key is None:
+            source.reply(f"{prefix}{server.rtr('games_ai.config_manager.no_key')}")
+            return
+        with open(self.config_path, "r", encoding="utf-8") as f:
+            config = json.load(f)
+        content = config.get(config_key)
+        if content is None:
+            source.reply(f"{prefix}{server.rtr('games_ai.config_manager.key_not_found', key=config_key)}")
+            return
+        source.reply(f"{prefix}{server.rtr('games_ai.config_manager.get_success', key=config_key, value=json.dumps(content, ensure_ascii=False, indent=2))}")
+        return
+
+
+    def set_config(self, source: CommandSource, context: CommandContext):
+        server = source.get_server()
+        if source.get_permission_level() < plugin_config.allow_permission:
+            source.reply(f"{prefix}{server.rtr("games_ai.no_permission", permission=plugin_config.allow_permission)}")
+            return
+
+        config_key = context.get("key")
+        new_value = context.get("value")
+        if config_key is None or new_value is None:
+            source.reply(f"{prefix}{server.rtr('games_ai.config_manager.missing_args')}")
+            return
+        if config_key in ("all_ai", "mineflayer_bot"):
+            source.reply(f"{prefix}{server.rtr('games_ai.config_manager.complex_key_denied', key=config_key)}")
+            return
+
+        with open(self.config_path, "r", encoding="utf-8") as f:
+            config = json.load(f)
+
+        old_value = config.get(config_key)
+
+        try:
+            parsed_value = json.loads(new_value)
+        except (json.JSONDecodeError, ValueError):
+            parsed_value = new_value
+
+        if old_value is not None and not isinstance(parsed_value, type(old_value)):
+            try:
+                if isinstance(old_value, bool):
+                    parsed_value = parsed_value not in (False, 0, '', 'false', 'False', '0')
+                else:
+                    parsed_value = type(old_value)(parsed_value)
+            except (ValueError, TypeError):
+                source.reply(f"{prefix}{server.rtr('games_ai.config_manager.type_mismatch', key=config_key, old_type=type(old_value).__name__, new_type=type(parsed_value).__name__)}")
+                return
+
+        config[config_key] = parsed_value
+        with open(self.config_path, "w", encoding="utf-8") as f:
+            json.dump(config, f, indent=4, ensure_ascii=False)
+
+        source.reply(f"{prefix}{server.rtr('games_ai.config_manager.set_success', key=config_key, value=new_value)}")
+        server.execute_command("!!gamesai reload")
+        return
+
+
+    def aibot_config(self, source: CommandSource, context: CommandContext):
+        server = source.get_server()
+        if source.get_permission_level() < plugin_config.allow_permission:
+            source.reply(f"{prefix}{server.rtr("games_ai.no_permission", permission=plugin_config.allow_permission)}")
+            return
+
+        config_key = context.get("key")
+        config_value = context.get("value")
+        if config_key is None or config_value is None:
+            source.reply(f"{prefix}{server.rtr('games_ai.config_manager.missing_args')}")
+            return
+        if config_key not in ("username", "password", "auth"):
+            source.reply(f"{prefix}{server.rtr('games_ai.aibot.invalid_key', key=config_key)}")
+            return
+
+        if config_key in ("username", "password"):
+            if not re.fullmatch(r'[a-zA-Z0-9_]+', config_value):
+                source.reply(f"{prefix}{server.rtr('games_ai.aibot.invalid_format', key=config_key)}")
+                return
+        if config_key == "auth" and config_value not in ("microsoft", "mojang", "offline"):
+            source.reply(f"{prefix}{server.rtr('games_ai.aibot.invalid_auth')}")
+            return
+
+        with open(self.config_path, "r", encoding="utf-8") as f:
+            config = json.load(f)
+
+        bot_section = config.setdefault("mineflayer_bot", {}).setdefault("bot", {})
+        bot_section[config_key] = config_value
+
+        with open(self.config_path, "w", encoding="utf-8") as f:
+            json.dump(config, f, indent=4, ensure_ascii=False)
+
+        source.reply(f"{prefix}{server.rtr('games_ai.aibot.set_success', key=config_key, value=config_value)}")
+        server.execute_command("!!gamesai reload")
+        return
+
