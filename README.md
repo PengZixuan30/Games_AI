@@ -14,7 +14,7 @@ English  |  [简体中文](/README.zh-CN.md)  |  [繁體中文](/README.zh-TW.md
 > **GamesAI Plugin/Mod QQ Group: 849544707** — Join us to discuss issues, share feedback, and exchange prompt, skills, tools configurations!
 
 > [!NOTE]
-> Welcome to version 0.6.0! This major release introduces the **Mineflayer Bot** — a fully autonomous Minecraft bot controlled by AI. See [What's New](#whats-new) for details.
+> Welcome to version 0.6.1! This release introduces the **Extension Plugin System** — `register_self()` and `register_skills()` APIs for MCDR plugin developers. See [What's New](#whats-new) for details.
 
 <details>
 <summary>Table of Contents (click to expand)</summary>
@@ -42,13 +42,18 @@ English  |  [简体中文](/README.zh-CN.md)  |  [繁體中文](/README.zh-TW.md
     - [Custom Tools in Your MCDR Plugin](#custom-tools-in-your-mcdr-plugin)
     - [Built-in Skills](#built-in-skills)
     - [Add Skills via Config File](#add-skills-via-config-file)
+    - [Register Skills in Your MCDR Plugin](#register-skills-in-your-mcdr-plugin)
   - [Troubleshooting](#troubleshooting)
     - [`!!ask` Errors](#ask-errors)
     - [Mineflayer Bot Errors](#mineflayer-bot-errors)
     - [Logging \& Debugging](#logging--debugging)
   - [What's New](#whats-new)
-    - [Version 0.6.0](#version-060)
+    - [Version 0.6.1](#version-061)
       - [🎯 Highlights](#-highlights)
+      - [1. Extension Plugin System](#1-extension-plugin-system)
+      - [2. Validation \& Stability](#2-validation--stability)
+    - [Version 0.6.0](#version-060)
+      - [🎯 Highlights](#-highlights-1)
       - [1. Mineflayer Bot Integration](#1-mineflayer-bot-integration)
       - [2. Configuration System Overhaul](#2-configuration-system-overhaul)
       - [3. OpenAI Logging Bridge](#3-openai-logging-bridge)
@@ -189,7 +194,7 @@ In addition to `bot_call_action`, these dedicated AI tools are available:
 See [6.mineflayer_bot](#6mineflayer_bot) for the full configuration reference. Key points:
 
 - Set `mineflayer_bot.enabled` to `true` (or use `!!aibot join`) to launch the bot
-- `mineflayer_bot.bot.username` / `password` / `auth` — the bot's Minecraft credentials
+- `mineflayer_bot.bot.username` / `password` / `auth` — the bot's Minecraft credentials. **Username must match `[a-zA-Z0-9_]+`** (letters, numbers, underscores only).
 - `mineflayer_bot.cycle_interval` — how often (in seconds) the autonomous AI makes decisions
 - `mineflayer_bot.websocket` — internal settings; do not modify unless you know what you are doing
 
@@ -295,7 +300,13 @@ Configuration for the Mineflayer autonomous bot agent.
 
 **bot**: Minecraft account credentials — `username`, `password`, `auth` (microsoft/mojang/offline). The server address is auto-detected from `server.properties`.
 
+> [!WARNING]
+> The `username` must match the regular expression `[a-zA-Z0-9_]+` (only English letters, numbers, and underscores; no spaces). `!!aibot join` will be rejected if the username contains invalid characters.
+
 ## Tools & Skills
+
+> [!TIP]
+> Some built-in tools have been moved to the [GamesAI-Extra](https://github.com/PengZixuan30/Games_AI-Extra) plugin (e.g. waypoint management, position tracking). Install it to get additional tools.
 
 ### Built-in Tools
 
@@ -313,11 +324,6 @@ The GamesAI plugin provides many built-in tools, listed in the table below. If y
 |search_minecraft_wiki|`query`|Let the AI search the Minecraft Wiki for more accurate answers.|
 |calculator|`expression`|A simple mathematical expression calculator.|
 |item_caculator|`expression`, `single_limit`|A mathematical expression calculator that converts results into Minecraft item notation (shulker boxes, stacks, items). Automatically adapts to stack size; defaults to 64 if not specified.|
-|add_pos_pos|`name`, `pos`, `dimension`|Add a waypoint at a specified location. Depends on the `where2go` or `location_marker` plugin; prioritizes `where2go` when both are present; automatically disabled when neither is available.|
-|add_pos_here|`name`|Add a waypoint at the player's current location. Automatically disabled when executed from the console. Depends on the `where2go` or `location_marker` plugin; prioritizes `where2go` when both are present; automatically disabled when neither is available.|
-|remove_pos|`name`|Delete a waypoint. The `where2go` version automatically converts names to IDs. Depends on the `where2go` or `location_marker` plugin; prioritizes `where2go` when both are present; automatically disabled when neither is available.|
-|search_pos|`name`|Search for a waypoint. Depends on the `where2go` or `location_marker` plugin; prioritizes `where2go` when both are present; automatically disabled when neither is available.|
-|get_all_pos|None|Get a list of all waypoints. Depends on the `where2go` or `location_marker` plugin; prioritizes `where2go` when both are present; automatically disabled when neither is available.|
 |ai_read_data|`key`|Read a single entry from the database.|
 |ai_read_all_keys|None|Get all keys from the database.|
 |ai_read_all_data|None|Read all key-value pairs from the database at once.|
@@ -403,6 +409,17 @@ Your plugin should list `games_ai` in its `dependencies` in `mcdreforged.plugin.
 
 Tools registered this way are identical to built-in tools — the AI can call them directly, and you can mark them as bot-accessible with `@register_bot_tool()` if needed.
 
+If you want your plugin to be **automatically reloaded** when GamesAI runs `!!gamesai reload` (e.g. after AI modifies your tool code via `modify_custom_tools`), call `register_self()` in your plugin's `on_load`:
+
+```python
+from games_ai.register_extra_plugin import register_self
+
+def on_load(server, old):
+    register_self(server.get_self_metadata().id)
+```
+
+This ensures your plugin is reloaded alongside GamesAI's configuration and tools, so any tool code changes take effect immediately.
+
 ### Built-in Skills
 
 GamesAI ships with two **built-in skills** that the AI automatically reads before performing related operations:
@@ -440,6 +457,35 @@ Skills files are stored in `config/games_ai/skills/` as Markdown (`.md`) files. 
 
 When a skill is registered, it appears in the AI's system prompt. The AI can then use the **`read_skills`** tool to read the full contents of any skill file before performing related tasks.
 
+### Register Skills in Your MCDR Plugin
+
+You can register skill files programmatically from your own MCDR plugin so they appear in the AI's system prompt automatically:
+
+```python
+from games_ai.external_skills_loader import register_skills
+
+def on_load(server, old):
+    register_skills(
+        file_name="my_skill.md",
+        description="Read this skill before performing XYZ operations",
+        content="""## My Skill
+
+This skill guides the AI to...
+- Step 1: ...
+- Step 2: ...
+"""
+    )
+```
+
+> [!IMPORTANT]
+> Your plugin **must** require `games_ai >= 0.6.1` in its `mcdreforged.plugin.json` dependencies.
+
+- **`file_name`** — the skill's filename (used by the AI's `read_skills` tool to locate it).
+- **`description`** — a short hint shown to the AI, explaining when to read this skill.
+- **`content`** — the full Markdown content of the skill file.
+
+Skills registered this way are identical to those defined in `skills.json` — they appear in the AI's system prompt under "Available skills" and are readable via the `read_skills` tool.
+
 ## Troubleshooting
 
 ### `!!ask` Errors
@@ -475,6 +521,27 @@ When a skill is registered, it appears in the AI's system prompt. The AI can the
 - If all else fails, check `config/games_ai/config.json` for misconfiguration.
 
 ## What's New
+
+### Version 0.6.1
+
+#### 🎯 Highlights
+
+- **🔌 Extension Plugin System** — `register_self()` and `register_skills()` APIs for MCDR plugin developers
+- **🛡️ Input Validation** — Bot username validated on `!!aibot join`
+- **📋 Logging Improvements** — Detailed logs for registered plugin reload/unload lifecycle
+
+#### 1. Extension Plugin System
+
+Third-party MCDR plugins can now integrate more deeply with GamesAI:
+
+- **`register_self(plugin_id)`** — Call in your plugin's `on_load` to have it automatically reloaded when `!!gamesai reload` runs. This is essential for plugins that register custom tools and need to pick up config/Skills changes after AI modifications.
+- **`register_skills(file_name, description, content)`** — Register skill files programmatically from your plugin code, without manually editing `skills.json`. Skills appear in the AI's system prompt and are readable via the `read_skills` tool.
+
+#### 2. Validation & Stability
+
+- Bot username is now validated on `!!aibot join` — rejects usernames with invalid characters (non `[a-zA-Z0-9_]`).
+- Fixed a bug where iterating `REGISTER_PLUGIN_LIST` while removing items could skip entries.
+- Added comprehensive logging for extension plugin lifecycle (reload/unload status).
 
 ### Version 0.6.0
 

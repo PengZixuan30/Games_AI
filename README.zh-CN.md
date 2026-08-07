@@ -14,7 +14,7 @@
 > **GamesAI 插件/模组 QQ 交流群：849544707** — 欢迎加入交流群讨论问题、反馈建议，以及分享 prompt、skills、tools 等配置！
 
 > [!NOTE]
-> 欢迎使用版本 0.6.0！本次大版本引入了 **Mineflayer Bot**——由 AI 全自主控制的 Minecraft 机器人。见[本次更新](#本次更新)
+> 欢迎使用版本 0.6.1！本次更新引入了 **扩展插件系统**——为 MCDR 插件开发者提供 `register_self()` 和 `register_skills()` API。见[本次更新](#本次更新)
 
 <details>
 <summary>目录(点击展示)</summary>
@@ -42,13 +42,18 @@
     - [在自己的MCDR插件中自定义工具](#在自己的mcdr插件中自定义工具)
     - [内置Skills](#内置skills)
     - [在配置文件中添加Skills](#在配置文件中添加skills)
+    - [在自己的MCDR插件中注册Skills](#在自己的mcdr插件中注册skills)
   - [故障排查](#故障排查)
     - [`!!ask` 错误](#ask-错误)
     - [Mineflayer Bot 错误](#mineflayer-bot-错误)
     - [日志与调试](#日志与调试)
   - [本次更新](#本次更新)
-    - [Version 0.6.0](#version-060)
+    - [Version 0.6.1](#version-061)
       - [🎯 核心亮点](#-核心亮点)
+      - [1. 扩展插件系统](#1-扩展插件系统)
+      - [2. 验证与稳定性](#2-验证与稳定性)
+    - [Version 0.6.0](#version-060)
+      - [🎯 核心亮点](#-核心亮点-1)
       - [1. Mineflayer Bot 集成](#1-mineflayer-bot-集成)
       - [2. 配置系统重制](#2-配置系统重制)
       - [3. OpenAI 日志桥接](#3-openai-日志桥接)
@@ -188,7 +193,7 @@ Bot 支持 20+ 种操作，通过 `bot_call_action` AI 工具调用：
 完整配置参考见 [6.mineflayer_bot](#6mineflayer_bot)。关键要点：
 
 - 将 `mineflayer_bot.enabled` 设为 `true`（或使用 `!!aibot join`）以启动 Bot
-- `mineflayer_bot.bot.username` / `password` / `auth` — Bot 的 Minecraft 登录凭据
+- `mineflayer_bot.bot.username` / `password` / `auth` — Bot 的 Minecraft 登录凭据。**用户名必须匹配 `[a-zA-Z0-9_]+`**（仅限英文字母、数字和下划线）。
 - `mineflayer_bot.cycle_interval` — 自主 AI 决策间隔（秒）
 - `mineflayer_bot.websocket` — 内部设置，除非明确知道用途否则不要修改
 
@@ -296,7 +301,13 @@ Mineflayer 自主 Bot 代理的配置项。
 
 **bot**: Minecraft 账号凭据 — `username`、`password`、`auth`（microsoft/mojang/offline）。服务器地址自动从 `server.properties` 中检测。
 
+> [!WARNING]
+> `username` 必须符合正则表达式 `[a-zA-Z0-9_]+`（仅限英文字母、数字和下划线，不含空格）。若用户名包含非法字符，`!!aibot join` 将被拒绝。
+
 ## 工具与Skills
+
+> [!TIP]
+> 部分内置工具已迁移至 [GamesAI-Extra](https://github.com/PengZixuan30/Games_AI-Extra) 插件（如坐标点管理、位置追踪等）。安装后可获得额外工具。
 
 ### 内置工具
 
@@ -314,11 +325,6 @@ GamesAI插件提供了很多内置的工具，见下表。如果你想要更多�
 |search_minecraft_wiki|`query`|让AI搜索Minecraft Wiki，以确保回答更准确|
 |calculator|`expression`|简单的数学表达式计算器|
 |item_caculator|`expression`,`single_limit`|数学表达式计算器，并将最终结果转换为物品计数法，即 盒、组、个，自动适应物品的堆叠数，不存在时默认使用64|
-|add_pos_pos|`name`,`pos`,`dimension`|在指定位置添加一个坐标点。依赖于`where2go`或`location_marker`插件，两者都存在时，优先使用`where2go`，均不存在时，自动关闭此工具|
-|add_pos_here|`name`|在玩家的位置添加一个坐标点，控制台执行时自动关闭此工具。依赖于`where2go`或`location_marker`插件，两者都存在时，优先使用`where2go`，均不存在时，自动关闭此工具|
-|remove_pos|`name`|删除一个坐标点，`where2go`版本会自动将name转换为id。依赖于`where2go`或`location_marker`插件，两者都存在时，优先使用`where2go`，均不存在时，自动关闭此工具|
-|search_pos|`name`|搜索一个坐标点。依赖于`where2go`或`location_marker`插件，两者都存在时，优先使用`where2go`，均不存在时，自动关闭此工具|
-|get_all_pos|无|获取所有的坐标点列表.依赖于`where2go`或`location_marker`插件，两者都存在时，优先使用`where2go`，均不存在时，自动关闭此工具|
 |ai_read_data|`key`|读取一条数据库内容|
 |ai_read_all_keys|无|获取数据库中所有的键|
 |ai_read_all_data|无|一次性读取数据库中所有键值对|
@@ -404,6 +410,17 @@ def my_plugin_tool(source: CommandSource, ai_prefix: str, ...):
 
 以此方式注册的工具与内置工具完全相同——AI 可以直接调用，如果需要也可以使用 `@register_bot_tool()` 标记为 Bot 可用工具。
 
+如果你希望你的插件在 GamesAI 执行 `!!gamesai reload` 时**自动重载**（例如 AI 通过 `modify_custom_tools` 修改了工具代码后），在你的插件 `on_load` 中调用 `register_self()`：
+
+```python
+from games_ai.register_extra_plugin import register_self
+
+def on_load(server, old):
+    register_self(server.get_self_metadata().id)
+```
+
+这样你的插件会随 GamesAI 的配置和工具一起重载，工具代码的修改会立即生效。
+
 ### 内置Skills
 
 GamesAI 内置了以下技能文件，AI 在执行相关操作前会自动读取：
@@ -441,6 +458,35 @@ Skills 技能系统让你可以编写指导文件来规范 AI 处理特定任务
 
 技能注册后会出现在 AI 的系统提示中。AI 可以使用 **`read_skills`** 工具在执行相关任务前读取技能文件的完整内容。
 
+### 在自己的MCDR插件中注册Skills
+
+你可以从自己的 MCDR 插件中以编程方式注册技能文件，使其自动出现在 AI 的系统提示中：
+
+```python
+from games_ai.external_skills_loader import register_skills
+
+def on_load(server, old):
+    register_skills(
+        file_name="my_skill.md",
+        description="执行 XYZ 操作前应读取此技能文件",
+        content="""## 我的技能
+
+此技能指导 AI 如何...
+- 步骤 1：...
+- 步骤 2：...
+"""
+    )
+```
+
+> [!IMPORTANT]
+> 你的插件**必须**在 `mcdreforged.plugin.json` 中将 `games_ai` 的版本依赖设为 `>= 0.6.1`。
+
+- **`file_name`** — 技能文件名（AI 的 `read_skills` 工具通过此名称定位文件）。
+- **`description`** — 展示给 AI 的简短提示，说明何时应当读取此技能。
+- **`content`** — 技能文件的完整 Markdown 内容。
+
+以此方式注册的技能与 `skills.json` 中定义的技能完全相同——它们会出现在 AI 的系统提示中的「Available skills」列表里，并可通过 `read_skills` 工具读取。
+
 ## 故障排查
 
 ### `!!ask` 错误
@@ -476,6 +522,27 @@ Skills 技能系统让你可以编写指导文件来规范 AI 处理特定任务
 - 如果以上方法均无效，请检查 `config/games_ai/config.json` 是否存在配置错误。
 
 ## 本次更新
+
+### Version 0.6.1
+
+#### 🎯 核心亮点
+
+- **🔌 扩展插件系统** — 为 MCDR 插件开发者提供 `register_self()` 和 `register_skills()` API
+- **🛡️ 输入验证** — `!!aibot join` 时验证 Bot 用户名合法性
+- **📋 日志改进** — 已注册插件重载/卸载生命周期的详细日志
+
+#### 1. 扩展插件系统
+
+第三方 MCDR 插件现在可以更深度地与 GamesAI 集成：
+
+- **`register_self(plugin_id)`** — 在你的插件 `on_load` 中调用，使其在 `!!gamesai reload` 时自动重载。这对于注册了自定义工具、需要在 AI 修改后同步配置/Skills 变更的插件至关重要。
+- **`register_skills(file_name, description, content)`** — 从插件代码中以编程方式注册技能文件，无需手动编辑 `skills.json`。技能会出现在 AI 的系统提示中，并可通过 `read_skills` 工具读取。
+
+#### 2. 验证与稳定性
+
+- `!!aibot join` 现在会验证 Bot 用户名——拒绝包含非法字符（非 `[a-zA-Z0-9_]`）的用户名。
+- 修复了遍历 `REGISTER_PLUGIN_LIST` 时删除元素可能导致跳过条目的 Bug。
+- 为扩展插件的生命周期（重载/卸载状态）添加了完整的日志记录。
 
 ### Version 0.6.0
 

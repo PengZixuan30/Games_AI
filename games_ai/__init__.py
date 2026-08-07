@@ -7,6 +7,8 @@ from .config import plugin_config
 from .tools_interpreter import load_external_tools
 from .mineflayer import write_default_init, write_package_json, run_node, start_mineflayer_client, stop_mineflayer_client, stop_mineflayer_process, get_default_init_hash, is_node_running, MineflayerWSClient
 from .mineflayer_ai import AutonomousBotController, set_bot_controller
+from .external_skills_loader import EXTERNAL_SKILLS_LIST
+from .register_extra_plugin import REGISTER_PLUGIN_LIST
 
 import time,os,requests,lzma,json,threading,datetime,logging
 
@@ -17,7 +19,7 @@ import re
 
 PLUGIN_METADATA = {
     "id": "games_ai",
-    "version": "0.6.0",
+    "version": "0.6.1",
     "name": "GamesAI",
     "description": {
         "zh_cn": "此插件可以让你在游戏中使用AI",
@@ -451,6 +453,10 @@ def on_unload(server: PluginServerInterface):
     finally:
         server.logger.info(f"{prefix} Mineflayer bot process has been terminated successfully!")
     server.logger.info(f"{prefix}{server.rtr("games_ai.unload_message.server_info")}")
+    for plugin_id in list(REGISTER_PLUGIN_LIST):
+        server.logger.info(f"{prefix} Unloading registered extension plugin '{plugin_id}'")
+        server.unload_plugin(plugin_id)
+    REGISTER_PLUGIN_LIST.clear()
     if unload_status_code == 0:
         server.say(f'{prefix}Bye!')
     elif unload_status_code == 1:
@@ -613,13 +619,28 @@ def ask_ai(source: CommandSource, context: dict, no_history: bool = False):
     base_url = ai_info.get("base_url")
     api_key = ai_info.get("api_key")
     prompt = ai_info.get("prompt")
+
     default_skills = [
         {"file": "skills_management.md", "description": str(server.rtr("games_ai.builtin_skills.skills_management"))},
         {"file": "custom_tools_management.md", "description": str(server.rtr("games_ai.builtin_skills.custom_tools_management"))},
     ]
     if is_node_running() and _autonomous_controller is not None and _autonomous_controller.is_running:
         default_skills.append({"file": "mineflayer_bot_guide.md", "description": str(server.rtr("games_ai.builtin_skills.mineflayer_bot_guide", username=plugin_config.bot_username))})
-    skills_file_list = str(server.rtr("games_ai.user_message.skills", skills=[*skills, *default_skills]))
+
+    external_skills: list[dict[str, str]] = []
+    if EXTERNAL_SKILLS_LIST:
+        for i in EXTERNAL_SKILLS_LIST:
+            file = i.get("file")
+            description = i.get("description")
+            if file is None or description is None:
+                continue
+            external_skills.append({"file": file, "description": description})
+
+    if external_skills:
+        skills_file_list = str(server.rtr("games_ai.user_message.skills", skills=[*skills, *default_skills, *external_skills]))
+    else:
+        skills_file_list = str(server.rtr("games_ai.user_message.skills", skills=[*skills, *default_skills]))
+
     extra_body = ai_info.get("extra_body", {})
 
     now_time = datetime.datetime.now()
@@ -1108,6 +1129,18 @@ def reloader(source: CommandSource, context: dict):
                     _run_mineflayer_bot(server, mineflayer_cfg, plugin_config.mineflayer_init_js_path)
                 except Exception as e:
                     server.logger.exception(f"{prefix} Failed to start Mineflayer bot: {e}")
+
+        for plugin_id in list(REGISTER_PLUGIN_LIST):
+            _reload_plugin = server.reload_plugin(plugin_id)
+            if _reload_plugin is None:
+                server.logger.warning(f"{prefix} Registered plugin '{plugin_id}' not found, removed from reload list")
+                REGISTER_PLUGIN_LIST.remove(plugin_id)
+            elif not _reload_plugin:
+                server.unload_plugin(plugin_id)
+                server.logger.warning(f"{prefix} Failed to reload registered plugin '{plugin_id}', unloaded and removed from reload list")
+                REGISTER_PLUGIN_LIST.remove(plugin_id)
+            else:
+                server.logger.info(f"{prefix} Successfully reloaded registered plugin '{plugin_id}'")
     except Exception as e:
         server.logger.exception(f"{prefix} Reload failed: {e}")
         source.reply(f"{prefix}Reload failed: {e}")
@@ -1196,6 +1229,9 @@ def aibot_join(source: CommandSource, context: dict):
         server = source.get_server()
         if source.get_permission_level() < plugin_config.allow_permission:
             source.reply(server.rtr("games_ai.no_permission", permission=plugin_config.allow_permission))
+            return
+        if not re.fullmatch(r'[a-zA-Z0-9_]+', plugin_config.bot_username):
+            source.reply(f"{prefix}{server.rtr('games_ai.aibot.invalid_bot_username', username=plugin_config.bot_username)}")
             return
         if _toggle_aibot(server, True):
             server.say(f"{prefix}{server.rtr('games_ai.aibot.already_joined', username=plugin_config.bot_username)}")

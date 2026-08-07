@@ -71,6 +71,7 @@ games_ai:
     leave: "Making {username} leave the server and reloading plugin..."
     already_joined: "{username} is already online"
     already_left: "{username} is already offline"
+    invalid_bot_username: "The configured Bot username '{username}' is invalid. It must contain only English letters, numbers, and underscores (no spaces)"
     invalid_key: "Invalid bot config key '{key}'. Allowed: username, password, auth"
     invalid_format: "'{key}' must contain only English letters, numbers, and underscores (no spaces)"
     invalid_auth: "'auth' must be one of: microsoft, mojang, offline"

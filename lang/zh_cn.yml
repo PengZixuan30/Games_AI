@@ -71,6 +71,7 @@ games_ai:
     leave: "正在让 {username} 离开服务器并重载插件..."
     already_joined: "{username} 已在线"
     already_left: "{username} 已下线"
+    invalid_bot_username: "配置中的 Bot 用户名 '{username}' 无效，只能包含英文字母、数字和下划线（不含空格）"
     invalid_key: "无效的 Bot 配置键 '{key}'，允许的键: username, password, auth"
     invalid_format: "'{key}' 只能包含英文字母、数字和下划线（不含空格）"
     invalid_auth: "'auth' 必须是以下之一: microsoft, mojang, offline"
