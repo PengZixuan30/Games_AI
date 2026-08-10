@@ -14,7 +14,7 @@
 > **GamesAI 插件/模組 QQ 交流群：849544707** — 歡迎加入交流群討論問題、回饋建議，以及分享 prompt、skills、tools 等設定！
 
 > [!NOTE]
-> 歡迎使用版本 0.6.1！本次更新引入了 **擴展插件系統**——為 MCDR 插件開發者提供 `register_self()` 和 `register_skills()` API。見[本次更新](#本次更新)
+> 歡迎使用版本 0.6.2！本次更新引入了 **玩家位置查詢**、**強制技能閱讀** 和 **reload 事件**。見[本次更新](#本次更新)
 
 <details>
 <summary>目錄（點擊展開）</summary>
@@ -44,17 +44,29 @@
     - [內建Skills](#內建skills)
     - [在設定檔案中新增Skills](#在設定檔案中新增skills)
     - [在自己的MCDR插件中註冊Skills](#在自己的mcdr插件中註冊skills)
+  - [熱重載](#熱重載)
+    - [觸發熱重載](#觸發熱重載)
+    - [重載期間發生了什麼](#重載期間發生了什麼)
+    - [讓自己的 MCDR 插件跟隨 GamesAI 熱重載](#讓自己的-mcdr-插件跟隨-gamesai-熱重載)
+      - [方式一：使用 `register_self()` 自動重載（推薦）](#方式一使用-register_self-自動重載推薦)
+      - [方式二：透過監聽事件回應熱重載](#方式二透過監聽事件回應熱重載)
+    - [兩種方式對比](#兩種方式對比)
   - [故障排除](#故障排除)
     - [`!!ask` 錯誤](#ask-錯誤)
     - [Mineflayer Bot 錯誤](#mineflayer-bot-錯誤)
     - [日誌與除錯](#日誌與除錯)
   - [本次更新](#本次更新)
-    - [Version 0.6.1](#version-061)
+    - [Version 0.6.2](#version-062)
       - [🎯 核心亮點](#-核心亮點)
+      - [1. 新工具 `get_player_position`](#1-新工具-get_player_position)
+      - [2. 強制技能閱讀 `!!ask /<skill>`](#2-強制技能閱讀-ask-skill)
+      - [3. `games_ai.reload` 事件](#3-games_aireload-事件)
+    - [Version 0.6.1](#version-061)
+      - [🎯 核心亮點](#-核心亮點-1)
       - [1. 擴展插件系統](#1-擴展插件系統)
       - [2. 驗證與穩定性](#2-驗證與穩定性)
     - [Version 0.6.0](#version-060)
-      - [🎯 核心亮點](#-核心亮點-1)
+      - [🎯 核心亮點](#-核心亮點-2)
       - [1. Mineflayer Bot 整合](#1-mineflayer-bot-整合)
       - [2. 設定系統重製](#2-設定系統重製)
       - [3. OpenAI 日誌橋接](#3-openai-日誌橋接)
@@ -88,11 +100,11 @@ pip install openai requests websockets
 |---|---|
 |`!!gamesai clear`|清除玩家的歷史聊天記錄，歷史聊天記錄與公共資料庫無關。|
 |`!!gamesai clearall`|清除所有玩家的歷史聊天記錄，歷史聊天記錄與公共資料庫無關。|
-|`!!gamesai reload`|重新載入插件設定檔。|
+|`!!gamesai reload`|重新載入插件設定檔。詳見[熱重載](#熱重載)|
 |`!!gamesai check`|檢查插件更新。|
 |`!!gamesai speedtest [model]`|測試 API 伺服器連線延遲，不指定模型時測試全部。|
 |`!!gamesai config get <key>`|讀取一個設定項的值。|
-|`!!gamesai config set <key> <value>`|修改一個設定項的值（自動適配舊值型別）。|
+|`!!gamesai config set <key> <value>`|修改一個設定項的值（自動適配舊值型別，修改後自動觸發[熱重載](#熱重載)）。|
 
 ---
 
@@ -200,6 +212,9 @@ Bot 支援 20+ 種操作，透過 `bot_call_action` AI 工具呼叫：
 - `mineflayer_bot.cycle_interval` — 自主 AI 決策間隔（秒）
 - `mineflayer_bot.websocket` — 內部設定，除非明確知道用途否則不要修改
 
+> [!NOTE]
+> 修改 Bot 設定後，執行 `!!gamesai reload`（或使用 `!!aibot set` / `!!gamesai config set`）即可自動重啟 Bot 並套用新設定。詳見[熱重載](#熱重載)。
+
 ## 設定
 
 預設設定檔結構如下：
@@ -305,6 +320,9 @@ Mineflayer 自主 Bot 代理的設定項。
 > [!WARNING]
 > `username` 必須符合正則表達式 `[a-zA-Z0-9_]+`（僅限英文字母、數字和底線，不含空格）。若使用者名稱包含非法字元，`!!aibot join` 將被拒絕。
 
+> [!TIP]
+> 修改設定後，使用 `!!gamesai reload` 或 `!!gamesai config set` 使更改生效。詳見[熱重載](#熱重載)。
+
 ## 工具與Skills
 
 > [!TIP]
@@ -320,6 +338,7 @@ GamesAI 插件提供了許多內建工具，請見下表。如果你想要更多
 |工具 ID|傳入參數|用途|
 |:---:|:---:|:---|
 |get_online_players|無|取得伺服器中線上的玩家列表。依賴於 `online_player_api` 插件，不存在時自動關閉此工具。|
+|get_player_position|`player`|取得指定玩家的位置和維度。依賴於 `minecraft_data_api` 插件，不存在時自動關閉此工具。|
 |get_whitelist_name|無|取得伺服器完整的白名單列表。依賴於 `whitelist_api` 插件，不存在時自動關閉此工具。|
 |add_to_whitelist|`name`|將某個玩家新增到白名單中。依賴於 `whitelist_api` 插件，不存在時自動關閉此工具。|
 |remove_from_whitelist|`name`|將某個玩家從白名單中移除。依賴於 `whitelist_api` 插件，不存在時自動關閉此工具。|
@@ -338,7 +357,7 @@ GamesAI 插件提供了許多內建工具，請見下表。如果你想要更多
 |modify_custom_tools|`tools`|用新程式碼替換整個自訂 `tools.py` 檔案|
 |append_custom_tools|`tools`|向自訂 `tools.py` 檔案末尾追加新工具程式碼|
 |setting_timer|`duration`|暫停執行指定秒數後再繼續下一步操作|
-|reload_plugin|無|熱重載插件以套用設定、技能和自訂工具的變更，不會遺失聊天記錄|
+|reload_plugin|無|熱重載插件以套用設定、技能和自訂工具的變更，不會遺失聊天記錄。詳見[熱重載](#熱重載)|
 |ai_del_data|`key`|刪除資料庫中的一筆資料|
 |bot_chat|`message`|讓 Mineflayer 機器人在 Minecraft 聊天中傳送訊息。|
 |bot_whisper|`username`, `message`|讓機器人私訊某個玩家。|
@@ -369,7 +388,7 @@ def my_custom_tool(source: CommandSource, ai_prefix: str):
 > 程式碼中的 `from games_ai.games_ai_tool import register_tool` 和函式定義前的 `@register_tool` 必須存在。
 
 > [!TIP]
-> 在 0.5.7+ 版本中，AI 可以**自主讀取、修改和追加**自訂工具檔案。只需讓 AI 幫你新增工具——它會先讀取目前檔案，編寫新程式碼，然後重新載入插件。
+> 在 0.5.7+ 版本中，AI 可以**自主讀取、修改和追加**自訂工具檔案。只需讓 AI 幫你新增工具——它會先讀取目前檔案，編寫新程式碼，然後透過 [熱重載](#熱重載) 使修改生效。
 
 `description` 是必填項，告訴 AI 此工具的用途。`parameters` 字典（可選）定義了 AI 應傳入的參數，遵循 [OpenAI function calling 格式](https://platform.openai.com/docs/guides/function-calling)。函式簽名必須包含 `source: CommandSource` 和 `ai_prefix: str` 作為前兩個參數，其後跟隨 `parameters` 中定義的參數。
 
@@ -408,7 +427,7 @@ def my_plugin_tool(source: CommandSource, ai_prefix: str, ...):
 }
 ```
 
-以此方式註冊的工具與內建工具完全相同——AI 可以直接呼叫，如果需要也可以使用 `@register_bot_tool()` 標記為 Bot 可用工具。
+以此方式註冊的工具與內建工具完全相同——AI 可以直接呼叫，如果需要也可以使用 `@register_bot_tool()` 標記為 Bot 可用工具。如果你還希望插件在 GamesAI 熱重載時自動刷新，請參考[讓自己的 MCDR 插件跟隨 GamesAI 熱重載](#讓自己的-mcdr-插件跟隨-gamesai-熱重載)。
 
 如果你希望你的插件在 GamesAI 執行 `!!gamesai reload` 時**自動重新載入**（例如 AI 透過 `modify_custom_tools` 修改了工具程式碼後），在你的插件 `on_load` 中呼叫 `register_self()`：
 
@@ -419,7 +438,7 @@ def on_load(server, old):
     register_self(server.get_self_metadata().id)
 ```
 
-這樣你的插件會隨 GamesAI 的設定和工具一起重新載入，工具程式碼的修改會立即生效。
+這樣你的插件會隨 GamesAI 的設定和工具一起重新載入，工具程式碼的修改會立即生效。更多細節見[熱重載](#熱重載)。
 
 ### 內建Skills
 
@@ -485,7 +504,111 @@ def on_load(server, old):
 - **`description`** — 展示給 AI 的簡短提示，說明何時應當讀取此技能。
 - **`content`** — 技能檔案的完整 Markdown 內容。
 
-以此方式註冊的技能與 `skills.json` 中定義的技能完全相同——它們會出現在 AI 的系統提示中的「Available skills」列表裡，並可透過 `read_skills` 工具讀取。
+以此方式註冊的技能與 `skills.json` 中定義的技能完全相同——它們會出現在 AI 的系統提示中的「Available skills」列表裡，並可透過 `read_skills` 工具讀取。如果你還希望插件在 GamesAI 熱重載時自動刷新，請參考[讓自己的 MCDR 插件跟隨 GamesAI 熱重載](#讓自己的-mcdr-插件跟隨-gamesai-熱重載)。
+
+## 熱重載
+
+GamesAI 提供了完善的熱重載機制，讓你在不重啟伺服器的情況下套用設定、工具和技能的變更。
+
+### 觸發熱重載
+
+熱重載可透過以下方式觸發：
+
+|方式|說明|
+|---|---|
+|`!!gamesai reload`|管理員手動執行，重新載入全部設定、工具與技能。|
+|`!!gamesai config set <key> <value>`|修改設定項後自動觸發重載。|
+|AI 工具 `reload_plugin`|AI 在修改工具程式碼或技能檔案後呼叫，確保變更立即生效。|
+|`!!aibot set <key> <value>`|修改 Bot 設定後自動觸發重載。|
+
+### 重載期間發生了什麼
+
+執行熱重載時，插件會依次執行以下操作：
+
+1. **重新讀取設定檔** (`config/games_ai/config.json`) — 套用 `prefix`、`permission`、`max_history`、`all_ai`、`default_ai` 等全部設定變更。
+2. **重新載入 Skills** (`config/games_ai/skills/skills.json`) — 刷新技能索引，AI 系統提示中的可用技能列表同步更新。
+3. **重新載入自訂工具** (`config/games_ai/tools/tools.py`) — 熱載入自訂工具程式碼，無需重啟 MCDR。
+4. **重啟 Mineflayer Bot**（如已啟用）— 停止現有 Bot 程序和 WebSocket 連線，套用新設定後重新啟動。
+5. **重載已註冊的擴展插件** — 遍歷 `REGISTER_PLUGIN_LIST`，逐一重載已註冊的擴展插件（[見下方](#讓自己的-mcdr-插件跟隨-gamesai-熱重載)）。
+6. **派發 `games_ai.reload` 事件** — 通知所有監聽了此事件的其他 MCDR 插件（[見下方](#透過監聽事件回應熱重載)）。
+
+> [!NOTE]
+> 熱重載**不會遺失**玩家的聊天歷史記錄。
+
+### 讓自己的 MCDR 插件跟隨 GamesAI 熱重載
+
+如果你開發了依賴 GamesAI 的 MCDR 插件（例如註冊了自訂工具或技能），你可能希望插件在 GamesAI 熱重載時同步刷新。GamesAI 提供了兩種方式：
+
+#### 方式一：使用 `register_self()` 自動重載（推薦）
+
+這是最簡單的方式。在你的插件 `on_load` 中呼叫 `register_self()`，將插件加入 GamesAI 的重載列表：
+
+```python
+from games_ai.register_extra_plugin import register_self
+
+def on_load(server, old):
+    register_self(server.get_self_metadata().id)
+```
+
+每次執行 `!!gamesai reload` 時，你的插件會被 MCDR 自動重載（呼叫 `server.reload_plugin()`）。如果重載失敗，插件會被卸載並從重載列表中移除。
+
+如果你的插件需要**自訂重載邏輯**（不僅僅呼叫預設的 `reload_plugin`），可以傳入自訂 reloader 函式作為第二個參數。除了普通函式外，也可以傳入方法（`self.xxx`）或 lambda 運算式：
+
+```python
+from mcdreforged.command.command_source import CommandSource
+from games_ai.register_extra_plugin import register_self
+
+def my_reloader(source: CommandSource):
+    # 自訂重載邏輯
+    server = source.get_server()
+    server.logger.info("執行我的自訂重載邏輯...")
+    # 例如：重新讀取自己的設定檔、重建資料庫連線等
+
+def on_load(server, old):
+    register_self(server.get_self_metadata().id, my_reloader)
+```
+
+> [!IMPORTANT]
+> 自訂 reloader 函式的**第一個參數必須為 `CommandSource`**（如上例中的 `source`），GamesAI 會將觸發熱重載的命令源傳入該參數。
+
+當自訂 reloader 拋出例外時，插件會被自動卸載並從重載列表中移除，同時在日誌中記錄失敗原因。
+
+#### 方式二：透過監聽事件回應熱重載
+
+如果你的插件不想被卸載/重載，只想在 GamesAI 熱重載完成時收到通知並執行一些邏輯，可以監聽 `games_ai.reload` 事件：
+
+```python
+from mcdreforged.api.all import *
+
+def on_load(server: PluginServerInterface, old):
+    server.register_event_listener("games_ai.reload", on_gamesai_reload)
+
+def on_gamesai_reload(server: PluginServerInterface):
+    server.logger.info("GamesAI 已完成熱重載，我正在同步處理...")
+    # 例如：重新讀取 GamesAI 的最新設定
+    # 例如：刷新自己快取的工具列表
+```
+
+> [!NOTE]
+> 事件回呼的第一個參數始終是 `PluginServerInterface`，由 MCDR 自動補齊。
+
+> [!TIP]
+> `games_ai.reload` 事件在**重載完成後**派發，所以監聽器拿到的已經是重載後的最新狀態。
+
+### 兩種方式對比
+
+`register_self()` 根據是否傳入第二個參數（自訂 reloader）有不同的行為：
+
+|特性|`register_self()` 不傳 reloader|`register_self()` 傳入自訂 reloader|監聽 `games_ai.reload` 事件|
+|---|---|---|---|
+|觸發時機|重載過程中（第 5 步）|重載過程中（第 5 步）|重載完成後（第 6 步）|
+|插件行為|MCDR 卸載後重載（`on_load` 重新執行）|插件保持載入，僅呼叫自訂函式|插件不受影響|
+|失敗處理|插件被卸載，從重載列表移除|插件被卸載，從重載列表移除|例外不會卸載插件|
+|工具/Skills|`on_load` 自動重新註冊|無需重新註冊（插件未卸載，註冊保持有效）|無需處理|
+|適用場景|插件需要完整刷新程式碼|插件只需重讀設定、刷新快取等輕量操作|插件只需收到通知或同步狀態|
+
+> [!NOTE]
+> 註冊在 GamesAI 中的工具（`@register_tool`）和 Skills（`register_skills()`）的生命週期與註冊它們的插件綁定。只要插件未被 MCDR 卸載，已註冊的工具和 Skills 就會一直有效。因此使用自訂 reloader 時**無需**重新註冊。
 
 ## 故障排除
 
@@ -523,6 +646,27 @@ def on_load(server, old):
 
 ## 本次更新
 
+### Version 0.6.2
+
+#### 🎯 核心亮點
+
+- **📍 玩家位置查詢** — 新增 `get_player_position` 工具，查詢線上玩家的座標和維度（依賴 `minecraft_data_api`）
+- **📖 強制技能閱讀** — `!!ask /<skill> <content>` 語法，強制 AI 優先讀取指定技能檔案
+- **📡 reload 事件** — `!!gamesai reload` 完成時派發 `games_ai.reload` 事件，其他插件可監聽同步
+- **📚 熱重載文件** — README 新增完整[熱重載](#熱重載)章節
+
+#### 1. 新工具 `get_player_position`
+
+查詢指定線上玩家的座標（x, y, z）和維度（主世界/地獄/終界）。依賴於 `minecraft_data_api` 插件。Bot 也可呼叫（`@register_bot_tool`）。
+
+#### 2. 強制技能閱讀 `!!ask /<skill>`
+
+玩家可使用 `!!ask /技能名 <content>` 格式，強制 AI 在回答前透過 `read_skills` 工具讀取指定技能檔案。插件會驗證技能檔案是否存在並提供回饋，適用於需要 AI 嚴格遵循特定 SOP 的場景。
+
+#### 3. `games_ai.reload` 事件
+
+每次 `!!gamesai reload` 完成後，插件會派發 `games_ai.reload` 事件，攜帶觸發重載的 `CommandSource`。其他 MCDR 插件可註冊事件監聽器在 GamesAI 熱重載完成時同步狀態。詳見[熱重載](#熱重載)。
+
 ### Version 0.6.1
 
 #### 🎯 核心亮點
@@ -535,7 +679,7 @@ def on_load(server, old):
 
 第三方 MCDR 插件現在可以更深度地與 GamesAI 整合：
 
-- **`register_self(plugin_id)`** — 在你的插件 `on_load` 中呼叫，使其在 `!!gamesai reload` 時自動重新載入。這對於註冊了自訂工具、需要在 AI 修改後同步設定/Skills 變更的插件至關重要。
+- **`register_self(plugin_id)`** — 在你的插件 `on_load` 中呼叫，使其在 `!!gamesai reload` 時自動重新載入。這對於註冊了自訂工具、需要在 AI 修改後同步設定/Skills 變更的插件至關重要。詳見[熱重載](#熱重載)。
 - **`register_skills(file_name, description, content)`** — 從插件程式碼中以程式設計方式註冊技能檔案，無需手動編輯 `skills.json`。技能會出現在 AI 的系統提示中，並可透過 `read_skills` 工具讀取。
 
 #### 2. 驗證與穩定性

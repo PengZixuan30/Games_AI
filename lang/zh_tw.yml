@@ -88,6 +88,10 @@ games_ai:
     data_list: "公共資料列表："
     thinking: "§7正在思考⋯⋯§r"
 
+    skill_selected: "已選擇技能檔案 §e{skill}§r，AI 將優先遵循該技能的指導。"
+    skill_not_found: "§c未找到技能檔案 '{skill}'§r，將使用預設技能列表。"
+    skill_injected: "使用者要求你優先使用 read_skills 工具讀取技能檔案 '{skill}'，並嚴格遵循其指導執行任務。"
+
   tools:
     execution_error: "函式 {func_name} 執行出錯！原因：{ex}"
     unknown_function: "AI 執行了未知的函式：{func_name}"
@@ -104,6 +108,8 @@ games_ai:
     searching_position: "正在搜尋路徑點，名稱：{name}"
     getting_all_pos: "正在取得所有路徑點資訊⋯⋯"
     consolo_add_here: "主控台無法執行 add_pos_here 函式"
+
+    getting_player_position: "正在查詢玩家 {player} 的位置⋯⋯"
 
     reading_data: "正在讀取公共資料，key：{key}"
     reading_all_keys: "正在讀取所有公共資料的 key"

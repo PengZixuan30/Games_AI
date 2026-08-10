@@ -14,7 +14,7 @@ English  |  [简体中文](/README.zh-CN.md)  |  [繁體中文](/README.zh-TW.md
 > **GamesAI Plugin/Mod QQ Group: 849544707** — Join us to discuss issues, share feedback, and exchange prompt, skills, tools configurations!
 
 > [!NOTE]
-> Welcome to version 0.6.1! This release introduces the **Extension Plugin System** — `register_self()` and `register_skills()` APIs for MCDR plugin developers. See [What's New](#whats-new) for details.
+> Welcome to version 0.6.2! This release introduces **Player Position Query**, **Forced Skill Reading**, and the **Reload Event**. See [What's New](#whats-new) for details.
 
 <details>
 <summary>Table of Contents (click to expand)</summary>
@@ -43,17 +43,29 @@ English  |  [简体中文](/README.zh-CN.md)  |  [繁體中文](/README.zh-TW.md
     - [Built-in Skills](#built-in-skills)
     - [Add Skills via Config File](#add-skills-via-config-file)
     - [Register Skills in Your MCDR Plugin](#register-skills-in-your-mcdr-plugin)
+  - [Hot Reload](#hot-reload)
+    - [Triggering a Hot Reload](#triggering-a-hot-reload)
+    - [What Happens During a Hot Reload](#what-happens-during-a-hot-reload)
+    - [Making Your MCDR Plugin Follow GamesAI Hot Reload](#making-your-mcdr-plugin-follow-gamesai-hot-reload)
+      - [Approach 1: Auto-Reload with `register_self()` (Recommended)](#approach-1-auto-reload-with-register_self-recommended)
+      - [Approach 2: Responding to Hot Reload via Event Listening](#approach-2-responding-to-hot-reload-via-event-listening)
+    - [Comparison of the Two Approaches](#comparison-of-the-two-approaches)
   - [Troubleshooting](#troubleshooting)
     - [`!!ask` Errors](#ask-errors)
     - [Mineflayer Bot Errors](#mineflayer-bot-errors)
     - [Logging \& Debugging](#logging--debugging)
   - [What's New](#whats-new)
-    - [Version 0.6.1](#version-061)
+    - [Version 0.6.2](#version-062)
       - [🎯 Highlights](#-highlights)
+      - [1. New Tool: `get_player_position`](#1-new-tool-get_player_position)
+      - [2. Forced Skill Reading: `!!ask /<skill>`](#2-forced-skill-reading-ask-skill)
+      - [3. `games_ai.reload` Event](#3-games_aireload-event)
+    - [Version 0.6.1](#version-061)
+      - [🎯 Highlights](#-highlights-1)
       - [1. Extension Plugin System](#1-extension-plugin-system)
       - [2. Validation \& Stability](#2-validation--stability)
     - [Version 0.6.0](#version-060)
-      - [🎯 Highlights](#-highlights-1)
+      - [🎯 Highlights](#-highlights-2)
       - [1. Mineflayer Bot Integration](#1-mineflayer-bot-integration)
       - [2. Configuration System Overhaul](#2-configuration-system-overhaul)
       - [3. OpenAI Logging Bridge](#3-openai-logging-bridge)
@@ -87,11 +99,11 @@ Type `!!gamesai` anywhere to display all available features of this plugin.
 |---|---|
 |`!!gamesai clear`|Clear your own chat history. Chat history is unrelated to the public database.|
 |`!!gamesai clearall`|Clear all players' chat history. Chat history is unrelated to the public database.|
-|`!!gamesai reload`|Reload the plugin configuration file.|
+|`!!gamesai reload`|Reload the plugin configuration file. See [Hot Reload](#hot-reload) for details.|
 |`!!gamesai check`|Check for plugin updates.|
 |`!!gamesai speedtest [model]`|Test API server connection latency. If no model is specified, all models are tested.|
 |`!!gamesai config get <key>`|Read a configuration value.|
-|`!!gamesai config set <key> <value>`|Update a configuration value (auto type-adapts).|
+|`!!gamesai config set <key> <value>`|Update a configuration value (auto type-adapts; automatically triggers [Hot Reload](#hot-reload)).|
 
 ---
 
@@ -198,6 +210,9 @@ See [6.mineflayer_bot](#6mineflayer_bot) for the full configuration reference. K
 - `mineflayer_bot.cycle_interval` — how often (in seconds) the autonomous AI makes decisions
 - `mineflayer_bot.websocket` — internal settings; do not modify unless you know what you are doing
 
+> [!NOTE]
+> After modifying Bot configuration, run `!!gamesai reload` (or use `!!aibot set` / `!!gamesai config set`) to automatically restart the Bot with the new settings. See [Hot Reload](#hot-reload) for details.
+
 ## Configuration
 
 The default configuration file structure is as follows:
@@ -303,6 +318,9 @@ Configuration for the Mineflayer autonomous bot agent.
 > [!WARNING]
 > The `username` must match the regular expression `[a-zA-Z0-9_]+` (only English letters, numbers, and underscores; no spaces). `!!aibot join` will be rejected if the username contains invalid characters.
 
+> [!TIP]
+> After modifying the configuration, use `!!gamesai reload` or `!!gamesai config set` to apply changes. See [Hot Reload](#hot-reload) for details.
+
 ## Tools & Skills
 
 > [!TIP]
@@ -318,6 +336,7 @@ The GamesAI plugin provides many built-in tools, listed in the table below. If y
 |Tool ID|Parameters|Description|
 |:---:|:---:|:---|
 |get_online_players|None|Get the list of currently online players. Depends on the `online_player_api` plugin; automatically disabled if unavailable.|
+|get_player_position|`player`|Get a player's position and dimension. Depends on the `minecraft_data_api` plugin; automatically disabled if unavailable.|
 |get_whitelist_name|None|Get the complete server whitelist. Depends on the `whitelist_api` plugin; automatically disabled if unavailable.|
 |add_to_whitelist|`name`|Add a player to the whitelist. Depends on the `whitelist_api` plugin; automatically disabled if unavailable.|
 |remove_from_whitelist|`name`|Remove a player from the whitelist. Depends on the `whitelist_api` plugin; automatically disabled if unavailable.|
@@ -337,7 +356,7 @@ The GamesAI plugin provides many built-in tools, listed in the table below. If y
 |modify_custom_tools|`tools`|Replace the entire custom `tools.py` file with new code.|
 |append_custom_tools|`tools`|Append new tool code to the end of the custom `tools.py` file.|
 |setting_timer|`duration`|Pause execution for the specified number of seconds before continuing.|
-|reload_plugin|None|Hot-reload the plugin to apply configuration, skills, and custom tools changes without losing chat history.|
+|reload_plugin|None|Hot-reload the plugin to apply configuration, skills, and custom tools changes without losing chat history. See [Hot Reload](#hot-reload).|
 |ai_del_data|`key`|Delete a data entry from the database.|
 |bot_chat|`message`|Make the Mineflayer bot send a message in Minecraft chat.|
 |bot_whisper|`username`, `message`|Make the bot send a private message to a player.|
@@ -368,7 +387,7 @@ def my_custom_tool(source: CommandSource, ai_prefix: str):
 > The `from games_ai.games_ai_tool import register_tool` import and the `@register_tool` decorator above the function definition **must** be present.
 
 > [!TIP]
-> In version 0.5.7+, the AI can autonomously **read, modify, and append** the custom tools file using the `read_custom_tools`, `modify_custom_tools`, and `append_custom_tools` tools. Just ask the AI to add a new tool for you — it will read the current file, write the new code, and reload the plugin.
+> In version 0.5.7+, the AI can autonomously **read, modify, and append** the custom tools file using the `read_custom_tools`, `modify_custom_tools`, and `append_custom_tools` tools. Just ask the AI to add a new tool for you — it will read the current file, write the new code, and apply changes via [Hot Reload](#hot-reload).
 
 The `description` parameter is mandatory and tells the AI what the tool does. The `parameters` dictionary (optional) defines the arguments the AI should pass in, following the [OpenAI function calling schema](https://platform.openai.com/docs/guides/function-calling). The function signature must include `source: CommandSource` and `ai_prefix: str` as the first two parameters, followed by any custom parameters defined in `parameters`.
 
@@ -407,7 +426,7 @@ Your plugin should list `games_ai` in its `dependencies` in `mcdreforged.plugin.
 }
 ```
 
-Tools registered this way are identical to built-in tools — the AI can call them directly, and you can mark them as bot-accessible with `@register_bot_tool()` if needed.
+Tools registered this way are identical to built-in tools — the AI can call them directly, and you can mark them as bot-accessible with `@register_bot_tool()` if needed. If you also want your plugin to auto-refresh during GamesAI hot reload, see [Making Your MCDR Plugin Follow GamesAI Hot Reload](#making-your-mcdr-plugin-follow-gamesai-hot-reload).
 
 If you want your plugin to be **automatically reloaded** when GamesAI runs `!!gamesai reload` (e.g. after AI modifies your tool code via `modify_custom_tools`), call `register_self()` in your plugin's `on_load`:
 
@@ -418,7 +437,7 @@ def on_load(server, old):
     register_self(server.get_self_metadata().id)
 ```
 
-This ensures your plugin is reloaded alongside GamesAI's configuration and tools, so any tool code changes take effect immediately.
+This ensures your plugin is reloaded alongside GamesAI's configuration and tools, so any tool code changes take effect immediately. See [Hot Reload](#hot-reload) for more details.
 
 ### Built-in Skills
 
@@ -484,7 +503,111 @@ This skill guides the AI to...
 - **`description`** — a short hint shown to the AI, explaining when to read this skill.
 - **`content`** — the full Markdown content of the skill file.
 
-Skills registered this way are identical to those defined in `skills.json` — they appear in the AI's system prompt under "Available skills" and are readable via the `read_skills` tool.
+Skills registered this way are identical to those defined in `skills.json` — they appear in the AI's system prompt under "Available skills" and are readable via the `read_skills` tool. If you also want your plugin to auto-refresh during GamesAI hot reload, see [Making Your MCDR Plugin Follow GamesAI Hot Reload](#making-your-mcdr-plugin-follow-gamesai-hot-reload).
+
+## Hot Reload
+
+GamesAI provides a comprehensive hot-reload mechanism that lets you apply configuration, tool, and skill changes without restarting the server.
+
+### Triggering a Hot Reload
+
+Hot reload can be triggered in the following ways:
+
+|Method|Description|
+|---|---|
+|`!!gamesai reload`|Run by an admin to reload all configuration, tools, and skills.|
+|`!!gamesai config set <key> <value>`|Automatically triggers a reload after modifying a config value.|
+|AI tool `reload_plugin`|Called by the AI after modifying tool code or skill files to ensure changes take effect immediately.|
+|`!!aibot set <key> <value>`|Automatically triggers a reload after modifying Bot configuration.|
+
+### What Happens During a Hot Reload
+
+When a hot reload is performed, the plugin executes the following steps in order:
+
+1. **Re-read the configuration file** (`config/games_ai/config.json`) — Applies all changes to `prefix`, `permission`, `max_history`, `all_ai`, `default_ai`, etc.
+2. **Reload Skills** (`config/games_ai/skills/skills.json`) — Refreshes the skill index; the available skills list in the AI's system prompt is updated synchronously.
+3. **Reload Custom Tools** (`config/games_ai/tools/tools.py`) — Hot-loads custom tool code without restarting MCDR.
+4. **Restart the Mineflayer Bot** (if enabled) — Stops the existing Bot process and WebSocket connection, then restarts with the new configuration.
+5. **Reload Registered Extension Plugins** — Iterates through `REGISTER_PLUGIN_LIST` and reloads each registered extension plugin one by one ([see below](#making-your-mcdr-plugin-follow-gamesai-hot-reload)).
+6. **Dispatch the `games_ai.reload` Event** — Notifies all other MCDR plugins that are listening for this event ([see below](#responding-to-hot-reload-via-event-listening)).
+
+> [!NOTE]
+> Hot reload **does not** clear players' chat history.
+
+### Making Your MCDR Plugin Follow GamesAI Hot Reload
+
+If you are developing an MCDR plugin that depends on GamesAI (e.g., registering custom tools or skills), you may want your plugin to refresh alongside GamesAI during a hot reload. GamesAI offers two approaches:
+
+#### Approach 1: Auto-Reload with `register_self()` (Recommended)
+
+This is the simplest approach. Call `register_self()` in your plugin's `on_load` to add your plugin to GamesAI's reload list:
+
+```python
+from games_ai.register_extra_plugin import register_self
+
+def on_load(server, old):
+    register_self(server.get_self_metadata().id)
+```
+
+Each time `!!gamesai reload` is executed, your plugin will be automatically reloaded by MCDR (via `server.reload_plugin()`). If the reload fails, the plugin is unloaded and removed from the reload list.
+
+If your plugin needs **custom reload logic** (beyond the default `reload_plugin`), you can pass a custom reloader function as the second argument. Besides regular functions, you can also pass a method (`self.xxx`) or a lambda expression:
+
+```python
+from mcdreforged.command.command_source import CommandSource
+from games_ai.register_extra_plugin import register_self
+
+def my_reloader(source: CommandSource):
+    # Custom reload logic
+    server = source.get_server()
+    server.logger.info("Executing my custom reload logic...")
+    # e.g., re-read your own config, rebuild database connections, etc.
+
+def on_load(server, old):
+    register_self(server.get_self_metadata().id, my_reloader)
+```
+
+> [!IMPORTANT]
+> The custom reloader function's **first parameter must be `CommandSource`** (as shown by `source` in the example above). GamesAI passes the command source that triggered the hot reload to your function.
+
+When the custom reloader raises an exception, the plugin is automatically unloaded and removed from the reload list, with the failure reason recorded in the log.
+
+#### Approach 2: Responding to Hot Reload via Event Listening
+
+If you don't want your plugin to be unloaded/reloaded, but only want to be notified when GamesAI finishes a hot reload and perform some logic, you can listen for the `games_ai.reload` event:
+
+```python
+from mcdreforged.api.all import *
+
+def on_load(server: PluginServerInterface, old):
+    server.register_event_listener("games_ai.reload", on_gamesai_reload)
+
+def on_gamesai_reload(server: PluginServerInterface):
+    server.logger.info("GamesAI hot reload completed, syncing my state...")
+    # e.g., re-read GamesAI's latest configuration
+    # e.g., refresh my cached tool list
+```
+
+> [!NOTE]
+> The first argument to the event callback is always `PluginServerInterface`, automatically prepended by MCDR.
+
+> [!TIP]
+> The `games_ai.reload` event is dispatched **after** the reload is complete, so listeners always see the latest reloaded state.
+
+### Comparison of the Two Approaches
+
+`register_self()` behaves differently depending on whether a second argument (custom reloader) is passed:
+
+|Feature|`register_self()` without reloader|`register_self()` with custom reloader|Listening to `games_ai.reload` Event|
+|---|---|---|---|
+|When it fires|During reload (Step 5)|During reload (Step 5)|After reload completes (Step 6)|
+|Plugin behavior|MCDR unloads then reloads (`on_load` re-runs)|Plugin stays loaded; only custom function runs|Plugin unaffected|
+|Failure handling|Plugin unloaded, removed from reload list|Plugin unloaded, removed from reload list|Exception does not unload plugin|
+|Tools/Skills|Auto re-registered by `on_load`|No re-registration needed (plugin not unloaded, registrations persist)|Not needed|
+|Best for|Plugins that need a full code refresh|Lightweight operations like re-reading config or refreshing caches|Plugins that only need a notification or state sync|
+
+> [!NOTE]
+> Tools (`@register_tool`) and Skills (`register_skills()`) registered with GamesAI are tied to the lifecycle of the plugin that registered them. As long as the plugin is not unloaded by MCDR, the registered tools and skills remain valid. Therefore, **no re-registration is needed** when using a custom reloader.
 
 ## Troubleshooting
 
@@ -522,6 +645,27 @@ Skills registered this way are identical to those defined in `skills.json` — t
 
 ## What's New
 
+### Version 0.6.2
+
+#### 🎯 Highlights
+
+- **📍 Player Position Query** — New `get_player_position` tool to query online players' coordinates and dimension (requires `minecraft_data_api`)
+- **📖 Forced Skill Reading** — `!!ask /<skill> <content>` syntax to force the AI to read a specific skill file first
+- **📡 Reload Event** — `games_ai.reload` event dispatched after `!!gamesai reload`, other plugins can listen for state sync
+- **📚 Hot Reload Docs** — Comprehensive [Hot Reload](#hot-reload) chapter added to README
+
+#### 1. New Tool: `get_player_position`
+
+Query an online player's coordinates (x, y, z) and dimension (Overworld/Nether/End). Requires the `minecraft_data_api` plugin. Bot-accessible (`@register_bot_tool`).
+
+#### 2. Forced Skill Reading: `!!ask /<skill>`
+
+Players can use `!!ask /skill_name <content>` to force the AI to read a specific skill file via the `read_skills` tool before responding. The plugin validates the skill file exists and provides feedback. Ideal for scenarios requiring strict SOP adherence.
+
+#### 3. `games_ai.reload` Event
+
+After each `!!gamesai reload`, the plugin dispatches a `games_ai.reload` event carrying the `CommandSource` that triggered the reload. Other MCDR plugins can register event listeners to sync state when GamesAI hot-reloads. See [Hot Reload](#hot-reload).
+
 ### Version 0.6.1
 
 #### 🎯 Highlights
@@ -534,7 +678,7 @@ Skills registered this way are identical to those defined in `skills.json` — t
 
 Third-party MCDR plugins can now integrate more deeply with GamesAI:
 
-- **`register_self(plugin_id)`** — Call in your plugin's `on_load` to have it automatically reloaded when `!!gamesai reload` runs. This is essential for plugins that register custom tools and need to pick up config/Skills changes after AI modifications.
+- **`register_self(plugin_id)`** — Call in your plugin's `on_load` to have it automatically reloaded when `!!gamesai reload` runs. This is essential for plugins that register custom tools and need to pick up config/Skills changes after AI modifications. See [Hot Reload](#hot-reload).
 - **`register_skills(file_name, description, content)`** — Register skill files programmatically from your plugin code, without manually editing `skills.json`. Skills appear in the AI's system prompt and are readable via the `read_skills` tool.
 
 #### 2. Validation & Stability

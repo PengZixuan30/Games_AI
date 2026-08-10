@@ -216,6 +216,8 @@ def read_skills(source: CommandSource, ai_prefix: str, skills: str):
     server = source.get_server()
     source.reply(f"{ai_prefix}{server.rtr("games_ai.tools.reading_skills", skills=skills)}")
     errors = []
+    if not skills.endswith(".md"):
+        skills += ".md"
 
     external_content = read_external_skills(skills)
     if external_content is not None:
@@ -478,3 +480,41 @@ def reload_plugin(source: CommandSource, ai_prefix: str):
     source.reply(f"{ai_prefix}{server.rtr("games_ai.tools.reloading_plugin")}")
     server.execute_command("!!gamesai reload", source)
     return f"插件已重载"
+
+
+@register_tool(description="获取指定玩家的位置、维度", tr_key="getting_player_position", parameters={
+    "type": "object",
+    "properties": {
+        "player": {
+            "type": "string",
+            "description": "要查询的玩家名称"
+        }
+    },
+    "required": ["player"]
+})
+@register_bot_tool()
+def get_player_position(source: CommandSource, ai_prefix: str, player: str):
+    server = source.get_server()
+    source.reply(f'{ai_prefix}{server.rtr("games_ai.tools.getting_player_position", player=player)}')
+    api = server.get_plugin_instance('minecraft_data_api')
+    if api is None:
+        return "无法获取 minecraft_data_api 插件实例，请检查是否已安装并加载"
+    try:
+        data = api.get_player_info(player)
+        if data is None:
+            return f"查询玩家 {player} 超时，请稍后重试"
+        pos = data.get('Pos', [])
+        dim_raw = data.get('Dimension', '')
+        if not pos or len(pos) < 3:
+            return f"未能从玩家 {player} 的数据中解析出坐标"
+        dim_map = {
+            'minecraft:overworld': '主世界',
+            'minecraft:the_nether': '下界',
+            'minecraft:the_end': '末地',
+        }
+        dim_name = dim_map.get(dim_raw, dim_raw)
+        return f"玩家 {player} 的位置: ({pos[0]:.1f}, {pos[1]:.1f}, {pos[2]:.1f}), 维度: {dim_name}"
+    except ValueError as e:
+        return f"查询玩家 {player} 失败: {e}"
+    except Exception as e:
+        return f"获取玩家 {player} 信息失败: {e}"

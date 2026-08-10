@@ -19,7 +19,7 @@ import re
 
 PLUGIN_METADATA = {
     "id": "games_ai",
-    "version": "0.6.1",
+    "version": "0.6.2",
     "name": "GamesAI",
     "description": {
         "zh_cn": "此插件可以让你在游戏中使用AI",
@@ -652,17 +652,45 @@ def ask_ai(source: CommandSource, context: dict, no_history: bool = False):
         base_len = len(shared)
         history = list(shared)
         current_tool_count = user_tool_counts.setdefault(username, {}).get(ai_prefix, 0)
-    content = context['content']
+    content: str = context['content']
     if source.is_player:
         user_name = f'{username}'
     else:
         user_name = "Server Control Panel"
+
+    skills_file: str | None = None
+    if content.strip().startswith("/"):
+        skill_name = content.strip().split(" ")[0][1:]
+        if not skill_name.endswith(".md"):
+            skill_name += ".md"
+
+        all_skill_files: list[str] = [
+            f.get("file", "") for f in [*skills, *default_skills]
+            if f.get("file")
+        ]
+        for es in external_skills:
+            f = es.get("file")
+            if f:
+                all_skill_files.append(f)
+
+        if skill_name in all_skill_files:
+            skills_file = skill_name
+            source.reply(f"{ai_prefix}{server.rtr('games_ai.user_message.skill_selected', skill=skill_name)}")
+        else:
+            source.reply(f"{ai_prefix}{server.rtr('games_ai.user_message.skill_not_found', skill=skill_name)}")
+
     user_message = {"role": "user","content": f'{str(server.rtr("games_ai.user_message.username"))}{user_name}\n{str(server.rtr("games_ai.user_message.message"))}{content}'}
     response_message = [
         {"role": "system","content": now_time + mcdr_lang},
         {"role": "system", "content": prompt},
-        {"role": "system","content": skills_file_list},
     ]
+    if skills_file:
+        response_message.append({
+            "role": "system",
+            "content": str(server.rtr('games_ai.user_message.skill_injected', skill=skills_file))
+        })
+    else:
+        response_message.append({"role": "system", "content": skills_file_list})
     data = DataManager(data_path).ask_ai_read_data()
     data_message = {"role": "system","content": f'{str(server.rtr("games_ai.user_message.data_list"))}{data}'}
     response_message.append(data_message)
@@ -1130,20 +1158,31 @@ def reloader(source: CommandSource, context: dict):
                 except Exception as e:
                     server.logger.exception(f"{prefix} Failed to start Mineflayer bot: {e}")
 
-        for plugin_id in list(REGISTER_PLUGIN_LIST):
-            _reload_plugin = server.reload_plugin(plugin_id)
-            if _reload_plugin is None:
-                server.logger.warning(f"{prefix} Registered plugin '{plugin_id}' not found, removed from reload list")
-                REGISTER_PLUGIN_LIST.remove(plugin_id)
-            elif not _reload_plugin:
-                server.unload_plugin(plugin_id)
-                server.logger.warning(f"{prefix} Failed to reload registered plugin '{plugin_id}', unloaded and removed from reload list")
-                REGISTER_PLUGIN_LIST.remove(plugin_id)
+        for plugin_id, reloader in dict(REGISTER_PLUGIN_LIST).items():
+            if reloader is None:
+                _reload_plugin = server.reload_plugin(plugin_id)
+                if _reload_plugin is None:
+                    server.logger.warning(f"{prefix} Registered plugin '{plugin_id}' not found, removed from reload list")
+                    del REGISTER_PLUGIN_LIST[plugin_id]
+                elif not _reload_plugin:
+                    server.unload_plugin(plugin_id)
+                    server.logger.warning(f"{prefix} Failed to reload registered plugin '{plugin_id}', unloaded and removed from reload list")
+                    del REGISTER_PLUGIN_LIST[plugin_id]
+                else:
+                    server.logger.info(f"{prefix} Successfully reloaded registered plugin '{plugin_id}'")
             else:
-                server.logger.info(f"{prefix} Successfully reloaded registered plugin '{plugin_id}'")
+                try:
+                    reloader(source)
+                    server.logger.info(f"{prefix} Successfully reloaded registered plugin '{plugin_id}'")
+                except Exception as e:
+                    server.unload_plugin(plugin_id)
+                    server.logger.warning(f"{prefix} Failed to reload registered plugin '{plugin_id}', unloaded and removed from reload list, reason: {e}")
+                    del REGISTER_PLUGIN_LIST[plugin_id]
     except Exception as e:
         server.logger.exception(f"{prefix} Reload failed: {e}")
         source.reply(f"{prefix}Reload failed: {e}")
+
+    server.dispatch_event(LiteralEvent("games_ai.reload"), (source,))
 
     server.say(f'{prefix}{server.rtr("games_ai.unload_message.reloader_msg")}')
     server.logger.info(f'{prefix}{server.rtr("games_ai.unload_message.reloader_msg")}')
