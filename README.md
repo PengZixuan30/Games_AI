@@ -14,7 +14,7 @@ English  |  [简体中文](/README.zh-CN.md)  |  [繁體中文](/README.zh-TW.md
 > **GamesAI Plugin/Mod QQ Group: 849544707** — Join us to discuss issues, share feedback, and exchange prompt, skills, tools configurations!
 
 > [!NOTE]
-> Welcome to version 0.6.2! This release introduces **Player Position Query**, **Forced Skill Reading**, and the **Reload Event**. See [What's New](#whats-new) for details.
+> Welcome to version 0.6.3! This release brings **automatic Mineflayer version compatibility repair**, **permission checks** for the bot start/stop AI tools, **waiting for the server to start** before launching the bot, and **clean unloading of registered extension plugins**. See [What's New](#whats-new) for details.
 
 <details>
 <summary>Table of Contents (click to expand)</summary>
@@ -55,17 +55,23 @@ English  |  [简体中文](/README.zh-CN.md)  |  [繁體中文](/README.zh-TW.md
     - [Mineflayer Bot Errors](#mineflayer-bot-errors)
     - [Logging \& Debugging](#logging--debugging)
   - [What's New](#whats-new)
-    - [Version 0.6.2](#version-062)
+    - [Version 0.6.3](#version-063)
       - [🎯 Highlights](#-highlights)
+      - [1. Mineflayer Version Compatibility Auto-Repair](#1-mineflayer-version-compatibility-auto-repair)
+      - [2. Permission Checks for Bot Start/Stop Tools](#2-permission-checks-for-bot-startstop-tools)
+      - [3. Wait for Server Start before Launching the Bot](#3-wait-for-server-start-before-launching-the-bot)
+      - [4. Unload Registered Extension Plugins on Plugin Unload](#4-unload-registered-extension-plugins-on-plugin-unload)
+    - [Version 0.6.2](#version-062)
+      - [🎯 Highlights](#-highlights-1)
       - [1. New Tool: `get_player_position`](#1-new-tool-get_player_position)
       - [2. Forced Skill Reading: `!!ask /<skill>`](#2-forced-skill-reading-ask-skill)
       - [3. `games_ai.reload` Event](#3-games_aireload-event)
     - [Version 0.6.1](#version-061)
-      - [🎯 Highlights](#-highlights-1)
+      - [🎯 Highlights](#-highlights-2)
       - [1. Extension Plugin System](#1-extension-plugin-system)
       - [2. Validation \& Stability](#2-validation--stability)
     - [Version 0.6.0](#version-060)
-      - [🎯 Highlights](#-highlights-2)
+      - [🎯 Highlights](#-highlights-3)
       - [1. Mineflayer Bot Integration](#1-mineflayer-bot-integration)
       - [2. Configuration System Overhaul](#2-configuration-system-overhaul)
       - [3. OpenAI Logging Bridge](#3-openai-logging-bridge)
@@ -141,7 +147,7 @@ GamesAI 0.6.0 introduces a fully autonomous Minecraft bot powered by [Mineflayer
 ### Prerequisites
 
 - **Node.js >= 18** and **npm** must be installed on the server
-- The plugin automatically installs npm dependencies (`mineflayer`, `ws`, `vec3`, `mineflayer-pathfinder`, `mineflayer-mcefly`) on first launch
+- The plugin automatically installs npm dependencies (`mineflayer`, `ws`, `vec3`, `mineflayer-pathfinder`, `mineflayer-mcefly`) on first launch, and refreshes them automatically when the installed mineflayer does not support the server version (e.g. after a Minecraft server upgrade)
 - A Minecraft account for the bot (Microsoft/Mojang/offline)
 
 ### Commands
@@ -635,6 +641,7 @@ def on_gamesai_reload(server: PluginServerInterface):
 |`[Bot] Died, respawning...`|`[Bot] Died, respawning...`|Normal — the bot auto-respawns on death. No action needed.|
 |Bot not responding to commands|No `[WS]` activity in logs|Restart with `!!aibot leave` then `!!aibot join`. If persistent, check that the `websocket.url` port is accessible.|
 |`npm install failed` in logs|`npm install failed (exit {X})` or `npm is not installed or not in PATH`|Ensure npm is installed and available in PATH. Check the error details in the log for specific package issues.|
+|`Server version '{X}' is not supported`|`[Bot] Error: Server version ... is not supported. Latest supported version is ...`|The Minecraft server was upgraded beyond the installed mineflayer's support. The plugin detects this automatically, updates the npm dependencies and restarts the bot. If the error persists, check network access to the npm registry, or manually run `npm install --no-save mineflayer ws vec3 mineflayer-pathfinder mineflayer-mcefly` in `config/games_ai/mineflayer/`, then restart the bot with `!!aibot leave` / `!!aibot join`.|
 
 ### Logging & Debugging
 
@@ -644,6 +651,31 @@ def on_gamesai_reload(server: PluginServerInterface):
 - If all else fails, check `config/games_ai/config.json` for misconfiguration.
 
 ## What's New
+
+### Version 0.6.3
+
+#### 🎯 Highlights
+
+- **🔧 Mineflayer Version Compatibility Auto-Repair** — When the Minecraft server is upgraded beyond the installed mineflayer's support (`Server version 'X' is not supported`), the plugin now automatically refreshes the npm dependencies and restarts the bot. Stale installations created by older plugin versions are refreshed once on the next launch.
+- **🔒 Permission Checks for Bot Start/Stop Tools** — The AI tools `run_mineflayer_bot` (`bot_start`) and `stop_mineflayer_bot` (`bot_stop`) now require the configured permission level, matching the `!!aibot join` / `!!aibot leave` commands.
+- **🕐 Wait for Server Start** — The bot now waits for the Minecraft server to start before launching, so it no longer fails to connect when MCDR boots before the server.
+- **📦 Clean Extension Unload** — Unloading the plugin also unloads every external plugin that called `register_self()`, with per-plugin failure isolation.
+
+#### 1. Mineflayer Version Compatibility Auto-Repair
+
+Fixes the `Server version 'X' is not supported. Latest supported version is ...` error (e.g. after upgrading the Minecraft server to a newer version). The plugin detects the error, runs `npm install` to refresh `mineflayer`/`minecraft-data` and friends to the latest versions, then restarts the bot automatically. Refreshes are guarded by a 10-minute cooldown and at most 3 attempts per session. See [Mineflayer Bot Errors](#mineflayer-bot-errors).
+
+#### 2. Permission Checks for Bot Start/Stop Tools
+
+The AI tools that start/stop the Mineflayer bot (`bot_start` / `bot_stop`) now verify the requesting player's permission level against the configured `permission` value, so players without permission can no longer start or stop the bot through the AI. The `!!aibot join` / `!!aibot leave` commands already had this check since 0.6.0.
+
+#### 3. Wait for Server Start before Launching the Bot
+
+`_run_mineflayer_bot` now checks whether the Minecraft server is running first. If the server is not running (e.g. MCDR boots before the server starts), the plugin waits in the background and launches the Mineflayer bot automatically once the server is up — no more "bot fails to connect because the server wasn't ready" at startup. The wait is cancelled cleanly if the plugin is unloaded, and repeated launch requests while waiting are ignored.
+
+#### 4. Unload Registered Extension Plugins on Plugin Unload
+
+When the plugin itself is unloaded, all external plugins that called `register_self()` are unloaded as well, each wrapped in its own error handling so one failing plugin never blocks the others. (The unload loop itself has existed since 0.6.1; 0.6.3 hardens it with failure isolation and result checking.)
 
 ### Version 0.6.2
 

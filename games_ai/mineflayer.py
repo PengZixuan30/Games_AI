@@ -9,6 +9,7 @@ import subprocess
 import signal
 import logging
 import re
+import time
 
 from mcdreforged.command.command_source import CommandSource
 from .games_ai_tool import register_tool, register_bot_tool
@@ -16,6 +17,18 @@ from .games_ai_tool import register_tool, register_bot_tool
 _active_client: "MineflayerWSClient | None" = None
 _client_lock = threading.Lock()
 _process: subprocess.Popen | None = None
+
+_DEPS_PACKAGES = ("mineflayer", "ws", "vec3", "mineflayer-pathfinder", "mineflayer-mcefly")
+_DEPS_MARKER_NAME = ".games_ai_deps_ok"
+_UNSUPPORTED_VERSION_RE = re.compile(
+    r"UNSUPPORTED_SERVER_VERSION|Server version .*? is not supported",
+    re.IGNORECASE,
+)
+_DEPS_REPAIR_COOLDOWN = 600.0
+_DEPS_REPAIR_MAX = 3
+_deps_repair_lock = threading.Lock()
+_deps_repair_count = 0
+_deps_repair_last = 0.0
 
 
 def is_node_running() -> bool:
@@ -590,7 +603,33 @@ function startBot() {
         botOptions.password = config.bot.password;
     }
 
-    bot = mineflayer.createBot(botOptions);
+    // ── Version-unsupported handling ──
+    // When the installed mineflayer does not support the server version (e.g.
+    // the Minecraft server was upgraded), print a distinctive marker line and
+    // exit with code 3. The MCDR plugin detects the marker, refreshes the npm
+    // dependencies and restarts this process automatically.
+    let versionUnsupportedReported = false;
+    const reportVersionUnsupported = (err) => {
+        if (versionUnsupportedReported) return false;
+        const msg = (err && err.message) ? err.message : String(err);
+        if (!/is not supported|not supported|unsupported version/i.test(msg)) return false;
+        versionUnsupportedReported = true;
+        const m = msg.match(/version '([^']+)'/i);
+        console.error(`[Bot] UNSUPPORTED_SERVER_VERSION: ${m ? m[1] : 'unknown'}`);
+        console.error('[Bot] The installed mineflayer does not support this server version. The plugin will update the npm dependencies and restart the bot automatically...');
+        setTimeout(() => process.exit(3), 1500);
+        return true;
+    };
+
+    try {
+        bot = mineflayer.createBot(botOptions);
+    } catch (err) {
+        console.error('[Bot] Failed to create bot:', err);
+        if (!reportVersionUnsupported(err)) {
+            setTimeout(() => process.exit(1), 1500);
+        }
+        return;
+    }
 
     if (pathfinder) {
         bot.loadPlugin(pathfinder.pathfinder);
@@ -652,6 +691,7 @@ function startBot() {
 
     bot.on('error', (err) => {
         console.error('[Bot] Error:', err);
+        reportVersionUnsupported(err);
     });
 
     bot.on('kicked', (reason, loggedIn) => {
@@ -1727,50 +1767,59 @@ def write_package_json(package_json_path: str):
         f.write(_PACKAGE_JSON_CONTENT)
 
 
-def run_node(init_js_path: str, logger=None) -> subprocess.Popen | None:
-    global _process
-    _kill_mineflayer_process()
-    script_dir = os.path.dirname(os.path.abspath(init_js_path))
+def _install_dependencies(script_dir: str, logger=None, refresh: bool = False):
+    """Install (or refresh to latest) the npm dependencies of the bot service.
 
-    node_modules_dir = os.path.join(script_dir, "node_modules")
-    if not os.path.isdir(node_modules_dir):
-        npm_cmd = "npm.cmd" if sys.platform == "win32" else "npm"
+    Explicit package names are always passed so that ``refresh=True`` upgrades
+    every package to the current ``latest`` dist-tag even when node_modules
+    already exists. ``--no-save`` keeps the plugin-owned package.json intact.
+    A marker file is written on success so that a later launch can skip the
+    refresh when the dependencies are already up to date.
+    """
+    npm_cmd = "npm.cmd" if sys.platform == "win32" else "npm"
+    if logger:
+        logger.info("[Mineflayer] Installing/updating npm dependencies, this may take a while...")
+    try:
+        result = subprocess.run(
+            [npm_cmd, "install", "--no-save", "--no-audit", "--no-fund", *list(_DEPS_PACKAGES)],
+            cwd=script_dir,
+            capture_output=True,
+            text=True,
+            timeout=180,
+        )
         if logger:
-            logger.info("[Mineflayer] Installing npm dependencies, this may take a while...")
-        try:
-            result = subprocess.run(
-                [npm_cmd, "install", "mineflayer", "ws", "vec3", "mineflayer-pathfinder", "mineflayer-mcefly"],
-                cwd=script_dir,
-                capture_output=True,
-                text=True,
-                timeout=180,
-            )
-            if logger:
-                for line in (result.stdout + result.stderr).splitlines():
-                    line = line.strip()
-                    if line:
-                        logger.info(f"[Mineflayer] {line}")
-            if result.returncode != 0:
-                msg = f"npm install failed (exit {result.returncode}): {result.stderr[-500:]}"
-                if logger:
-                    logger.error(f"[Mineflayer] {msg}")
-                raise RuntimeError(msg)
-            if logger:
-                logger.info("[Mineflayer] npm dependencies installed successfully")
-        except FileNotFoundError:
-            msg = "npm is not installed or not in PATH"
+            for line in (result.stdout + result.stderr).splitlines():
+                line = line.strip()
+                if line:
+                    logger.info(f"[Mineflayer] {line}")
+        if result.returncode != 0:
+            msg = f"npm install failed (exit {result.returncode}): {result.stderr[-500:]}"
             if logger:
                 logger.error(f"[Mineflayer] {msg}")
-            raise RuntimeError(msg) from None
+            raise RuntimeError(msg)
+        with open(os.path.join(script_dir, _DEPS_MARKER_NAME), "w", encoding="utf-8") as f:
+            f.write(time.strftime("%Y-%m-%d %H:%M:%S"))
+        if logger:
+            logger.info("[Mineflayer] npm dependencies installed successfully")
+    except FileNotFoundError:
+        msg = "npm is not installed or not in PATH"
+        if logger:
+            logger.error(f"[Mineflayer] {msg}")
+        raise RuntimeError(msg) from None
 
-    if not os.path.isfile(init_js_path):
-        raise FileNotFoundError(f"init.js not found at {init_js_path}")
+
+def _launch_node(init_js_path: str, logger=None) -> subprocess.Popen:
+    """Launch the Node.js bot service and stream its output to the logger."""
+    global _process
+    script_dir = os.path.dirname(os.path.abspath(init_js_path))
+    abs_init_js = os.path.abspath(init_js_path)
+    if not os.path.isfile(abs_init_js):
+        raise FileNotFoundError(f"init.js not found at {abs_init_js}")
 
     if logger:
-        logger.info(f"[Mineflayer] Launching node {os.path.abspath(init_js_path)}")
+        logger.info(f"[Mineflayer] Launching node {abs_init_js}")
 
     node_cmd = "node"
-    abs_init_js = os.path.abspath(init_js_path)
     use_output = logger is not None
     if sys.platform == "win32":
         _process = subprocess.Popen(
@@ -1782,13 +1831,6 @@ def run_node(init_js_path: str, logger=None) -> subprocess.Popen | None:
             text=True,
             creationflags=subprocess.CREATE_NO_WINDOW,
         )
-        if use_output:
-            threading.Thread(
-                target=_stream_process_output,
-                args=(_process, logger),
-                daemon=True,
-                name="MineflayerBotLog",
-            ).start()
     else:
         _process = subprocess.Popen(
             [node_cmd, abs_init_js],
@@ -1799,18 +1841,101 @@ def run_node(init_js_path: str, logger=None) -> subprocess.Popen | None:
             text=True,
             start_new_session=True,
         )
-        if use_output:
-            threading.Thread(
-                target=_stream_process_output,
-                args=(_process, logger),
-                daemon=True,
-                name="MineflayerBotLog",
-            ).start()
+    if use_output:
+        threading.Thread(
+            target=_stream_process_output,
+            args=(_process, logger, abs_init_js),
+            daemon=True,
+            name="MineflayerBotLog",
+        ).start()
 
     return _process
 
 
-def _stream_process_output(proc: subprocess.Popen, logger):
+def run_node(init_js_path: str, logger=None) -> subprocess.Popen | None:
+    """Start the Mineflayer Node.js service.
+
+    Dependencies are installed when node_modules is missing. Existing
+    installations created by older plugin versions (no marker file) are
+    refreshed once to the latest versions, so the bot keeps working after the
+    Minecraft server is upgraded to a newer version.
+    """
+    global _process
+    with _deps_repair_lock:
+        _kill_mineflayer_process()
+        script_dir = os.path.dirname(os.path.abspath(init_js_path))
+
+        node_modules_dir = os.path.join(script_dir, "node_modules")
+        marker_path = os.path.join(script_dir, _DEPS_MARKER_NAME)
+
+        if not os.path.isdir(node_modules_dir):
+            _install_dependencies(script_dir, logger, refresh=False)
+        elif not os.path.isfile(marker_path):
+            # node_modules exists but was installed by an older plugin version
+            # (or manually): refresh it once so the installed mineflayer
+            # supports the current server version.
+            try:
+                _install_dependencies(script_dir, logger, refresh=True)
+            except RuntimeError as e:
+                if logger:
+                    logger.warning(
+                        f"[Mineflayer] Could not refresh npm dependencies ({e}), "
+                        "starting with the existing dependencies..."
+                    )
+
+        return _launch_node(init_js_path, logger)
+
+
+def _handle_version_unsupported(proc: subprocess.Popen, logger, init_js_path: str | None):
+    """Auto-repair when the bot reports an unsupported server version.
+
+    Refreshes the npm dependencies to the latest versions and restarts the
+    Node.js service. Guarded by a cooldown and an attempt cap to avoid
+    restart loops when the latest mineflayer still does not support the
+    server version.
+    """
+    global _process, _deps_repair_count, _deps_repair_last
+    with _deps_repair_lock:
+        if _process is not proc:
+            return  # the process was already replaced or stopped; nothing to repair here
+        now = time.time()
+        if _deps_repair_count >= _DEPS_REPAIR_MAX:
+            if logger:
+                logger.error(
+                    "[Mineflayer] Server version is not supported by mineflayer and the "
+                    f"dependency refresh was already attempted {_deps_repair_count} time(s). "
+                    "Please update this plugin or wait for a newer mineflayer release on npm."
+                )
+            return
+        if now - _deps_repair_last < _DEPS_REPAIR_COOLDOWN:
+            if logger:
+                logger.warning(
+                    "[Mineflayer] Unsupported server version detected again, "
+                    "will retry the dependency refresh later..."
+                )
+            return
+        _deps_repair_count += 1
+        _deps_repair_last = now
+        if logger:
+            logger.warning(
+                "[Mineflayer] Detected unsupported server version. Updating npm "
+                "dependencies and restarting the bot..."
+            )
+        try:
+            # Install first so a failed refresh does not kill the (broken but
+            # alive) old process.
+            script_dir = os.path.dirname(os.path.abspath(init_js_path)) if init_js_path else None
+            if script_dir:
+                _install_dependencies(script_dir, logger, refresh=True)
+            _kill_mineflayer_process()
+            if init_js_path:
+                _launch_node(init_js_path, logger)
+        except Exception as e:
+            if logger:
+                logger.error(f"[Mineflayer] Failed to update dependencies and restart the bot: {e}")
+
+
+def _stream_process_output(proc: subprocess.Popen, logger, init_js_path: str | None = None):
     try:
         for line in iter(proc.stdout.readline, ''):
             if not line:
@@ -1818,6 +1943,8 @@ def _stream_process_output(proc: subprocess.Popen, logger):
             line = line.rstrip('\n\r')
             if line:
                 logger.info(f"[Mineflayer] {line}")
+                if _UNSUPPORTED_VERSION_RE.search(line):
+                    _handle_version_unsupported(proc, logger, init_js_path)
     except (ValueError, OSError):
         pass
     finally:

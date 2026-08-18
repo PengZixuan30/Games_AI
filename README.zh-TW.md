@@ -14,7 +14,7 @@
 > **GamesAI 插件/模組 QQ 交流群：849544707** — 歡迎加入交流群討論問題、回饋建議，以及分享 prompt、skills、tools 等設定！
 
 > [!NOTE]
-> 歡迎使用版本 0.6.2！本次更新引入了 **玩家位置查詢**、**強制技能閱讀** 和 **reload 事件**。見[本次更新](#本次更新)
+> 歡迎使用版本 0.6.3！本次更新帶來了 **Mineflayer 版本相容自動修復**、**啟停 Bot 工具權限校驗**、**等待伺服器啟動後再啟動 Bot** 和 **擴展插件隨本體卸載**。見[本次更新](#本次更新)
 
 <details>
 <summary>目錄（點擊展開）</summary>
@@ -56,17 +56,23 @@
     - [Mineflayer Bot 錯誤](#mineflayer-bot-錯誤)
     - [日誌與除錯](#日誌與除錯)
   - [本次更新](#本次更新)
-    - [Version 0.6.2](#version-062)
+    - [Version 0.6.3](#version-063)
       - [🎯 核心亮點](#-核心亮點)
+      - [1. Mineflayer 版本相容自動修復](#1-mineflayer-版本相容自動修復)
+      - [2. 啟停 Bot 工具權限校驗](#2-啟停-bot-工具權限校驗)
+      - [3. 等待伺服器啟動後再啟動 Bot](#3-等待伺服器啟動後再啟動-bot)
+      - [4. 插件卸載時卸載已註冊的擴展插件](#4-插件卸載時卸載已註冊的擴展插件)
+    - [Version 0.6.2](#version-062)
+      - [🎯 核心亮點](#-核心亮點-1)
       - [1. 新工具 `get_player_position`](#1-新工具-get_player_position)
       - [2. 強制技能閱讀 `!!ask /<skill>`](#2-強制技能閱讀-ask-skill)
       - [3. `games_ai.reload` 事件](#3-games_aireload-事件)
     - [Version 0.6.1](#version-061)
-      - [🎯 核心亮點](#-核心亮點-1)
+      - [🎯 核心亮點](#-核心亮點-2)
       - [1. 擴展插件系統](#1-擴展插件系統)
       - [2. 驗證與穩定性](#2-驗證與穩定性)
     - [Version 0.6.0](#version-060)
-      - [🎯 核心亮點](#-核心亮點-2)
+      - [🎯 核心亮點](#-核心亮點-3)
       - [1. Mineflayer Bot 整合](#1-mineflayer-bot-整合)
       - [2. 設定系統重製](#2-設定系統重製)
       - [3. OpenAI 日誌橋接](#3-openai-日誌橋接)
@@ -143,7 +149,7 @@ GamesAI 0.6.0 引入了基於 [Mineflayer](https://github.com/PrismarineJS/minef
 ### 環境需求
 
 - 伺服器需安裝 **Node.js >= 18** 和 **npm**
-- 插件首次啟動時自動安裝 npm 依賴（`mineflayer`、`ws`、`vec3`、`mineflayer-pathfinder`、`mineflayer-mcefly`）
+- 插件首次啟動時自動安裝 npm 依賴（`mineflayer`、`ws`、`vec3`、`mineflayer-pathfinder`、`mineflayer-mcefly`），並在已安裝的 mineflayer 不支援目前伺服器版本時（例如伺服器升級後）自動刷新依賴
 - 一個用於 Bot 的 Minecraft 帳號（Microsoft/Mojang/離線）
 
 ### 指令
@@ -636,6 +642,7 @@ def on_gamesai_reload(server: PluginServerInterface):
 |`[Bot] Died, respawning...`|`[Bot] Died, respawning...`|正常——Bot 死亡後會自動重生，無需干預。|
 |Bot 不回應指令|日誌中無 `[WS]` 活動|使用 `!!aibot leave` 然後 `!!aibot join` 重新啟動。若持續存在，檢查 `websocket.url` 埠號是否可存取。|
 |日誌中出現 `npm install failed`|`npm install failed (exit {X})` 或 `npm is not installed or not in PATH`|確保 npm 已安裝且在 PATH 中。檢查日誌中的詳細錯誤資訊定位具體套件問題。|
+|`Server version '{X}' is not supported`|`[Bot] Error: Server version ... is not supported. Latest supported version is ...`|Minecraft 伺服器升級到了已安裝 mineflayer 不支援的版本。插件會自動偵測到此錯誤，更新 npm 依賴並重啟 Bot。若錯誤持續存在，請檢查伺服器能否存取 npm 源，或在 `config/games_ai/mineflayer/` 下手動執行 `npm install --no-save mineflayer ws vec3 mineflayer-pathfinder mineflayer-mcefly`，然後透過 `!!aibot leave` / `!!aibot join` 重啟 Bot。|
 
 ### 日誌與除錯
 
@@ -645,6 +652,31 @@ def on_gamesai_reload(server: PluginServerInterface):
 - 如果以上方法均無效，請檢查 `config/games_ai/config.json` 是否存在設定錯誤。
 
 ## 本次更新
+
+### Version 0.6.3
+
+#### 🎯 核心亮點
+
+- **🔧 Mineflayer 版本相容自動修復** — 當 Minecraft 伺服器升級到已安裝 mineflayer 不支援的版本（`Server version 'X' is not supported`）時，插件現在會自動刷新 npm 依賴並重啟 Bot；舊版本插件安裝的過期依賴也會在下次啟動時自動刷新一次
+- **🔒 啟停 Bot 工具權限校驗** — AI 工具 `run_mineflayer_bot`（`bot_start`）和 `stop_mineflayer_bot`（`bot_stop`）現在要求達到設定的權限等級，與 `!!aibot join` / `!!aibot leave` 指令一致
+- **🕐 等待伺服器啟動** — Bot 會先等待 Minecraft 伺服器啟動再連線，不再因 MCDR 先於伺服器啟動而連線失敗
+- **📦 擴展插件隨本體卸載** — 插件卸載時一併卸載所有呼叫過 `register_self()` 的外部插件，並做了失敗隔離
+
+#### 1. Mineflayer 版本相容自動修復
+
+修復 `Server version 'X' is not supported. Latest supported version is ...` 報錯（例如伺服器升級到更新的 Minecraft 版本後）。插件偵測到該錯誤後會自動執行 `npm install`，將 `mineflayer`/`minecraft-data` 等依賴刷新到最新版本並重啟 Bot。刷新操作受 10 分鐘冷卻和每會話最多 3 次的限制。詳見[Mineflayer Bot 錯誤](#mineflayer-bot-錯誤)。
+
+#### 2. 啟停 Bot 工具權限校驗
+
+啟動/停止 Mineflayer Bot 的 AI 工具（`bot_start` / `bot_stop`）現在會校驗發起請求玩家的權限等級是否達到設定的 `permission` 值，無權限玩家無法再透過 AI 啟停 Bot。`!!aibot join` / `!!aibot leave` 指令自 0.6.0 起已有該校驗。
+
+#### 3. 等待伺服器啟動後再啟動 Bot
+
+`_run_mineflayer_bot` 現在會先檢查 Minecraft 伺服器是否正在執行。若伺服器未執行（例如 MCDR 啟動時伺服器尚未開啟），插件會在背景等待，伺服器啟動後自動啟動 Mineflayer Bot——不再出現「伺服器未就緒導致 Bot 啟動即連線失敗」的情況。等待期間插件被卸載會乾淨地取消等待，重複的啟動請求也會被忽略。
+
+#### 4. 插件卸載時卸載已註冊的擴展插件
+
+插件本體被卸載時，會一併卸載所有呼叫過 `register_self()` 的外部插件。每個卸載操作都有獨立的例外處理，單個插件卸載失敗不會阻塞其餘插件。（卸載迴圈自 0.6.1 引入，0.6.3 起增加失敗隔離與結果校驗加固。）
 
 ### Version 0.6.2
 

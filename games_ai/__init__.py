@@ -19,7 +19,7 @@ import re
 
 PLUGIN_METADATA = {
     "id": "games_ai",
-    "version": "0.6.2",
+    "version": "0.6.3",
     "name": "GamesAI",
     "description": {
         "zh_cn": "此插件可以让你在游戏中使用AI",
@@ -40,6 +40,10 @@ _history_locks: dict[tuple, threading.Lock] = {}
 websocket_connections: dict[str, MineflayerWSClient] = {}
 _autonomous_controller: AutonomousBotController | None = None
 _aibot_lock = threading.Lock()
+# Set when the plugin is unloaded, so a pending "wait for server start" bot
+# launch aborts cleanly (see _wait_server_then_launch)
+_mineflayer_pending_abort = threading.Event()
+_mineflayer_wait_thread: threading.Thread | None = None
 
 def _get_history_lock(username: str, ai_prefix: str) -> threading.Lock:
     key = (username, ai_prefix)
@@ -287,6 +291,8 @@ def _write_mineflayer_config(server: PluginServerInterface, config: dict):
 )
 def run_mineflayer_bot(source: CommandSource, ai_prefix: str):
     server = source.get_server()
+    if source.get_permission_level() < plugin_config.allow_permission:
+        return server.rtr("games_ai.tools.permission_denied")
     if is_node_running():
         return f"Mineflayer 机器人已在运行（{plugin_config.bot_username}）"
     source.reply(f"{ai_prefix}{server.rtr('games_ai.tools.bot_start')}")
@@ -300,6 +306,8 @@ def run_mineflayer_bot(source: CommandSource, ai_prefix: str):
 )
 def stop_mineflayer_bot(source: CommandSource, ai_prefix: str):
     server = source.get_server()
+    if source.get_permission_level() < plugin_config.allow_permission:
+        return server.rtr("games_ai.tools.permission_denied")
     if not is_node_running():
         return "Mineflayer 机器人未在运行"
     source.reply(f"{ai_prefix}{server.rtr('games_ai.tools.bot_stop')}")
@@ -307,6 +315,32 @@ def stop_mineflayer_bot(source: CommandSource, ai_prefix: str):
     return "正在停止 Mineflayer 机器人..."
 
 def _run_mineflayer_bot(server: ServerInterface, bot_config: dict, mineflayer_init_js_path: str):
+    if not server.is_server_running():
+        global _mineflayer_wait_thread
+        if _mineflayer_wait_thread is not None and _mineflayer_wait_thread.is_alive():
+            server.logger.info(f"{prefix} Minecraft server is not running, already waiting for it to start...")
+            return
+        server.logger.info(f"{prefix} Minecraft server is not running, Mineflayer bot will launch automatically after the server starts")
+        _mineflayer_wait_thread = _wait_server_then_launch(server, bot_config, mineflayer_init_js_path)
+        return
+    _launch_mineflayer_bot(server, bot_config, mineflayer_init_js_path)
+
+
+@new_thread("games_ai@mineflayer_wait_server")
+def _wait_server_then_launch(server: ServerInterface, bot_config: dict, mineflayer_init_js_path: str):
+    while not server.is_server_running():
+        if _mineflayer_pending_abort.is_set():
+            server.logger.info(f"{prefix} Plugin unloaded, Mineflayer bot launch cancelled")
+            return
+        time.sleep(2)
+    if _mineflayer_pending_abort.is_set():
+        server.logger.info(f"{prefix} Plugin unloaded, Mineflayer bot launch cancelled")
+        return
+    server.logger.info(f"{prefix} Minecraft server started, launching Mineflayer bot...")
+    _launch_mineflayer_bot(server, bot_config, mineflayer_init_js_path)
+
+
+def _launch_mineflayer_bot(server: ServerInterface, bot_config: dict, mineflayer_init_js_path: str):
     node_path = shutil.which("node")
     if not node_path:
         server.logger.warning(f"{prefix} Mineflayer bot is enabled but Node.js was not found. Disabling and reloading...")
@@ -435,7 +469,9 @@ def _apply_config(server: PluginServerInterface, config: dict):
     plugin_config.bot_username = bot_cfg.get("username", "Bot")
 
 def on_unload(server: PluginServerInterface):
-    global _autonomous_controller
+    global _autonomous_controller, _mineflayer_wait_thread
+    _mineflayer_pending_abort.set()
+    _mineflayer_wait_thread = None
     if _timer is not None:
         _timer.cancel()
     try:
@@ -453,9 +489,17 @@ def on_unload(server: PluginServerInterface):
     finally:
         server.logger.info(f"{prefix} Mineflayer bot process has been terminated successfully!")
     server.logger.info(f"{prefix}{server.rtr("games_ai.unload_message.server_info")}")
-    for plugin_id in list(REGISTER_PLUGIN_LIST):
-        server.logger.info(f"{prefix} Unloading registered extension plugin '{plugin_id}'")
-        server.unload_plugin(plugin_id)
+    for plugin_id in list(REGISTER_PLUGIN_LIST.keys()):
+        try:
+            server.logger.info(f"{prefix} Unloading registered extension plugin '{plugin_id}'")
+            result = server.unload_plugin(plugin_id)
+            if result is None:
+                server.logger.warning(f"{prefix} Registered plugin '{plugin_id}' not found, removed from unload list")
+                REGISTER_PLUGIN_LIST.pop(plugin_id, None)
+            elif not result:
+                server.logger.warning(f"{prefix} Failed to unload registered plugin '{plugin_id}'")
+        except Exception as e:
+            server.logger.exception(f"{prefix} Error while unloading registered plugin '{plugin_id}': {e}")
     REGISTER_PLUGIN_LIST.clear()
     if unload_status_code == 0:
         server.say(f'{prefix}Bye!')
