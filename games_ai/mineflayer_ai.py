@@ -7,7 +7,7 @@ import datetime
 from typing import Callable
 
 from .openai_api import response_chat
-from .games_ai_tool import TOOL_SCHEMAS, get_tool_handler, register_tool, register_bot_tool, get_bot_tool_schemas
+from .games_ai_tool import get_tool_handler, register_tool, register_bot_tool, get_bot_tool_schemas
 from .mineflayer import MineflayerWSClient
 from mcdreforged.command.command_source import CommandSource
 from mcdreforged.plugin.si.server_interface import ServerInterface
@@ -64,7 +64,6 @@ _LK = "games_ai.autonomous_bot"
         "Bot 控制器会在独立线程中自主决定具体执行步骤（如导航、挖掘、放置等）。"
         "仅当任务确实需要 Bot 在 Minecraft 世界中执行操作时才调用，纯问答不需要。"
     ),
-    tr_key="delegate_to_bot",
     parameters={
         "type": "object",
         "properties": {

@@ -14,7 +14,7 @@
 > **GamesAI 插件/模组 QQ 交流群：849544707** — 欢迎加入交流群讨论问题、反馈建议，以及分享 prompt、skills、tools 等配置！
 
 > [!NOTE]
-> 欢迎使用版本 0.6.3！本次更新带来了 **Mineflayer 版本兼容自动修复**、**启停 Bot 工具权限校验**、**等待服务器启动后再启动 Bot** 和 **扩展插件随本体卸载**。见[本次更新](#本次更新)
+> 欢迎使用版本 0.6.4！本次更新带来了 **AI 工具权限系统**（`@register_tool` 的 `perm` 参数）、**热重载时全量重建工具注册**（内置工具重放、自定义 `tools.py` 重新导入、第三方插件随工具一起重载）以及**多项重载与权限修复**。白名单与 Minecraft Wiki 工具已迁移至 [GamesAI-Extra](https://github.com/PengZixuan30/Games_AI-Extra)。见[本次更新](#本次更新)
 
 <details>
 <summary>目录(点击展示)</summary>
@@ -55,23 +55,29 @@
     - [Mineflayer Bot 错误](#mineflayer-bot-错误)
     - [日志与调试](#日志与调试)
   - [本次更新](#本次更新)
-    - [Version 0.6.3](#version-063)
+    - [Version 0.6.4](#version-064)
       - [🎯 核心亮点](#-核心亮点)
+      - [1. AI 工具权限系统](#1-ai-工具权限系统)
+      - [2. 热重载时全量重建工具注册](#2-热重载时全量重建工具注册)
+      - [3. 工具集调整](#3-工具集调整)
+      - [4. 修复](#4-修复)
+    - [Version 0.6.3](#version-063)
+      - [🎯 核心亮点](#-核心亮点-1)
       - [1. Mineflayer 版本兼容自动修复](#1-mineflayer-版本兼容自动修复)
       - [2. 启停 Bot 工具权限校验](#2-启停-bot-工具权限校验)
       - [3. 等待服务器启动后再启动 Bot](#3-等待服务器启动后再启动-bot)
       - [4. 插件卸载时卸载已注册的扩展插件](#4-插件卸载时卸载已注册的扩展插件)
     - [Version 0.6.2](#version-062)
-      - [🎯 核心亮点](#-核心亮点-1)
+      - [🎯 核心亮点](#-核心亮点-2)
       - [1. 新工具 `get_player_position`](#1-新工具-get_player_position)
       - [2. 强制技能阅读 `!!ask /<skill>`](#2-强制技能阅读-ask-skill)
       - [3. `games_ai.reload` 事件](#3-games_aireload-事件)
     - [Version 0.6.1](#version-061)
-      - [🎯 核心亮点](#-核心亮点-2)
+      - [🎯 核心亮点](#-核心亮点-3)
       - [1. 扩展插件系统](#1-扩展插件系统)
       - [2. 验证与稳定性](#2-验证与稳定性)
     - [Version 0.6.0](#version-060)
-      - [🎯 核心亮点](#-核心亮点-3)
+      - [🎯 核心亮点](#-核心亮点-4)
       - [1. Mineflayer Bot 集成](#1-mineflayer-bot-集成)
       - [2. 配置系统重制](#2-配置系统重制)
       - [3. OpenAI 日志桥接](#3-openai-日志桥接)
@@ -203,7 +209,7 @@ Bot 支持 20+ 种操作，通过 `bot_call_action` AI 工具调用：
 |`bot_chat`|让 Bot 在公共聊天中发送消息。|
 |`bot_whisper`|让 Bot 向某个玩家发送私聊消息。|
 |`bot_get_state`|获取 Bot 完整状态（30+ 字段）。|
-|`bot_start` / `bot_stop`|启动或停止 Bot。|
+|`run_mineflayer_bot` / `stop_mineflayer_bot`|启动或停止 Bot。需要达到配置的 `permission` 权限等级（0.6.4+）。|
 |`delegate_to_bot`|将复杂的 Minecraft 任务委派给自主控制器。|
 
 ### 配置
@@ -273,6 +279,8 @@ Bot 支持 20+ 种操作，通过 `bot_call_action` AI 工具调用：
 
 执行`!!data`等指令所必须达到的权限，见[MCDR权限相关文档](https://docs.mcdreforged.com/zh-cn/latest/permission.html)
 
+自 0.6.4 起，该值同时决定向玩家 AI 提供哪些**工具**：`perm` 高于玩家权限等级的工具不会传给 AI 模型，模型既看不到也无法调用。管理数据、技能、自定义工具或启停 Bot 的内置工具都使用该值（通过 `get_plugin_config_perm`），并在每次请求时实时读取，重载后立即生效。
+
 
 ### 3.max_history
 值的类型: int
@@ -331,7 +339,7 @@ Mineflayer 自主 Bot 代理的配置项。
 ## 工具与Skills
 
 > [!TIP]
-> 部分内置工具已迁移至 [GamesAI-Extra](https://github.com/PengZixuan30/Games_AI-Extra) 插件（如坐标点管理、位置追踪等）。安装后可获得额外工具。
+> 部分工具由 [GamesAI-Extra](https://github.com/PengZixuan30/Games_AI-Extra) 插件提供——坐标点管理与位置追踪，以及（0.6.4 起）白名单管理（`get_whitelist_name`、`add_to_whitelist`、`remove_from_whitelist`）和 `search_minecraft_wiki`。安装该插件即可获得这些工具。
 
 ### 内置工具
 
@@ -342,12 +350,8 @@ GamesAI插件提供了很多内置的工具，见下表。如果你想要更多�
 
 |工具ID|传入参数|用途|
 |:---:|:---:|:---|
-|get_online_players|无|获取服务器内在线的玩家列表。依赖于`online_player_api`插件，不存在时自动关闭此工具|
+|get_online_players|无|获取服务器内在线的玩家列表。依赖于`online_player_api`插件，RCON 可用时回退为 RCON `list` 查询|
 |get_player_position|`player`|获取指定玩家的位置和维度。依赖于`minecraft_data_api`插件，不存在时自动关闭此工具|
-|get_whitelist_name|无|获取服务器完整的白名单列表。依赖于`whitelist_api`插件，不存在时自动关闭此工具|
-|add_to_whitelist|`name`|将某个玩家添加到白名单中。依赖于`whitelist_api`插件，不存在时自动关闭此工具|
-|remove_from_whitelist|`name`|将某个玩家从白名单删除。依赖于`whitelist_api`插件，不存在时自动关闭此工具|
-|search_minecraft_wiki|`query`|让AI搜索Minecraft Wiki，以确保回答更准确|
 |calculator|`expression`|简单的数学表达式计算器|
 |item_caculator|`expression`,`single_limit`|数学表达式计算器，并将最终结果转换为物品计数法，即 盒、组、个，自动适应物品的堆叠数，不存在时默认使用64|
 |ai_read_data|`key`|读取一条数据库内容|
@@ -369,9 +373,12 @@ GamesAI插件提供了很多内置的工具，见下表。如果你想要更多�
 |bot_whisper|`username`, `message`|让机器人私聊某个玩家。|
 |bot_get_state|无|获取机器人完整状态（30+ 字段）。|
 |bot_call_action|`action`, `params`|向机器人发送任意指令（goto，dig，place，attack 等）。|
-|bot_start|无|启动 Mineflayer 机器人（如果未运行）。|
-|bot_stop|无|停止 Mineflayer 机器人。|
+|run_mineflayer_bot|无|启动 Mineflayer 机器人（如果未运行）。需要达到配置的 `permission` 权限等级。|
+|stop_mineflayer_bot|无|停止 Mineflayer 机器人。需要达到配置的 `permission` 权限等级。|
 |delegate_to_bot|`task`|将复杂的 Minecraft 任务委派给自主 Bot 控制器。|
+
+> [!NOTE]
+> 自 0.6.4 起，`perm` 高于请求玩家权限等级的工具不会提供给 AI。写入/删除数据、管理技能、管理自定义工具或启停 Bot 的工具需要达到配置的 `permission` 权限等级。
 
 </details>
 
@@ -397,6 +404,18 @@ def my_custom_tool(source: CommandSource, ai_prefix: str):
 > 在 0.5.7+ 版本中，AI 可以**自主读取、修改和追加**自定义工具文件。只需让 AI 帮你添加新工具——它会先读取当前文件，编写新代码，然后通过 [热重载](#热重载) 使修改生效。
 
 `description` 是必填项，告诉 AI 此工具的用途。`parameters` 字典（可选）定义了 AI 应传入的参数，遵循 [OpenAI function calling 格式](https://platform.openai.com/docs/guides/function-calling)。函数签名必须包含 `source: CommandSource` 和 `ai_prefix: str` 作为前两个参数，其后跟随 `parameters` 中定义的参数。
+
+自 0.6.4 起，可选的 `perm` 参数用于设置向玩家 AI 提供该工具所需的最低权限等级——可以是 `int`，也可以是返回 `int` 的零参可调用对象（如 `get_plugin_config_perm`，动态跟随插件的 `permission` 配置）。默认值为 `0`（所有玩家可用）：
+
+```python
+from games_ai.games_ai_tool import register_tool, get_plugin_config_perm
+
+@register_tool(description="管理员专用工具", perm=get_plugin_config_perm)
+def my_admin_tool(source: CommandSource, ai_prefix: str):
+    return "仅对达到配置权限等级的玩家可见"
+```
+
+权限高于玩家等级的工具根本不会传给 AI；出于安全考虑，仍应在函数内部保留 `source.get_permission_level()` 运行时检查。
 
 > [!TIP]
 > 在 `@register_tool` 旁添加 `@register_bot_tool()` 装饰器（同样从 `games_ai.games_ai_tool` 导入），可以让该工具被自主 Mineflayer Bot 控制器使用。不加则只能通过 `!!ask` 由聊天 AI 调用。
@@ -433,9 +452,12 @@ def my_plugin_tool(source: CommandSource, ai_prefix: str, ...):
 }
 ```
 
-以此方式注册的工具与内置工具完全相同——AI 可以直接调用，如果需要也可以使用 `@register_bot_tool()` 标记为 Bot 可用工具。如果你还希望插件在 GamesAI 热重载时自动刷新，请参考[让自己的 MCDR 插件跟随 GamesAI 热重载](#让自己的-mcdr-插件跟随-gamesai-热重载)。
+以此方式注册的工具与内置工具完全相同——AI 可以直接调用，如果需要也可以使用 `@register_bot_tool()` 标记为 Bot 可用工具。自 0.6.4 起，可选的 `perm` 参数（`int` 或返回 `int` 的零参可调用对象，如 `get_plugin_config_perm`）用于控制工具对哪个权限等级开放。
 
-如果你希望你的插件在 GamesAI 执行 `!!gamesai reload` 时**自动重载**（例如 AI 通过 `modify_custom_tools` 修改了工具代码后），在你的插件 `on_load` 中调用 `register_self()`：
+> [!NOTE]
+> 自 0.6.4 起，凡是通过 `@register_tool` 注册过工具的插件，都会在 `!!gamesai reload` 时**自动重载**，其工具代码始终保持最新——无需再调用 `register_self()`。只有当你的插件需要自定义重载逻辑，或者不注册工具也想跟随重载时，才需要使用 `register_self()`。详见[让自己的 MCDR 插件跟随 GamesAI 热重载](#让自己的-mcdr-插件跟随-gamesai-热重载)。
+
+如果你希望你的插件在 GamesAI 执行 `!!gamesai reload` 时**自动重载**——例如插件只注册了技能（没有注册工具），或需要自定义重载逻辑——在你的插件 `on_load` 中调用 `register_self()`：
 
 ```python
 from games_ai.register_extra_plugin import register_self
@@ -532,11 +554,12 @@ GamesAI 提供了完善的热重载机制，让你在不重启服务器的情况
 执行热重载时，插件会依次执行以下操作：
 
 1. **重新读取配置文件** (`config/games_ai/config.json`) — 应用 `prefix`、`permission`、`max_history`、`all_ai`、`default_ai` 等全部配置变更。
-2. **重新加载 Skills** (`config/games_ai/skills/skills.json`) — 刷新技能索引，AI 系统提示中的可用技能列表同步更新。
-3. **重新加载自定义工具** (`config/games_ai/tools/tools.py`) — 热加载自定义工具代码，无需重启 MCDR。
-4. **重启 Mineflayer Bot**（如已启用）— 停止现有 Bot 进程和 WebSocket 连接，应用新配置后重新启动。
-5. **重载已注册的扩展插件** — 遍历 `REGISTER_PLUGIN_LIST`，逐一重载已注册的扩展插件（[见下方](#让自己的-mcdr-插件跟随-gamesai-热重载)）。
-6. **派发 `games_ai.reload` 事件** — 通知所有监听了此事件的其他 MCDR 插件（[见下方](#通过监听事件响应热重载)）。
+2. **全量重建工具注册（0.6.4+）** — 彻底清空工具注册表，然后从所有来源重建：内置工具通过注册重放恢复、自定义 `tools.py` 重新导入、注册过工具的插件被重载以重新执行注册代码（见第 4、6 步）。
+3. **重新加载 Skills** (`config/games_ai/skills/skills.json`) — 刷新技能索引，AI 系统提示中的可用技能列表同步更新。
+4. **重新加载自定义工具** (`config/games_ai/tools/tools.py`) — 热加载自定义工具代码，无需重启 MCDR。
+5. **重启 Mineflayer Bot**（如已启用）— 停止现有 Bot 进程和 WebSocket 连接，应用新配置后重新启动。
+6. **重载注册过工具的插件与已注册的扩展插件** — 重载所有通过 `@register_tool` 注册过工具的第三方插件（0.6.4 起自动追踪）以及 `REGISTER_PLUGIN_LIST` 中的插件（[见下方](#让自己的-mcdr-插件跟随-gamesai-热重载)）。重载失败或找不到的插件会从重载列表中移除。
+7. **派发 `games_ai.reload` 事件** — 通知所有监听了此事件的其他 MCDR 插件（[见下方](#通过监听事件响应热重载)）。
 
 > [!NOTE]
 > 热重载**不会丢失**玩家的聊天历史记录。
@@ -548,6 +571,9 @@ GamesAI 提供了完善的热重载机制，让你在不重启服务器的情况
 #### 方式一：使用 `register_self()` 自动重载（推荐）
 
 这是最简单的方式。在你的插件 `on_load` 中调用 `register_self()`，将插件加入 GamesAI 的重载列表：
+
+> [!NOTE]
+> 自 0.6.4 起，通过 `@register_tool` 注册过工具的插件在热重载时会自动重载（由工具注册表自动追踪），因此 `register_self()` 仅适用于未注册工具的插件（如只注册技能的插件）或需要自定义重载逻辑的插件。
 
 ```python
 from games_ai.register_extra_plugin import register_self
@@ -607,7 +633,7 @@ def on_gamesai_reload(server: PluginServerInterface):
 
 |特性|`register_self()` 不传 reloader|`register_self()` 传入自定义 reloader|监听 `games_ai.reload` 事件|
 |---|---|---|---|
-|触发时机|重载过程中（第 5 步）|重载过程中（第 5 步）|重载完成后（第 6 步）|
+|触发时机|重载过程中（第 6 步）|重载过程中（第 6 步）|重载完成后（第 7 步）|
 |插件行为|MCDR 卸载后重载（`on_load` 重新执行）|插件保持加载，仅调用自定义函数|插件不受影响|
 |失败处理|插件被卸载，从重载列表移除|插件被卸载，从重载列表移除|异常不会卸载插件|
 |工具/Skills|`on_load` 自动重新注册|无需重新注册（插件未卸载，注册保持有效）|无需处理|
@@ -652,6 +678,40 @@ def on_gamesai_reload(server: PluginServerInterface):
 - 如果以上方法均无效，请检查 `config/games_ai/config.json` 是否存在配置错误。
 
 ## 本次更新
+
+### Version 0.6.4
+
+#### 🎯 核心亮点
+
+- **🔐 AI 工具权限系统** — `@register_tool` 新增 `perm` 参数；`perm` 高于请求玩家的工具根本不会提供给 AI。`perm` 支持可调用对象（如 `get_plugin_config_perm`），可动态跟随 `permission` 配置。
+- **♻️ 热重载时全量重建工具注册** — `!!gamesai reload` 现在会彻底清空并重建工具注册表：内置工具重放恢复、自定义 `tools.py` 重新导入、注册过工具的第三方插件被真正重载以刷新工具代码。
+- **🧰 工具集调整** — 白名单工具（`get_whitelist_name`、`add_to_whitelist`、`remove_from_whitelist`）和 `search_minecraft_wiki` 迁移至 [GamesAI-Extra](https://github.com/PengZixuan30/Games_AI-Extra)；`get_online_players` 在缺少 `online_player_api` 时回退为 RCON `list` 查询。
+
+#### 1. AI 工具权限系统
+
+`register_tool(description=..., perm=..., parameters=...)` — `perm` 可以是 `int` 或返回 `int` 的零参可调用对象（默认 `0` 表示所有玩家可用）。每次 `!!ask` 前，插件会从注册表构建工具列表，只把 `perm` 不高于玩家权限等级的工具传给模型；工具函数内部的运行时权限检查依然生效。管理数据、技能、自定义工具或启停 Bot 的内置工具现在都使用 `get_plugin_config_perm`（配置中的 `permission` 值，请求时实时读取）。这修复了旧版"所有工具对所有玩家可见"的问题。
+
+#### 2. 热重载时全量重建工具注册
+
+`!!gamesai reload` 现在执行完整的工具重置：
+
+- **内置工具** — 通过记录的注册闭包重新注册（不重新执行模块代码，Bot 进程与 WebSocket 句柄不受影响）；
+- **自定义 `tools.py`** — 旧的外部工具被清除后重新导入，文件中被删除的工具会真正消失；
+- **第三方插件** — 通过 `@register_tool` 注册过工具的插件按模块顶层名追踪并由 MCDR 重载，重新执行其 import/`on_load` 注册代码。
+
+这取代了旧版对已加载模块调用 `importlib.import_module` 的做法（该做法是 no-op，重载后内置工具全部丢失）。详见[重载期间发生了什么](#重载期间发生了什么)。
+
+#### 3. 工具集调整
+
+- 白名单工具（`get_whitelist_name`、`add_to_whitelist`、`remove_from_whitelist`）和 `search_minecraft_wiki` 迁移至 [GamesAI-Extra](https://github.com/PengZixuan30/Games_AI-Extra) 插件。
+- `get_online_players` 在未安装 `online_player_api` 插件但 RCON 运行时，回退为 RCON `list` 查询。
+
+#### 4. 修复
+
+- 修复 `perm=plugin_config.allow_permission` 在 import 时取值的问题——权限现在在请求时惰性解析。
+- 修复重载逻辑：旧版清空 `TOOL_SCHEMAS` 后对已导入模块调用 `importlib.import_module`，导致重载后内置工具消失。
+- 移除残留的 `tr_key` 参数（会导致工具注册抛出 `TypeError`）。
+- 合并扩展插件重载列表与工具注册插件列表，并做失败隔离（`REGISTER_PLUGIN_LIST.pop` / `TOOL_PLUGIN_IDS.discard`）。
 
 ### Version 0.6.3
 

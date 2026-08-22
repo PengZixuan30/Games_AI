@@ -215,7 +215,6 @@ def _get_client():
 
 @register_tool(
     description="让 Mineflayer 机器人在 Minecraft 聊天中发送一条消息",
-    tr_key="bot_chat",
     parameters={
         "type": "object",
         "properties": {
@@ -248,7 +247,6 @@ def bot_chat(source: CommandSource, ai_prefix: str, message: str):
 
 @register_tool(
     description="让 Mineflayer 机器人私聊某个玩家",
-    tr_key="bot_whisper",
     parameters={
         "type": "object",
         "properties": {
@@ -285,7 +283,6 @@ def bot_whisper(source: CommandSource, ai_prefix: str, username: str, message: s
 
 @register_tool(
     description="获取 Mineflayer 机器人的当前状态（位置、血量、饥饿值、游戏模式、背包物品）",
-    tr_key="bot_get_state",
 )
 @register_bot_tool()
 def bot_get_state(source: CommandSource, ai_prefix: str):
@@ -344,7 +341,6 @@ def bot_get_state(source: CommandSource, ai_prefix: str):
         "- furnaceTakeOutput: 从熔炉取出成品，params: {x, y, z}\n"
         "- craft: 合成物品（背包或工作台），params: {itemName: string, count?: int, x?, y?, z?}（不提供坐标则在背包中合成）"
     ),
-    tr_key="bot_call_action",
     parameters={
         "type": "object",
         "properties": {

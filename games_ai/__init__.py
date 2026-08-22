@@ -1,7 +1,7 @@
 from mcdreforged.api.all import *
 
 from .openai_api import response_chat, setup_openai_logging
-from .games_ai_tool import TOOL_SCHEMAS, get_tool_handler, register_tool
+from .games_ai_tool import get_tool_handler, register_tool, get_tool_schemas_for_perm, get_plugin_config_perm, reset_all_tools, TOOL_PLUGIN_IDS
 from .database import PublicDatabase
 from .config import plugin_config
 from .tools_interpreter import load_external_tools
@@ -19,7 +19,7 @@ import re
 
 PLUGIN_METADATA = {
     "id": "games_ai",
-    "version": "0.6.3",
+    "version": "0.6.4",
     "name": "GamesAI",
     "description": {
         "zh_cn": "此插件可以让你在游戏中使用AI",
@@ -287,7 +287,7 @@ def _write_mineflayer_config(server: PluginServerInterface, config: dict):
 
 @register_tool(
     description="启动 Mineflayer 机器人，使其加入 Minecraft 服务器。如果机器人已在运行则不做任何操作。",
-    tr_key="bot_start",
+    perm=get_plugin_config_perm,
 )
 def run_mineflayer_bot(source: CommandSource, ai_prefix: str):
     server = source.get_server()
@@ -302,7 +302,7 @@ def run_mineflayer_bot(source: CommandSource, ai_prefix: str):
 
 @register_tool(
     description="停止 Mineflayer 机器人，使其离开 Minecraft 服务器。",
-    tr_key="bot_stop",
+    perm=get_plugin_config_perm,
 )
 def stop_mineflayer_bot(source: CommandSource, ai_prefix: str):
     server = source.get_server()
@@ -742,6 +742,8 @@ def ask_ai(source: CommandSource, context: dict, no_history: bool = False):
         response_message.extend(history)
     response_message.append(user_message)
 
+    ai_tools: list[dict] = get_tool_schemas_for_perm(source.get_permission_level())
+
     if debug_mode:
         source.reply(f"[DEBUG]{response_message}")
     
@@ -751,7 +753,7 @@ def ask_ai(source: CommandSource, context: dict, no_history: bool = False):
 
     while True:
         try:
-            ai_reply = response_chat(model=ai_model,url=base_url,message=response_message,api_key=api_key,tools=TOOL_SCHEMAS,extra_body=extra_body)
+            ai_reply = response_chat(model=ai_model,url=base_url,message=response_message,api_key=api_key,tools=ai_tools,extra_body=extra_body)
             if ai_reply.tool_calls is not None:
                 response_message.append(ai_reply)
                 history.append(ai_reply)
@@ -964,7 +966,7 @@ class DataManager:
 
 class AiDataManager:
     @staticmethod
-    @register_tool(description="读取公共数据中的键值对, 输入key以获取对应的value, 推荐在读取之前先查看现有的key都有哪些", tr_key="reading_data", parameters={
+    @register_tool(description="读取公共数据中的键值对, 输入key以获取对应的value, 推荐在读取之前先查看现有的key都有哪些", parameters={
         "type": "object",
         "properties": {
             "key": {
@@ -984,7 +986,7 @@ class AiDataManager:
             return f"键 {key} 的值为 {result}"
 
     @staticmethod
-    @register_tool(description="读取公共数据中的所有键", tr_key="reading_all_keys")
+    @register_tool(description="读取公共数据中的所有键")
     def ai_read_all_keys(source: CommandSource, ai_prefix: str):
         server = source.get_server()
         source.reply(f'{ai_prefix}{server.rtr("games_ai.tools.reading_all_keys")}')
@@ -992,7 +994,7 @@ class AiDataManager:
         return f"当前所有的键有: {keys}"
 
     @staticmethod
-    @register_tool(description="向公共数据中写入键值对(新增/覆写模式), 输入key和value以写入数据, 注意写入方式为覆写, 需避免覆盖重要数据, 数据不存在时将自动创建", tr_key="writing_data", parameters={
+    @register_tool(description="向公共数据中写入键值对(新增/覆写模式), 输入key和value以写入数据, 注意写入方式为覆写, 需避免覆盖重要数据, 数据不存在时将自动创建", perm=get_plugin_config_perm, parameters={
         "type": "object",
         "properties": {
             "key": {
@@ -1015,7 +1017,7 @@ class AiDataManager:
         return f"已将键 {key} 的值写入 {value}"
 
     @staticmethod
-    @register_tool(description="向公共数据中追加数据(新增/追加模式), 输入key和value以追加数据, 数据将被追加到原数据的末尾, 不存在时自动创建", tr_key="adding_data", parameters={
+    @register_tool(description="向公共数据中追加数据(新增/追加模式), 输入key和value以追加数据, 数据将被追加到原数据的末尾, 不存在时自动创建", perm=get_plugin_config_perm, parameters={
         "type": "object",
         "properties": {
             "key": {
@@ -1043,7 +1045,7 @@ class AiDataManager:
         return f"已将键 {key} 的值增加 {value}, 当前值为 {new_value}"
 
     @staticmethod
-    @register_tool(description="从公共数据中删除数据, 输入key以删除对应的数据, 注意删除后无法恢复, 即使key不存在, 也仍然会进行删除", tr_key="deleting_data", parameters={
+    @register_tool(description="从公共数据中删除数据, 输入key以删除对应的数据, 注意删除后无法恢复, 即使key不存在, 也仍然会进行删除", perm=get_plugin_config_perm, parameters={
         "type": "object",
         "properties": {
             "key": {
@@ -1062,7 +1064,7 @@ class AiDataManager:
         return f"已删除键 {key} 的数据"
     
     @staticmethod
-    @register_tool(description="读取公共数据中的所有键值对", tr_key="reading_all_data")
+    @register_tool(description="读取公共数据中的所有键值对")
     def ai_read_all_data(source: CommandSource, ai_prefix: str):
         server = source.get_server()
         source.reply(f'{ai_prefix}{server.rtr("games_ai.tools.reading_all_data")}')
@@ -1154,6 +1156,10 @@ def reloader(source: CommandSource, context: dict):
             config = json.load(f)
         _apply_config(server, config)
 
+        tool_plugin_ids = set(TOOL_PLUGIN_IDS)
+
+        reset_all_tools()
+
         try:
             with open(plugin_config.skills_path, mode="r", encoding="utf-8") as f:
                 skills = json.loads(f.read())
@@ -1202,18 +1208,25 @@ def reloader(source: CommandSource, context: dict):
                 except Exception as e:
                     server.logger.exception(f"{prefix} Failed to start Mineflayer bot: {e}")
 
-        for plugin_id, reloader in dict(REGISTER_PLUGIN_LIST).items():
+        plugin_reload_map = dict(REGISTER_PLUGIN_LIST)
+        for plugin_id in tool_plugin_ids:
+            if plugin_id != PLUGIN_METADATA["id"] and plugin_id not in plugin_reload_map:
+                plugin_reload_map[plugin_id] = None
+
+        for plugin_id, reloader in plugin_reload_map.items():
             if reloader is None:
                 _reload_plugin = server.reload_plugin(plugin_id)
                 if _reload_plugin is None:
-                    server.logger.warning(f"{prefix} Registered plugin '{plugin_id}' not found, removed from reload list")
-                    del REGISTER_PLUGIN_LIST[plugin_id]
+                    server.logger.warning(f"{prefix} Plugin '{plugin_id}' (registered tools) not found")
+                    REGISTER_PLUGIN_LIST.pop(plugin_id, None)
+                    TOOL_PLUGIN_IDS.discard(plugin_id)
                 elif not _reload_plugin:
                     server.unload_plugin(plugin_id)
-                    server.logger.warning(f"{prefix} Failed to reload registered plugin '{plugin_id}', unloaded and removed from reload list")
-                    del REGISTER_PLUGIN_LIST[plugin_id]
+                    server.logger.warning(f"{prefix} Failed to reload plugin '{plugin_id}', unloaded and removed from reload list")
+                    REGISTER_PLUGIN_LIST.pop(plugin_id, None)
+                    TOOL_PLUGIN_IDS.discard(plugin_id)
                 else:
-                    server.logger.info(f"{prefix} Successfully reloaded registered plugin '{plugin_id}'")
+                    server.logger.info(f"{prefix} Successfully reloaded plugin '{plugin_id}'")
             else:
                 try:
                     reloader(source)
@@ -1221,7 +1234,8 @@ def reloader(source: CommandSource, context: dict):
                 except Exception as e:
                     server.unload_plugin(plugin_id)
                     server.logger.warning(f"{prefix} Failed to reload registered plugin '{plugin_id}', unloaded and removed from reload list, reason: {e}")
-                    del REGISTER_PLUGIN_LIST[plugin_id]
+                    REGISTER_PLUGIN_LIST.pop(plugin_id, None)
+                    TOOL_PLUGIN_IDS.discard(plugin_id)
     except Exception as e:
         server.logger.exception(f"{prefix} Reload failed: {e}")
         source.reply(f"{prefix}Reload failed: {e}")

@@ -14,7 +14,7 @@ English  |  [简体中文](/README.zh-CN.md)  |  [繁體中文](/README.zh-TW.md
 > **GamesAI Plugin/Mod QQ Group: 849544707** — Join us to discuss issues, share feedback, and exchange prompt, skills, tools configurations!
 
 > [!NOTE]
-> Welcome to version 0.6.3! This release brings **automatic Mineflayer version compatibility repair**, **permission checks** for the bot start/stop AI tools, **waiting for the server to start** before launching the bot, and **clean unloading of registered extension plugins**. See [What's New](#whats-new) for details.
+> Welcome to version 0.6.4! This release brings a **permission-based AI tool system** (`perm` for `@register_tool`), **full tool re-registration on hot reload** (built-in tools replayed, custom `tools.py` re-imported, third-party plugin tools reloaded together with their plugins), and **several reload & permission fixes**. Whitelist and Minecraft Wiki tools have been moved to [GamesAI-Extra](https://github.com/PengZixuan30/Games_AI-Extra). See [What's New](#whats-new) for details.
 
 <details>
 <summary>Table of Contents (click to expand)</summary>
@@ -55,23 +55,29 @@ English  |  [简体中文](/README.zh-CN.md)  |  [繁體中文](/README.zh-TW.md
     - [Mineflayer Bot Errors](#mineflayer-bot-errors)
     - [Logging \& Debugging](#logging--debugging)
   - [What's New](#whats-new)
-    - [Version 0.6.3](#version-063)
+    - [Version 0.6.4](#version-064)
       - [🎯 Highlights](#-highlights)
+      - [1. Permission-Based AI Tool System](#1-permission-based-ai-tool-system)
+      - [2. Full Tool Re-Registration on Hot Reload](#2-full-tool-re-registration-on-hot-reload)
+      - [3. Tool Set Adjustments](#3-tool-set-adjustments)
+      - [4. Fixes](#4-fixes)
+    - [Version 0.6.3](#version-063)
+      - [🎯 Highlights](#-highlights-1)
       - [1. Mineflayer Version Compatibility Auto-Repair](#1-mineflayer-version-compatibility-auto-repair)
       - [2. Permission Checks for Bot Start/Stop Tools](#2-permission-checks-for-bot-startstop-tools)
       - [3. Wait for Server Start before Launching the Bot](#3-wait-for-server-start-before-launching-the-bot)
       - [4. Unload Registered Extension Plugins on Plugin Unload](#4-unload-registered-extension-plugins-on-plugin-unload)
     - [Version 0.6.2](#version-062)
-      - [🎯 Highlights](#-highlights-1)
+      - [🎯 Highlights](#-highlights-2)
       - [1. New Tool: `get_player_position`](#1-new-tool-get_player_position)
       - [2. Forced Skill Reading: `!!ask /<skill>`](#2-forced-skill-reading-ask-skill)
       - [3. `games_ai.reload` Event](#3-games_aireload-event)
     - [Version 0.6.1](#version-061)
-      - [🎯 Highlights](#-highlights-2)
+      - [🎯 Highlights](#-highlights-3)
       - [1. Extension Plugin System](#1-extension-plugin-system)
       - [2. Validation \& Stability](#2-validation--stability)
     - [Version 0.6.0](#version-060)
-      - [🎯 Highlights](#-highlights-3)
+      - [🎯 Highlights](#-highlights-4)
       - [1. Mineflayer Bot Integration](#1-mineflayer-bot-integration)
       - [2. Configuration System Overhaul](#2-configuration-system-overhaul)
       - [3. OpenAI Logging Bridge](#3-openai-logging-bridge)
@@ -204,7 +210,7 @@ In addition to `bot_call_action`, these dedicated AI tools are available:
 |`bot_chat`|Make the bot send a message in public chat.|
 |`bot_whisper`|Make the bot send a private message to a player.|
 |`bot_get_state`|Get the bot's full state (30+ fields).|
-|`bot_start` / `bot_stop`|Start or stop the bot.|
+|`run_mineflayer_bot` / `stop_mineflayer_bot`|Start or stop the bot. Require the configured `permission` level (0.6.4+).|
 |`delegate_to_bot`|Delegate a complex Minecraft task to the autonomous controller.|
 
 ### Configuration
@@ -273,6 +279,8 @@ Default: `3`
 
 The minimum permission level required to execute commands like `!!data`. See the [MCDR Permission Documentation](https://docs.mcdreforged.com/en/latest/permission.html).
 
+Since 0.6.4, this value also controls which **AI tools** are offered to a player: tools whose `perm` is above the player's level are not passed to the AI model at all, so the model cannot see or call them. Built-in tools that manage data, skills, custom tools, or the bot use this value (via `get_plugin_config_perm`), and it is re-read on every request, so changes take effect immediately after a reload.
+
 ### 3.max_history
 Type: `int`
 
@@ -330,7 +338,7 @@ Configuration for the Mineflayer autonomous bot agent.
 ## Tools & Skills
 
 > [!TIP]
-> Some built-in tools have been moved to the [GamesAI-Extra](https://github.com/PengZixuan30/Games_AI-Extra) plugin (e.g. waypoint management, position tracking). Install it to get additional tools.
+> Some tools are available via the [GamesAI-Extra](https://github.com/PengZixuan30/Games_AI-Extra) plugin — waypoint management and position tracking, and (since 0.6.4) whitelist management (`get_whitelist_name`, `add_to_whitelist`, `remove_from_whitelist`) and `search_minecraft_wiki`. Install it to get these tools.
 
 ### Built-in Tools
 
@@ -341,12 +349,8 @@ The GamesAI plugin provides many built-in tools, listed in the table below. If y
 
 |Tool ID|Parameters|Description|
 |:---:|:---:|:---|
-|get_online_players|None|Get the list of currently online players. Depends on the `online_player_api` plugin; automatically disabled if unavailable.|
+|get_online_players|None|Get the list of currently online players. Depends on the `online_player_api` plugin; falls back to an RCON `list` query when RCON is running.|
 |get_player_position|`player`|Get a player's position and dimension. Depends on the `minecraft_data_api` plugin; automatically disabled if unavailable.|
-|get_whitelist_name|None|Get the complete server whitelist. Depends on the `whitelist_api` plugin; automatically disabled if unavailable.|
-|add_to_whitelist|`name`|Add a player to the whitelist. Depends on the `whitelist_api` plugin; automatically disabled if unavailable.|
-|remove_from_whitelist|`name`|Remove a player from the whitelist. Depends on the `whitelist_api` plugin; automatically disabled if unavailable.|
-|search_minecraft_wiki|`query`|Let the AI search the Minecraft Wiki for more accurate answers.|
 |calculator|`expression`|A simple mathematical expression calculator.|
 |item_caculator|`expression`, `single_limit`|A mathematical expression calculator that converts results into Minecraft item notation (shulker boxes, stacks, items). Automatically adapts to stack size; defaults to 64 if not specified.|
 |ai_read_data|`key`|Read a single entry from the database.|
@@ -368,9 +372,12 @@ The GamesAI plugin provides many built-in tools, listed in the table below. If y
 |bot_whisper|`username`, `message`|Make the bot send a private message to a player.|
 |bot_get_state|None|Get the bot's full state (30+ fields).|
 |bot_call_action|`action`, `params`|Send arbitrary action to the bot (goto, dig, place, attack, etc.).|
-|bot_start|None|Start the Mineflayer bot if not running.|
-|bot_stop|None|Stop the Mineflayer bot.|
+|run_mineflayer_bot|None|Start the Mineflayer bot if not running. Requires the configured `permission` level.|
+|stop_mineflayer_bot|None|Stop the Mineflayer bot. Requires the configured `permission` level.|
 |delegate_to_bot|`task`|Delegate a complex Minecraft task to the autonomous bot controller.|
+
+> [!NOTE]
+> Since 0.6.4, tools with a `perm` above the requesting player's permission level are not offered to the AI at all. Tools that write/delete data, manage skills, manage custom tools, or start/stop the bot require the configured `permission` level.
 
 </details>
 
@@ -396,6 +403,18 @@ def my_custom_tool(source: CommandSource, ai_prefix: str):
 > In version 0.5.7+, the AI can autonomously **read, modify, and append** the custom tools file using the `read_custom_tools`, `modify_custom_tools`, and `append_custom_tools` tools. Just ask the AI to add a new tool for you — it will read the current file, write the new code, and apply changes via [Hot Reload](#hot-reload).
 
 The `description` parameter is mandatory and tells the AI what the tool does. The `parameters` dictionary (optional) defines the arguments the AI should pass in, following the [OpenAI function calling schema](https://platform.openai.com/docs/guides/function-calling). The function signature must include `source: CommandSource` and `ai_prefix: str` as the first two parameters, followed by any custom parameters defined in `parameters`.
+
+Since 0.6.4, the optional `perm` parameter sets the minimum permission level required for the tool to be offered to the player's AI — an `int`, or a zero-argument callable returning an `int` (e.g. `get_plugin_config_perm`, which follows the plugin's `permission` config dynamically). It defaults to `0` (available to everyone):
+
+```python
+from games_ai.games_ai_tool import register_tool, get_plugin_config_perm
+
+@register_tool(description="Admin-only tool", perm=get_plugin_config_perm)
+def my_admin_tool(source: CommandSource, ai_prefix: str):
+    return "Only visible to players with the configured permission level"
+```
+
+Tools above the player's level are not passed to the AI at all; still keep a runtime `source.get_permission_level()` check inside the function for safety.
 
 > [!TIP]
 > Add the `@register_bot_tool()` decorator (from `games_ai.games_ai_tool`) alongside `@register_tool` to make the tool available to the autonomous Mineflayer Bot controller. Without it, the tool can only be used through `!!ask` by the chat AI.
@@ -432,9 +451,12 @@ Your plugin should list `games_ai` in its `dependencies` in `mcdreforged.plugin.
 }
 ```
 
-Tools registered this way are identical to built-in tools — the AI can call them directly, and you can mark them as bot-accessible with `@register_bot_tool()` if needed. If you also want your plugin to auto-refresh during GamesAI hot reload, see [Making Your MCDR Plugin Follow GamesAI Hot Reload](#making-your-mcdr-plugin-follow-gamesai-hot-reload).
+Tools registered this way are identical to built-in tools — the AI can call them directly, and you can mark them as bot-accessible with `@register_bot_tool()` if needed. Since 0.6.4, the optional `perm` parameter (an `int` or a zero-argument callable such as `get_plugin_config_perm`) controls which permission level the tool is offered at.
 
-If you want your plugin to be **automatically reloaded** when GamesAI runs `!!gamesai reload` (e.g. after AI modifies your tool code via `modify_custom_tools`), call `register_self()` in your plugin's `on_load`:
+> [!NOTE]
+> Since 0.6.4, any plugin that registers tools via `@register_tool` is **automatically reloaded** during `!!gamesai reload` so its tool code stays fresh — no `register_self()` call required. Use `register_self()` only if your plugin needs custom reload logic or wants to be reloaded without registering tools. See [Making Your MCDR Plugin Follow GamesAI Hot Reload](#making-your-mcdr-plugin-follow-gamesai-hot-reload).
+
+If you want your plugin to be **automatically reloaded** when GamesAI runs `!!gamesai reload` even without registering tools (e.g. a skills-only plugin), or you need custom reload logic, call `register_self()` in your plugin's `on_load`:
 
 ```python
 from games_ai.register_extra_plugin import register_self
@@ -531,11 +553,12 @@ Hot reload can be triggered in the following ways:
 When a hot reload is performed, the plugin executes the following steps in order:
 
 1. **Re-read the configuration file** (`config/games_ai/config.json`) — Applies all changes to `prefix`, `permission`, `max_history`, `all_ai`, `default_ai`, etc.
-2. **Reload Skills** (`config/games_ai/skills/skills.json`) — Refreshes the skill index; the available skills list in the AI's system prompt is updated synchronously.
-3. **Reload Custom Tools** (`config/games_ai/tools/tools.py`) — Hot-loads custom tool code without restarting MCDR.
-4. **Restart the Mineflayer Bot** (if enabled) — Stops the existing Bot process and WebSocket connection, then restarts with the new configuration.
-5. **Reload Registered Extension Plugins** — Iterates through `REGISTER_PLUGIN_LIST` and reloads each registered extension plugin one by one ([see below](#making-your-mcdr-plugin-follow-gamesai-hot-reload)).
-6. **Dispatch the `games_ai.reload` Event** — Notifies all other MCDR plugins that are listening for this event ([see below](#responding-to-hot-reload-via-event-listening)).
+2. **Re-register all tools (0.6.4+)** — Completely clears the tool registry and rebuilds it from every source: built-in tools are replayed from recorded registrations, custom `tools.py` tools are re-imported, and plugins that registered tools are reloaded so their registration code runs again (see steps 4 and 6).
+3. **Reload Skills** (`config/games_ai/skills/skills.json`) — Refreshes the skill index; the available skills list in the AI's system prompt is updated synchronously.
+4. **Reload Custom Tools** (`config/games_ai/tools/tools.py`) — Hot-loads custom tool code without restarting MCDR.
+5. **Restart the Mineflayer Bot** (if enabled) — Stops the existing Bot process and WebSocket connection, then restarts with the new configuration.
+6. **Reload Plugins that Registered Tools & Registered Extension Plugins** — Reloads every third-party plugin that registered tools via `@register_tool` (tracked automatically since 0.6.4) plus every plugin in `REGISTER_PLUGIN_LIST` ([see below](#making-your-mcdr-plugin-follow-gamesai-hot-reload)). Failed or missing plugins are removed from the reload list.
+7. **Dispatch the `games_ai.reload` Event** — Notifies all other MCDR plugins that are listening for this event ([see below](#responding-to-hot-reload-via-event-listening)).
 
 > [!NOTE]
 > Hot reload **does not** clear players' chat history.
@@ -547,6 +570,9 @@ If you are developing an MCDR plugin that depends on GamesAI (e.g., registering 
 #### Approach 1: Auto-Reload with `register_self()` (Recommended)
 
 This is the simplest approach. Call `register_self()` in your plugin's `on_load` to add your plugin to GamesAI's reload list:
+
+> [!NOTE]
+> Since 0.6.4, plugins that register tools via `@register_tool` are reloaded automatically during hot reload (they are tracked by the tool registry), so `register_self()` is only needed for plugins that don't register tools (e.g. skills-only plugins) or need custom reload logic.
 
 ```python
 from games_ai.register_extra_plugin import register_self
@@ -606,7 +632,7 @@ def on_gamesai_reload(server: PluginServerInterface):
 
 |Feature|`register_self()` without reloader|`register_self()` with custom reloader|Listening to `games_ai.reload` Event|
 |---|---|---|---|
-|When it fires|During reload (Step 5)|During reload (Step 5)|After reload completes (Step 6)|
+|When it fires|During reload (Step 6)|During reload (Step 6)|After reload completes (Step 7)|
 |Plugin behavior|MCDR unloads then reloads (`on_load` re-runs)|Plugin stays loaded; only custom function runs|Plugin unaffected|
 |Failure handling|Plugin unloaded, removed from reload list|Plugin unloaded, removed from reload list|Exception does not unload plugin|
 |Tools/Skills|Auto re-registered by `on_load`|No re-registration needed (plugin not unloaded, registrations persist)|Not needed|
@@ -651,6 +677,40 @@ def on_gamesai_reload(server: PluginServerInterface):
 - If all else fails, check `config/games_ai/config.json` for misconfiguration.
 
 ## What's New
+
+### Version 0.6.4
+
+#### 🎯 Highlights
+
+- **🔐 Permission-Based AI Tool System** — `@register_tool` now accepts a `perm` parameter; tools above the requesting player's permission level are not even offered to the AI. `perm` supports a callable (e.g. `get_plugin_config_perm`) so it follows the `permission` config dynamically.
+- **♻️ Full Tool Re-Registration on Hot Reload** — `!!gamesai reload` now completely clears and rebuilds the tool registry: built-in tools are replayed, custom `tools.py` is re-imported, and third-party plugins that registered tools are actually reloaded so their tool code refreshes.
+- **🧰 Tool Set Adjustments** — Whitelist tools (`get_whitelist_name`, `add_to_whitelist`, `remove_from_whitelist`) and `search_minecraft_wiki` moved to [GamesAI-Extra](https://github.com/PengZixuan30/Games_AI-Extra); `get_online_players` falls back to an RCON `list` query when `online_player_api` is unavailable.
+
+#### 1. Permission-Based AI Tool System
+
+`register_tool(description=..., perm=..., parameters=...)` — `perm` can be an `int` or a zero-argument callable returning an `int` (default `0` = everyone). Before each `!!ask`, the plugin builds the tool list from the registry and only passes tools whose `perm` is at or below the player's permission level; the runtime permission check inside each tool function still applies. Built-in tools that manage data, skills, custom tools, or the bot now use `get_plugin_config_perm` (the configured `permission` value, read at request time). This fixes the old behavior where every tool was offered to every player.
+
+#### 2. Full Tool Re-Registration on Hot Reload
+
+`!!gamesai reload` now performs a complete tool reset:
+
+- **Built-in tools** — re-registered from recorded registration closures (no module re-execution, so the bot process and WebSocket handles are unaffected);
+- **Custom `tools.py`** — old external tools are removed and the file is re-imported, so deleted tools actually disappear;
+- **Third-party plugins** — plugins that registered tools via `@register_tool` are tracked by top-level module name and reloaded by MCDR, re-running their import/`on_load` registration code.
+
+This replaces the previous approach, which used `importlib.import_module` on already-loaded modules (a no-op that silently dropped all built-in tools). See [What Happens During a Hot Reload](#what-happens-during-a-hot-reload).
+
+#### 3. Tool Set Adjustments
+
+- Whitelist tools (`get_whitelist_name`, `add_to_whitelist`, `remove_from_whitelist`) and `search_minecraft_wiki` moved to the [GamesAI-Extra](https://github.com/PengZixuan30/Games_AI-Extra) plugin.
+- `get_online_players` now falls back to an RCON `list` query when the `online_player_api` plugin is not installed but RCON is running.
+
+#### 4. Fixes
+
+- Fixed `perm=plugin_config.allow_permission` being captured at import time — permission is now resolved lazily at request time.
+- Fixed the broken reload logic that cleared `TOOL_SCHEMAS` and called `importlib.import_module` on already-imported modules (built-in tools disappeared after a reload).
+- Removed leftover `tr_key` parameters that crashed tool registration with a `TypeError`.
+- Merged the extension-plugin reload list with the tool-registering plugin list, with failure isolation (`REGISTER_PLUGIN_LIST.pop` / `TOOL_PLUGIN_IDS.discard`).
 
 ### Version 0.6.3
 

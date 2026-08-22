@@ -43,6 +43,18 @@ Each tool function MUST be decorated with `@register_tool(...)`. The decorator p
 
 - **description** (required): A clear description of what the tool does. This is what the AI reads to decide when to call the tool.
 - **parameters** (optional): JSON Schema for function parameters.
+- **perm** (optional, 0.6.4+): The minimum MCDR permission level required for the tool to be offered to the player's AI. Can be an `int` or a zero-argument callable returning an `int`. Defaults to `0` (available to everyone). Use `get_plugin_config_perm` (imported from `games_ai.games_ai_tool`) to make the tool follow the plugin's `permission` config value dynamically:
+
+```python
+from mcdreforged.command.command_source import CommandSource
+from games_ai.games_ai_tool import register_tool, get_plugin_config_perm
+
+@register_tool(description="Admin-only tool", perm=get_plugin_config_perm)
+def my_admin_tool(source: CommandSource, ai_prefix: str):
+    return "Only visible to players with the configured permission level"
+```
+
+Note: tools with a `perm` above the requesting player's level are not passed to the AI at all, so the model cannot even see or call them. You should still keep the runtime permission check inside the function for safety.
 
 Every tool function MUST accept these two parameters:
 - `source: CommandSource` — the command source that triggered the AI request
