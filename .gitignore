@@ -1,2 +1,5 @@
 /.vscode
 *.mcdr
+/.freebuff
+__pycache__/
+/.pytest_tmp

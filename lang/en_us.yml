@@ -28,6 +28,10 @@ games_ai:
     ask_help: " to ask AI a question"
     ask_no_history_help: " to ask AI a question (without history)"
 
+    switch_help: " to switch the AI model"
+
+    ask_force_help: " to ask AI a question (forced, inject into the current round immediately)"
+
     clear_help: " to clear your chat history"
 
     clearall_help: " to clear all chat history"
@@ -84,6 +88,7 @@ games_ai:
 
     model_error: "Invalid AI model! Available AI models: "
     model_more: "Unable to match precisely! The following AI models were matched: "
+    switch_success: "Switched to AI model: {model} (history preserved)"
 
     data_list: "Public data list:"
     thinking: "§7Thinking...§r"

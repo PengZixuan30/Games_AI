@@ -1,5 +1,7 @@
 import logging
 from openai import OpenAI
+from openai.types.chat.chat_completion_message import ChatCompletionMessage
+from openai.types.chat.chat_completion import ChatCompletion
 
 
 class _MCDRBridgeHandler(logging.Handler):
@@ -45,19 +47,29 @@ def setup_openai_logging(mcdr_logger: logging.Logger, level=logging.INFO):
     mcdr_logger.info("[OpenAI] Logging bridge enabled (level=%s)", logging.getLevelName(level))
 
 
-def response_chat(model,url,message,api_key,tools=[],extra_body={}):
+def response_chat(
+    client: OpenAI,
+    model: str,
+    response_list,
+    *,
+    tools = None,
+    extra_body = None,
+) -> ChatCompletionMessage:
 
-    client = OpenAI(
-        api_key=api_key,
-        base_url=url
-    )
-    
-    response = client.chat.completions.create(
+    if not isinstance(client, OpenAI):
+        raise TypeError("Must pass in OpenAI object")
+    if not isinstance(model, str):
+        raise TypeError("Model must be string")
+
+    response: ChatCompletion = client.chat.completions.create(
         model=model,
-        messages=message,
+        messages=response_list,
         tools=tools,
-        stream=False,
         extra_body=extra_body,
+        stream=False,
     )
+
+    if not isinstance(response, ChatCompletion):
+        raise TypeError("Response type was error")
 
     return response.choices[0].message

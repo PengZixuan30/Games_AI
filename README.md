@@ -14,7 +14,10 @@ English  |  [简体中文](/README.zh-CN.md)  |  [繁體中文](/README.zh-TW.md
 > **GamesAI Plugin/Mod QQ Group: 849544707** — Join us to discuss issues, share feedback, and exchange prompt, skills, tools configurations!
 
 > [!NOTE]
-> Welcome to version 0.6.4! This release brings a **permission-based AI tool system** (`perm` for `@register_tool`), **full tool re-registration on hot reload** (built-in tools replayed, custom `tools.py` re-imported, third-party plugin tools reloaded together with their plugins), and **several reload & permission fixes**. Whitelist and Minecraft Wiki tools have been moved to [GamesAI-Extra](https://github.com/PengZixuan30/Games_AI-Extra). See [What's New](#whats-new) for details.
+> Welcome to version 0.7.0! This release introduces the **per-user ChatParam conversation architecture**, new **`!!ask switch <model>`** and **`!!ask -f <content>`** commands, removes the old `-m` / `--model` variants, and adds **debug logging for the whole AI request flow**. See [What's New](#whats-new) for details.
+
+> [!NOTE]
+> **Community vote: how should history be handled when switching AI models?** v0.7.0 keeps the current "fully preserve history" behavior; the final policy will be decided by vote and land in v0.7.1. Join the poll: [#20](https://github.com/PengZixuan30/Games_AI/issues/20)
 
 <details>
 <summary>Table of Contents (click to expand)</summary>
@@ -22,6 +25,9 @@ English  |  [简体中文](/README.zh-CN.md)  |  [繁體中文](/README.zh-TW.md
 - [GamesAI for MCDReforged](#gamesai-for-mcdreforged)
   - [Installation](#installation)
   - [Usage](#usage)
+  - [AI Request Pipeline \& Chat Mechanism](#ai-request-pipeline--chat-mechanism)
+    - [The request chain](#the-request-chain)
+    - [Per-user state](#per-user-state)
   - [Using the Mineflayer Bot](#using-the-mineflayer-bot)
     - [Prerequisites](#prerequisites)
     - [Commands](#commands)
@@ -55,32 +61,12 @@ English  |  [简体中文](/README.zh-CN.md)  |  [繁體中文](/README.zh-TW.md
     - [Mineflayer Bot Errors](#mineflayer-bot-errors)
     - [Logging \& Debugging](#logging--debugging)
   - [What's New](#whats-new)
-    - [Version 0.6.4](#version-064)
+    - [Version 0.7.0](#version-070)
       - [🎯 Highlights](#-highlights)
-      - [1. Permission-Based AI Tool System](#1-permission-based-ai-tool-system)
-      - [2. Full Tool Re-Registration on Hot Reload](#2-full-tool-re-registration-on-hot-reload)
-      - [3. Tool Set Adjustments](#3-tool-set-adjustments)
-      - [4. Fixes](#4-fixes)
-    - [Version 0.6.3](#version-063)
-      - [🎯 Highlights](#-highlights-1)
-      - [1. Mineflayer Version Compatibility Auto-Repair](#1-mineflayer-version-compatibility-auto-repair)
-      - [2. Permission Checks for Bot Start/Stop Tools](#2-permission-checks-for-bot-startstop-tools)
-      - [3. Wait for Server Start before Launching the Bot](#3-wait-for-server-start-before-launching-the-bot)
-      - [4. Unload Registered Extension Plugins on Plugin Unload](#4-unload-registered-extension-plugins-on-plugin-unload)
-    - [Version 0.6.2](#version-062)
-      - [🎯 Highlights](#-highlights-2)
-      - [1. New Tool: `get_player_position`](#1-new-tool-get_player_position)
-      - [2. Forced Skill Reading: `!!ask /<skill>`](#2-forced-skill-reading-ask-skill)
-      - [3. `games_ai.reload` Event](#3-games_aireload-event)
-    - [Version 0.6.1](#version-061)
-      - [🎯 Highlights](#-highlights-3)
-      - [1. Extension Plugin System](#1-extension-plugin-system)
-      - [2. Validation \& Stability](#2-validation--stability)
-    - [Version 0.6.0](#version-060)
-      - [🎯 Highlights](#-highlights-4)
-      - [1. Mineflayer Bot Integration](#1-mineflayer-bot-integration)
-      - [2. Configuration System Overhaul](#2-configuration-system-overhaul)
-      - [3. OpenAI Logging Bridge](#3-openai-logging-bridge)
+      - [1. ChatParam: One Conversation Object per Player](#1-chatparam-one-conversation-object-per-player)
+      - [2. The Full Request Chain](#2-the-full-request-chain)
+      - [3. Other Improvements \& Fixes](#3-other-improvements--fixes)
+  - [The Role of AI in This Project](#the-role-of-ai-in-this-project)
   - [Acknowledgements \& Disclaimer](#acknowledgements--disclaimer)
   - [Sponsorship \& Contributors](#sponsorship--contributors)
   - [License](#license)
@@ -124,9 +110,9 @@ You can also use `!!ask` directly to ask the AI questions, chat, or ask it to do
 |Command|Description|
 |---|---|
 |`!!ask <content>`|Ask the AI a question, chat, or ask it to do something. `<content>` is what you want the AI to do or the question you want to ask.|
-|`!!ask -m <model> <content>`|Use a specific model to ask the AI a question, chat, or ask it to do something. `<model>` is the AI_ID or nickname of the model you want to use. `<content>` is what you want the AI to do or the question you want to ask.|
 |`!!ask -n <content>`|Ask the AI without using conversation history (current conversation is still saved).|
-|`!!ask -n -m <model> <content>`|Use a specific model without conversation history.|
+|`!!ask -f <content>`|Force-ask without waiting: the request is merged into the round that is currently running (alias: `-forced`). See [AI Request Pipeline & Chat Mechanism](#ai-request-pipeline--chat-mechanism).|
+|`!!ask switch <model>`|Switch the AI model for your current conversation. `<model>` is the AI_ID or nickname. See [AI Request Pipeline & Chat Mechanism](#ai-request-pipeline--chat-mechanism).|
 
 ---
 
@@ -143,6 +129,65 @@ Type `!!data` for information about database commands.
 |`!!data read <key>`|Read the value associated with a key from the public database.|
 |`!!data list`|Read all entries in the public database.|
 |`!!data list keys`|Read all keys in the public database.|
+
+---
+
+## AI Request Pipeline & Chat Mechanism
+
+This section explains what happens between your `!!ask` and the AI's reply, and how conversations are managed internally.
+
+### The request chain
+
+1. You run `!!ask <content>` (or `!!ask -n <content>` / `!!ask -f <content>`).
+2. The plugin resolves your username and builds the user message (labeled with `Username:` / `Message:` in your current language).
+3. Your per-user `ChatParam` object (see `games_ai/chat_param.py`) is created lazily and uses the model configured by `all_ai` / `default_ai`.
+4. Each round, `ChatParam.response_ai` assembles the request:
+   - system messages: current time, the model's prompt, the skills list (built-in + `skills.json` + registered by external plugins), and the public data list;
+   - conversation history (skipped with `!!ask -n`);
+   - tools filtered by your permission level.
+5. The round talks to the OpenAI-compatible API through a client created once per AI config (`openai_api.response_chat`).
+6. If the AI calls a tool, the plugin executes it, injects the result, and **continues the same round** until the AI produces a final text reply.
+7. The reply is sent with the AI's name prefix and saved into the history; the history is trimmed to `max_history × 2 + tool_count × 2` messages.
+
+```mermaid
+flowchart TD
+    U["Player / Console"] -->|"!!ask <content>"| ASK["ask_ai"]
+    U -->|"!!ask -n <content>"| NOH["No-history mode"]
+    U -->|"!!ask -f <content>"| QUEUE["response_queue"]
+    U -->|"!!ask switch <model>"| SWITCH["Rebuild AI client<br/>history kept in v0.7.0"]
+
+    ASK --> CP["ChatParam (per player)"]
+    NOH --> CPD["Temp ChatParam"]
+    CP --> BUILD["response_ai — build request"]
+    CPD --> BUILD
+    BUILD -->|"system: time / prompt / skills / data"| API
+    BUILD -->|"history: response_list<br/>(skipped with -n)"| API
+    BUILD -->|"tools: filtered by permission"| API
+
+    API["OpenAI-compatible API"] --> TOOLCALL{"tool_calls?"}
+    TOOLCALL -->|"Yes"| TOOL["Execute tool, inject result<br/>continue the same round"]
+    TOOL --> BUILD
+    TOOLCALL -->|"No"| REPLY["Final reply → player"]
+    REPLY --> SAVE["Save into response_list<br/>trim: max_history × 2 + tool_count × 2"]
+
+    QUEUE -.->|"merged into running round<br/>or answered by follow-up round"| BUILD
+    SWITCH --> CP
+```
+
+### Per-user state
+
+- `all_chat_param` keeps one `ChatParam` per player in memory; `!!gamesai clear` / `!!gamesai clearall` removes them.
+- `ChatParam` owns:
+  - `response_list` — the dialogue history;
+  - `system_message` — rebuilt every round (time, prompt, skills, data);
+  - `response_queue` — messages from `!!ask -f` waiting to be merged;
+  - `is_stopped` — the round lifecycle event (used to serialize rounds per player).
+- **`!!ask switch <model>`** rebuilds the AI client of your `ChatParam` and keeps the conversation. In v0.7.0 history is fully preserved; the handling policy is being decided by a community vote — see [#20](https://github.com/PengZixuan30/Games_AI/issues/20).
+- **`!!ask -f <content>`** queues the request while a round is still running: the in-flight round merges it and keeps going; if the round just ended before the merge, an automatic follow-up round answers it.
+- **`!!gamesai debug`** switches the request-flow logs to INFO level in the MCDR console (request start/finish, forced-request queue/merge, tool calls); without it, the same logs go to DEBUG.
+
+> [!NOTE]
+> **Community vote:** how conversation history should be handled when switching AI models is being decided by a community vote — see [issue #20](https://github.com/PengZixuan30/Games_AI/issues/20). v0.7.0 keeps the current "fully preserve history" behavior; the final policy will land in v0.7.1.
 
 ---
 
@@ -166,13 +211,15 @@ GamesAI 0.6.0 introduces a fully autonomous Minecraft bot powered by [Mineflayer
 
 ### How It Works
 
-```
-Player !!ask → GamesAI Plugin → WS Client (Python) → WS Server (Node.js) → Mineflayer Bot
-                                                                            ↓
-                                                                     Minecraft Server
-
-AI (Autonomous Controller):
-  get_state → analyze → bot_call_action(goto/dig/attack/...) → cycle
+```mermaid
+flowchart LR
+    A["Player"] -->|"!!ask"| B["GamesAI Plugin (Python)"]
+    B --> C["WS Client (Python)"]
+    C -->|"WebSocket"| D["WS Server (Node.js)"]
+    D --> E["Mineflayer Bot"]
+    E --> F["Minecraft Server"]
+    B --> G["Autonomous Controller (AI)"]
+    G -->|"get_state → analyze →<br/>bot_call_action(goto / dig / attack / …)"| D
 ```
 
 The plugin launches a Node.js process running a WebSocket server. A Python WebSocket client (built into the plugin) connects to it locally, forming a bridge between MCDR and the Mineflayer bot. When the bot is enabled, an **autonomous AI controller** periodically reads the bot's state, checks chat messages, and decides what actions to take.
@@ -678,146 +725,49 @@ def on_gamesai_reload(server: PluginServerInterface):
 
 ## What's New
 
-### Version 0.6.4
+### Version 0.7.0
 
 #### 🎯 Highlights
 
-- **🔐 Permission-Based AI Tool System** — `@register_tool` now accepts a `perm` parameter; tools above the requesting player's permission level are not even offered to the AI. `perm` supports a callable (e.g. `get_plugin_config_perm`) so it follows the `permission` config dynamically.
-- **♻️ Full Tool Re-Registration on Hot Reload** — `!!gamesai reload` now completely clears and rebuilds the tool registry: built-in tools are replayed, custom `tools.py` is re-imported, and third-party plugins that registered tools are actually reloaded so their tool code refreshes.
-- **🧰 Tool Set Adjustments** — Whitelist tools (`get_whitelist_name`, `add_to_whitelist`, `remove_from_whitelist`) and `search_minecraft_wiki` moved to [GamesAI-Extra](https://github.com/PengZixuan30/Games_AI-Extra); `get_online_players` falls back to an RCON `list` query when `online_player_api` is unavailable.
+- **🧠 Per-User ChatParam Architecture** — Each player's conversation is now a dedicated `ChatParam` object that owns the dialogue history, system messages, a forced-request queue and a round lifecycle event. History handling, model switching and forced requests all go through this object.
+- **🔀 Model Switching: `!!ask switch <model>`** — Switch the AI model of your current conversation on the fly. v0.7.0 keeps the history fully; the handling policy is subject to a community vote in [#20](https://github.com/PengZixuan30/Games_AI/issues/20) and will be finalized in v0.7.1.
+- **⚡ Forced Requests: `!!ask -f <content>`** — Fire a question into a still-running round: it is merged into the in-flight round (or answered by an automatic follow-up round) without waiting for the previous reply to finish.
+- **🗑️ Removed Commands** — `!!ask -m <model> <content>`, `!!ask --model ...`, and their `-n` / `--no-history` combinations are gone; use `!!ask switch <model>` + `!!ask -n <content>` instead.
+- **📋 Debug Logging** — `!!gamesai debug` now makes the full AI request flow visible in the MCDR console (model switch, forced-request queue/merge, round lifecycle, tool calls).
 
-#### 1. Permission-Based AI Tool System
+#### 1. ChatParam: One Conversation Object per Player
 
-`register_tool(description=..., perm=..., parameters=...)` — `perm` can be an `int` or a zero-argument callable returning an `int` (default `0` = everyone). Before each `!!ask`, the plugin builds the tool list from the registry and only passes tools whose `perm` is at or below the player's permission level; the runtime permission check inside each tool function still applies. Built-in tools that manage data, skills, custom tools, or the bot now use `get_plugin_config_perm` (the configured `permission` value, read at request time). This fixes the old behavior where every tool was offered to every player.
+`games_ai/chat_param.py` introduces `BasicChatParam` / `ChatParam`:
 
-#### 2. Full Tool Re-Registration on Hot Reload
+- `response_list` — the dialogue history of this player;
+- `system_message` — rebuilt every round (current time, prompt, skills list, public data);
+- `response_queue` — incoming `!!ask -f` messages waiting to be merged;
+- `is_stopped` — the round lifecycle event that serializes rounds per player;
+- `trim_response_list()` — bounded history (`max_history × 2 + tool_count × 2`);
+- `reload_ai_info()` — refreshes the AI config and client after `!!gamesai reload`.
 
-`!!gamesai reload` now performs a complete tool reset:
+All player objects are held in `all_chat_param`; `!!gamesai clear` / `!!gamesai clearall` remove them.
 
-- **Built-in tools** — re-registered from recorded registration closures (no module re-execution, so the bot process and WebSocket handles are unaffected);
-- **Custom `tools.py`** — old external tools are removed and the file is re-imported, so deleted tools actually disappear;
-- **Third-party plugins** — plugins that registered tools via `@register_tool` are tracked by top-level module name and reloaded by MCDR, re-running their import/`on_load` registration code.
+#### 2. The Full Request Chain
 
-This replaces the previous approach, which used `importlib.import_module` on already-loaded modules (a no-op that silently dropped all built-in tools). See [What Happens During a Hot Reload](#what-happens-during-a-hot-reload).
+`!!ask <content>` → `ask_ai` builds the user message → the player's `ChatParam` → `response_ai` assembles the request (system messages + history + permission-filtered tools) → OpenAI-compatible API via the cached client (`openai_api.response_chat`) → reply streamed to the player; tool calls are executed and fed back until a final text reply. See [AI Request Pipeline & Chat Mechanism](#ai-request-pipeline--chat-mechanism).
 
-#### 3. Tool Set Adjustments
+#### 3. Other Improvements & Fixes
 
-- Whitelist tools (`get_whitelist_name`, `add_to_whitelist`, `remove_from_whitelist`) and `search_minecraft_wiki` moved to the [GamesAI-Extra](https://github.com/PengZixuan30/Games_AI-Extra) plugin.
-- `get_online_players` now falls back to an RCON `list` query when the `online_player_api` plugin is not installed but RCON is running.
+- `!!ask switch <model>` now confirms with a localized message and updates the conversation in place (history preserved in v0.7.0);
+- `response_chat` now receives an injected `OpenAI` client (per-AI-config) with type checks, and the Mineflayer autonomous controller was adapted to the new signature;
+- `!!gamesai reload` refreshes existing `ChatParam` objects (client rebuild) and reloads `AutonomousBotController` config in the hot-reload path;
+- Forced-request flow is fully covered by debug logs (queueing, merge, follow-up round).
 
-#### 4. Fixes
+## The Role of AI in This Project
 
-- Fixed `perm=plugin_config.allow_permission` being captured at import time — permission is now resolved lazily at request time.
-- Fixed the broken reload logic that cleared `TOOL_SCHEMAS` and called `importlib.import_module` on already-imported modules (built-in tools disappeared after a reload).
-- Removed leftover `tr_key` parameters that crashed tool registration with a `TypeError`.
-- Merged the extension-plugin reload list with the tool-registering plugin list, with failure isolation (`REGISTER_PLUGIN_LIST.pop` / `TOOL_PLUGIN_IDS.discard`).
+GamesAI is an AI-powered plugin, and AI also plays an important role in how this project itself is maintained:
 
-### Version 0.6.3
-
-#### 🎯 Highlights
-
-- **🔧 Mineflayer Version Compatibility Auto-Repair** — When the Minecraft server is upgraded beyond the installed mineflayer's support (`Server version 'X' is not supported`), the plugin now automatically refreshes the npm dependencies and restarts the bot. Stale installations created by older plugin versions are refreshed once on the next launch.
-- **🔒 Permission Checks for Bot Start/Stop Tools** — The AI tools `run_mineflayer_bot` (`bot_start`) and `stop_mineflayer_bot` (`bot_stop`) now require the configured permission level, matching the `!!aibot join` / `!!aibot leave` commands.
-- **🕐 Wait for Server Start** — The bot now waits for the Minecraft server to start before launching, so it no longer fails to connect when MCDR boots before the server.
-- **📦 Clean Extension Unload** — Unloading the plugin also unloads every external plugin that called `register_self()`, with per-plugin failure isolation.
-
-#### 1. Mineflayer Version Compatibility Auto-Repair
-
-Fixes the `Server version 'X' is not supported. Latest supported version is ...` error (e.g. after upgrading the Minecraft server to a newer version). The plugin detects the error, runs `npm install` to refresh `mineflayer`/`minecraft-data` and friends to the latest versions, then restarts the bot automatically. Refreshes are guarded by a 10-minute cooldown and at most 3 attempts per session. See [Mineflayer Bot Errors](#mineflayer-bot-errors).
-
-#### 2. Permission Checks for Bot Start/Stop Tools
-
-The AI tools that start/stop the Mineflayer bot (`bot_start` / `bot_stop`) now verify the requesting player's permission level against the configured `permission` value, so players without permission can no longer start or stop the bot through the AI. The `!!aibot join` / `!!aibot leave` commands already had this check since 0.6.0.
-
-#### 3. Wait for Server Start before Launching the Bot
-
-`_run_mineflayer_bot` now checks whether the Minecraft server is running first. If the server is not running (e.g. MCDR boots before the server starts), the plugin waits in the background and launches the Mineflayer bot automatically once the server is up — no more "bot fails to connect because the server wasn't ready" at startup. The wait is cancelled cleanly if the plugin is unloaded, and repeated launch requests while waiting are ignored.
-
-#### 4. Unload Registered Extension Plugins on Plugin Unload
-
-When the plugin itself is unloaded, all external plugins that called `register_self()` are unloaded as well, each wrapped in its own error handling so one failing plugin never blocks the others. (The unload loop itself has existed since 0.6.1; 0.6.3 hardens it with failure isolation and result checking.)
-
-### Version 0.6.2
-
-#### 🎯 Highlights
-
-- **📍 Player Position Query** — New `get_player_position` tool to query online players' coordinates and dimension (requires `minecraft_data_api`)
-- **📖 Forced Skill Reading** — `!!ask /<skill> <content>` syntax to force the AI to read a specific skill file first
-- **📡 Reload Event** — `games_ai.reload` event dispatched after `!!gamesai reload`, other plugins can listen for state sync
-- **📚 Hot Reload Docs** — Comprehensive [Hot Reload](#hot-reload) chapter added to README
-
-#### 1. New Tool: `get_player_position`
-
-Query an online player's coordinates (x, y, z) and dimension (Overworld/Nether/End). Requires the `minecraft_data_api` plugin. Bot-accessible (`@register_bot_tool`).
-
-#### 2. Forced Skill Reading: `!!ask /<skill>`
-
-Players can use `!!ask /skill_name <content>` to force the AI to read a specific skill file via the `read_skills` tool before responding. The plugin validates the skill file exists and provides feedback. Ideal for scenarios requiring strict SOP adherence.
-
-#### 3. `games_ai.reload` Event
-
-After each `!!gamesai reload`, the plugin dispatches a `games_ai.reload` event carrying the `CommandSource` that triggered the reload. Other MCDR plugins can register event listeners to sync state when GamesAI hot-reloads. See [Hot Reload](#hot-reload).
-
-### Version 0.6.1
-
-#### 🎯 Highlights
-
-- **🔌 Extension Plugin System** — `register_self()` and `register_skills()` APIs for MCDR plugin developers
-- **🛡️ Input Validation** — Bot username validated on `!!aibot join`
-- **📋 Logging Improvements** — Detailed logs for registered plugin reload/unload lifecycle
-
-#### 1. Extension Plugin System
-
-Third-party MCDR plugins can now integrate more deeply with GamesAI:
-
-- **`register_self(plugin_id)`** — Call in your plugin's `on_load` to have it automatically reloaded when `!!gamesai reload` runs. This is essential for plugins that register custom tools and need to pick up config/Skills changes after AI modifications. See [Hot Reload](#hot-reload).
-- **`register_skills(file_name, description, content)`** — Register skill files programmatically from your plugin code, without manually editing `skills.json`. Skills appear in the AI's system prompt and are readable via the `read_skills` tool.
-
-#### 2. Validation & Stability
-
-- Bot username is now validated on `!!aibot join` — rejects usernames with invalid characters (non `[a-zA-Z0-9_]`).
-- Fixed a bug where iterating `REGISTER_PLUGIN_LIST` while removing items could skip entries.
-- Added comprehensive logging for extension plugin lifecycle (reload/unload status).
-
-### Version 0.6.0
-
-#### 🎯 Highlights
-
-- **🤖 Mineflayer Bot** — Fully autonomous Minecraft bot with AI-driven control via WebSocket
-- **⚙️ Configuration Overhaul** — Type-adaptive config, `!!aibot` management, input validation
-- **📋 Logging Bridge** — OpenAI/httpx SDK logs seamlessly routed to the MCDR logger
-
-#### 1. Mineflayer Bot Integration
-
-The biggest feature in 0.6.0: a fully autonomous Minecraft bot powered by Mineflayer, controlled by AI through a WebSocket command interface.
-
-**Supported actions** (20+): `goto` (A\* pathfinding), `efly` (elytra flight), `dig`, `place`, `attack`, `useOn`, `equip`/`unequip`, `mount`/`dismount`, `craft`, container & furnace management, `lookAt`, `setControlState`, and more.
-
-**Extended `get_state`**: 30+ fields — position, yaw/pitch, velocity, armor (head/chest/legs/feet), oxygen, experience, world time, weather, dimension, sleeping status, and more.
-
-**Custom physics engine**: Knockback response (via `entity_velocity` packets) and entity collision/cramming. Physics automatically pauses during pathfinding to avoid interference.
-
-**Bot management**:
-- `!!aibot join` / `!!aibot leave` — lifecycle control
-- `!!aibot set username/password/auth` — configure bot identity with validation
-- `bot_start` / `bot_stop` AI tools for autonomous control
-- `delegate_to_bot` — hand off complex tasks to the autonomous controller
-
-**Other improvements**: Death auto-respawn, physics enabled by default, `path_update` noPath detection for unreachable destinations, `§` character stripping from chat messages.
-
-#### 2. Configuration System Overhaul
-
-- **Type-adaptive `set_config`**: `!!gamesai config set` now reads the existing value's type and auto-converts the new value to match. Setting a float to `"20"` stays float, bool stays bool, etc. Type mismatch errors are caught and reported.
-- **`!!aibot set` command**: Manage bot username, password, and auth without editing JSON manually. Username/password validated to `[a-zA-Z0-9_]`, auth restricted to `microsoft`/`mojang`/`offline`.
-
-#### 3. OpenAI Logging Bridge
-
-> [!NOTE]
-> This completely resolves the long-standing issue where raw OpenAI SDK logs would interfere with the MCDR console input and cause display glitches.
-
-The `openai` and `httpx` Python loggers are now fully redirected to the MCDR logger:
-- All HTTP request/response logs appear in the MCDR console
-- Original handlers cleared and propagation disabled — no duplicate stderr output
+1. This README was originally typeset by the author (yello) and has since been fully revised by AI;
+2. All translation files (`lang/*.yml`) are maintained by AI;
+3. Logic checks before each release are performed by AI;
+4. Issues reported for snapshot/development builds are investigated by AI;
+5. GitHub issues and PRs are first triaged by AI before reaching the maintainer.
 
 ## Acknowledgements & Disclaimer
 

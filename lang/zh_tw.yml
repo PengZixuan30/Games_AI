@@ -28,6 +28,10 @@ games_ai:
     ask_help: "以向 AI 提問"
     ask_no_history_help: "以向 AI 提問（不使用歷史記錄）"
 
+    switch_help: "以切換你使用的 AI 模型"
+
+    ask_force_help: "以向 AI 提問（強制模式，立即插入目前對話）"
+
     clear_help: "以清除你的歷史聊天記錄"
 
     clearall_help: "以清除所有歷史聊天記錄"
@@ -84,6 +88,7 @@ games_ai:
 
     model_error: "錯誤的 AI 模型！目前有這些 AI 模型："
     model_more: "無法正確比對！現在比對到了如下 AI 模型："
+    switch_success: "已切換 AI 模型：{model}（歷史記錄已保留）"
 
     data_list: "公共資料列表："
     thinking: "§7正在思考⋯⋯§r"

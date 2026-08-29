@@ -1,7 +1,7 @@
 from mcdreforged.api.all import *
 
-from .openai_api import response_chat, setup_openai_logging
-from .games_ai_tool import get_tool_handler, register_tool, get_tool_schemas_for_perm, get_plugin_config_perm, reset_all_tools, TOOL_PLUGIN_IDS
+from .openai_api import setup_openai_logging
+from .games_ai_tool import register_tool, get_plugin_config_perm, reset_all_tools, TOOL_PLUGIN_IDS
 from .database import PublicDatabase
 from .config import plugin_config
 from .tools_interpreter import load_external_tools
@@ -9,6 +9,7 @@ from .mineflayer import write_default_init, write_package_json, run_node, start_
 from .mineflayer_ai import AutonomousBotController, set_bot_controller
 from .external_skills_loader import EXTERNAL_SKILLS_LIST
 from .register_extra_plugin import REGISTER_PLUGIN_LIST
+from .chat_param import ChatParam
 
 import time,os,requests,lzma,json,threading,datetime,logging
 
@@ -19,7 +20,7 @@ import re
 
 PLUGIN_METADATA = {
     "id": "games_ai",
-    "version": "0.6.4",
+    "version": "0.7.0",
     "name": "GamesAI",
     "description": {
         "zh_cn": "此插件可以让你在游戏中使用AI",
@@ -32,11 +33,11 @@ PLUGIN_METADATA = {
     }
 }
 
-history_conversation = {}
+# Every users have a ChatParam Object
+all_chat_param: dict[str, ChatParam] = {}
+
 unload_status_code = 0
 debug_mode = False
-user_tool_counts = {}
-_history_locks: dict[tuple, threading.Lock] = {}
 websocket_connections: dict[str, MineflayerWSClient] = {}
 _autonomous_controller: AutonomousBotController | None = None
 _aibot_lock = threading.Lock()
@@ -44,14 +45,6 @@ _aibot_lock = threading.Lock()
 # launch aborts cleanly (see _wait_server_then_launch)
 _mineflayer_pending_abort = threading.Event()
 _mineflayer_wait_thread: threading.Thread | None = None
-
-def _get_history_lock(username: str, ai_prefix: str) -> threading.Lock:
-    key = (username, ai_prefix)
-    lock = _history_locks.get(key)
-    if lock is None:
-        lock = threading.Lock()
-        _history_locks[key] = lock
-    return lock
 
 def on_load(server: PluginServerInterface, old):
     global prefix,allow_permission,max_history,mcdr_lang,_timer,ai_dict,default_ai,name_to_id,data_path,skills
@@ -105,8 +98,6 @@ def on_load(server: PluginServerInterface, old):
     server.logger.info(f'{prefix}{server.rtr("games_ai.load_message.server_info")}')
     server.say(f'{prefix}{server.rtr("games_ai.load_message.client_info",v=PLUGIN_METADATA.get("version"))}')
 
-    builder = SimpleCommandBuilder()
-
     data_path = os.path.join(server.get_data_folder(), "database", "public_database.db")
     data_dir = os.path.dirname(data_path)
     if not os.path.exists(data_dir):
@@ -158,6 +149,7 @@ def my_custom_tool(source: CommandSource, ai_prefix: str):
     plugin_config.skills_path = skills_path
     plugin_config.builtin_skills_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "skills")
     plugin_config.mineflayer_init_js_path = mineflayer_path
+    plugin_config.skills_description = skills
 
     load_external_tools(log=server.logger.info)
 
@@ -165,6 +157,13 @@ def my_custom_tool(source: CommandSource, ai_prefix: str):
     if mineflayer_cfg.get("enabled", False):
         _run_mineflayer_bot(server, mineflayer_cfg, mineflayer_path)
 
+    register_commands(server, config)
+
+    threading.Thread(target=cyclic_check_updates, daemon=True, args=(server,)).start()
+
+
+def register_commands(server: PluginServerInterface, config: dict):
+    builder = SimpleCommandBuilder()
     data_manager = DataManager(data_path)
     config_manager = ConfigManager(config)
     helper = gamesai_help()
@@ -193,14 +192,15 @@ def my_custom_tool(source: CommandSource, ai_prefix: str):
 
     builder.command('!!ask', helper.ask_help)
     builder.command('!!ask <content>', ask_ai)
-    builder.command('!!ask -m <model> <content>', ask_ai)
-    builder.command('!!ask --model <model> <content>', ask_ai)
+
     builder.command('!!ask --no-history <content>', lambda source, context: ask_ai(source, context, no_history=True))
-    builder.command('!!ask --no-history -m <model> <content>', lambda source, context: ask_ai(source, context, no_history=True))
-    builder.command('!!ask --no-history --model <model> <content>', lambda source, context: ask_ai(source, context, no_history=True))
     builder.command('!!ask -n <content>', lambda source, context: ask_ai(source, context, no_history=True))
-    builder.command('!!ask -n -m <model> <content>', lambda source, context: ask_ai(source, context, no_history=True))
-    builder.command('!!ask -n --model <model> <content>', lambda source, context: ask_ai(source, context, no_history=True))
+
+    builder.command('!!ask -forced <content>', lambda source, context: ask_ai(source, context, forced=True))
+    builder.command('!!ask -f <content>', lambda source, context: ask_ai(source, context, forced=True))
+
+    builder.command('!!ask switch', helper.switch_help)
+    builder.command('!!ask switch <model>', switch_model)
 
     builder.command('!!data', helper.data_help)
 
@@ -236,7 +236,6 @@ def my_custom_tool(source: CommandSource, ai_prefix: str):
 
     builder.register(server)
 
-    threading.Thread(target=cyclic_check_updates, daemon=True, args=(server,)).start()
 
 def on_server_startup(server: PluginServerInterface):
     server.say(f'{prefix}{server.rtr("games_ai.load_message.client_info", v=PLUGIN_METADATA.get('version'))}')
@@ -458,6 +457,9 @@ def _apply_config(server: PluginServerInterface, config: dict):
 
     default_ai = config.get("default_ai", list(ai_dict.keys())[0] if ai_dict else "")
 
+    plugin_config.all_ai = ai_dict
+    plugin_config.default_ai = default_ai
+
     name_to_id = {}
     for aid, info in ai_dict.items():
         name = info.get("ai_name")
@@ -512,10 +514,16 @@ class gamesai_help:
         server = source.get_server()
         send_help(source, prefix, message=server.rtr("games_ai.gamesai_help_message.greeting", v=PLUGIN_METADATA.get("version")))
         send_help(source, prefix, command="!!ask <content>", command_help_key="games_ai.gamesai_help_message.ask_help")
-        send_help(source, prefix, command="!!ask -m <model> <content>", command_help_key="games_ai.gamesai_help_message.ask_help")
         send_help(source, prefix, command="!!ask -n <content>", command_help_key="games_ai.gamesai_help_message.ask_no_history_help")
-        send_help(source, prefix, command="!!ask -n -m <model> <content>", command_help_key="games_ai.gamesai_help_message.ask_no_history_help")
+        send_help(source, prefix, command="!!ask -f <content>", command_help_key="games_ai.gamesai_help_message.ask_force_help")
+        send_help(source, prefix, command="!!ask switch <model>", command_help_key="games_ai.gamesai_help_message.switch_help")
         send_help(source, prefix, message=server.rtr("games_ai.gamesai_help_message.all_ai_model") + str(list(ai_dict.keys())))
+
+    @staticmethod
+    def switch_help(source: CommandSource):
+        server = source.get_server()
+        send_help(source, prefix, message=server.rtr("games_ai.gamesai_help_message.greeting", v=PLUGIN_METADATA.get("version")))
+        send_help(source, prefix, command="!!ask switch <model>", command_help_key="games_ai.gamesai_help_message.switch_help")
 
     @staticmethod
     def data_help(source: CommandSource):
@@ -622,27 +630,23 @@ def send_help(source: CommandSource, prefix: str, message: str|None = None, comm
         ))
         return
 
-def _safe_trim_history(history: list, max_len: int) -> list:
-    if len(history) <= max_len:
-        return history
 
-    trimmed = history[-max_len:]
-
-    for i, msg in enumerate(trimmed):
-        role = msg.get("role") if isinstance(msg, dict) else getattr(msg, "role", None)
-        if role == "user":
-            return trimmed[i:]
-
-    return trimmed
+def _chat_log(server: ServerInterface, msg: str) -> None:
+    """Debug-mode logging: INFO level when !!gamesai debug is on, DEBUG otherwise."""
+    if plugin_config.debug_mode:
+        server.logger.info(f"[GamesAI]{msg}")
+    else:
+        server.logger.debug(f"[GamesAI]{msg}")
 
 
-@new_thread("games_ai@ask_ai")
-def ask_ai(source: CommandSource, context: dict, no_history: bool = False):
+def switch_model(source: CommandSource, context: dict):
     server = source.get_server()
 
+    username = get_username(source)
+
     user_input = context.get("model", default_ai)
-    user_input_id = name_to_id.get(user_input, user_input)
-    ai_info = ai_dict.get(user_input_id)
+    model_id = name_to_id.get(user_input, user_input)
+    ai_info = ai_dict.get(model_id)
     may_user_ai = []
     if ai_info is None:
         for ai_id,ai_config in ai_dict.items():
@@ -650,7 +654,7 @@ def ask_ai(source: CommandSource, context: dict, no_history: bool = False):
             if user_input.lower() in name.lower() or user_input.lower() in ai_id.lower():
                 may_user_ai.append(ai_id)
         if len(may_user_ai) == 1:
-            ai_info = ai_dict.get(may_user_ai[0])
+            model_id = may_user_ai[0]
         elif len(may_user_ai) > 1:
             source.reply(f"{prefix}{server.rtr("games_ai.user_message.model_more")}{may_user_ai}")
             return
@@ -658,11 +662,36 @@ def ask_ai(source: CommandSource, context: dict, no_history: bool = False):
             source.reply(f"{prefix}{server.rtr("games_ai.user_message.model_error")}{list(ai_dict.keys())}")
             return
 
-    ai_prefix = ai_info.get("ai_name")
-    ai_model = ai_info.get("ai_model")
-    base_url = ai_info.get("base_url")
-    api_key = ai_info.get("api_key")
-    prompt = ai_info.get("prompt")
+    if username in all_chat_param and all_chat_param.get(username) is not None:
+        all_chat_param[username].change_model(source, model_id)
+    else:
+        all_chat_param[username] = ChatParam(server, model_id=model_id)
+    _chat_log(server, f"[switch] {username} switched to model_id={model_id}")
+    source.reply(f"{prefix}{server.rtr('games_ai.user_message.switch_success', model=all_chat_param[username].ai_info.get('ai_name', model_id))}")
+
+
+@new_thread("games_ai@ask_ai")
+def ask_ai(source: CommandSource, context: dict, no_history: bool = False, forced: bool = False):
+    server = source.get_server()
+
+    data = DataManager(data_path).ask_ai_read_data()
+    username = get_username(source)
+    content: str = context['content']
+
+    user_message = f'{str(server.rtr("games_ai.user_message.username"))}{username}\n{str(server.rtr("games_ai.user_message.message"))}{content}'
+
+    if username not in all_chat_param.keys():
+        all_chat_param[username] = ChatParam(server, model_id=default_ai)
+    user_chat_param = all_chat_param.get(username)
+    model_id = user_chat_param.get_model_id or default_ai
+    ai_prefix = ai_dict.get(model_id, {}).get("ai_name")
+
+    if no_history:
+        chat_param = ChatParam(server, model_id=model_id)
+        chat_param.add_to_response_list("user", user_message)
+        source.reply(f"{ai_prefix}{server.rtr("games_ai.user_message.thinking")}")
+        chat_param.response_ai(source, data)
+        return
 
     default_skills = [
         {"file": "skills_management.md", "description": str(server.rtr("games_ai.builtin_skills.skills_management"))},
@@ -679,28 +708,6 @@ def ask_ai(source: CommandSource, context: dict, no_history: bool = False):
             if file is None or description is None:
                 continue
             external_skills.append({"file": file, "description": description})
-
-    if external_skills:
-        skills_file_list = str(server.rtr("games_ai.user_message.skills", skills=[*skills, *default_skills, *external_skills]))
-    else:
-        skills_file_list = str(server.rtr("games_ai.user_message.skills", skills=[*skills, *default_skills]))
-
-    extra_body = ai_info.get("extra_body", {})
-
-    now_time = datetime.datetime.now()
-    now_time = str(server.rtr("games_ai.user_message.time", time=now_time.strftime('%Y-%m-%d %H:%M:%S')))
-    username = get_username(source)
-    lock = _get_history_lock(username, ai_prefix)
-    with lock:
-        shared = history_conversation.setdefault(username, {}).setdefault(ai_prefix, [])
-        base_len = len(shared)
-        history = list(shared)
-        current_tool_count = user_tool_counts.setdefault(username, {}).get(ai_prefix, 0)
-    content: str = context['content']
-    if source.is_player:
-        user_name = f'{username}'
-    else:
-        user_name = "Server Control Panel"
 
     skills_file: str | None = None
     if content.strip().startswith("/"):
@@ -723,132 +730,32 @@ def ask_ai(source: CommandSource, context: dict, no_history: bool = False):
         else:
             source.reply(f"{ai_prefix}{server.rtr('games_ai.user_message.skill_not_found', skill=skill_name)}")
 
-    user_message = {"role": "user","content": f'{str(server.rtr("games_ai.user_message.username"))}{user_name}\n{str(server.rtr("games_ai.user_message.message"))}{content}'}
-    response_message = [
-        {"role": "system","content": now_time + mcdr_lang},
-        {"role": "system", "content": prompt},
-    ]
-    if skills_file:
-        response_message.append({
-            "role": "system",
-            "content": str(server.rtr('games_ai.user_message.skill_injected', skill=skills_file))
-        })
+    if forced and not user_chat_param.get_is_stopped:
+        if skills_file:
+            user_chat_param.forced_add_to_response_list("system", str(server.rtr('games_ai.user_message.skill_injected', skill=skills_file)))
+
+        user_chat_param.forced_add_to_response_list("user", user_message)
+        _chat_log(server, f"[ask -f] {username} message queued (running round active)")
+
+        source.reply(f"{ai_prefix}{server.rtr("games_ai.user_message.thinking")}")
+
+        user_chat_param.wait_until_stop()
+        if user_chat_param.get_response_queue:
+            _chat_log(server, f"[ask -f] {username} round ended without consuming queue, starting supplement round")
+            user_chat_param.response_ai(source, data)
+        else:
+            _chat_log(server, f"[ask -f] {username} queue consumed by running round")
     else:
-        response_message.append({"role": "system", "content": skills_file_list})
-    data = DataManager(data_path).ask_ai_read_data()
-    data_message = {"role": "system","content": f'{str(server.rtr("games_ai.user_message.data_list"))}{data}'}
-    response_message.append(data_message)
-    if not no_history:
-        response_message.extend(history)
-    response_message.append(user_message)
+        user_chat_param.wait_until_stop()
+        
+        if skills_file:
+            user_chat_param.add_to_response_list("system", str(server.rtr('games_ai.user_message.skill_injected', skill=skills_file)))
 
-    ai_tools: list[dict] = get_tool_schemas_for_perm(source.get_permission_level())
+        user_chat_param.add_to_response_list("user", user_message)
 
-    if debug_mode:
-        source.reply(f"[DEBUG]{response_message}")
-    
-    history.append(user_message)
+        source.reply(f"{ai_prefix}{server.rtr("games_ai.user_message.thinking")}")
 
-    source.reply(f"{ai_prefix}{server.rtr("games_ai.user_message.thinking")}")
-
-    while True:
-        try:
-            ai_reply = response_chat(model=ai_model,url=base_url,message=response_message,api_key=api_key,tools=ai_tools,extra_body=extra_body)
-            if ai_reply.tool_calls is not None:
-                response_message.append(ai_reply)
-                history.append(ai_reply)
-                if ai_reply.content:
-                    source.reply(f"{ai_prefix}{ai_reply.content}")
-
-                if debug_mode:
-                    source.reply(f"[DEBUG]{ai_reply.tool_calls}")
-
-                for tool_call in ai_reply.tool_calls:
-                    func_name = tool_call.function.name
-                    handler = get_tool_handler(func_name)
-                    current_tool_count += 1
-
-                    if handler is None:
-                        result = f"未知函数: {func_name}"
-                        source.reply(f'{ai_prefix}{server.rtr("games_ai.tools.unknown_function",func_name=func_name)}')
-                    else:
-                        try:
-                            func_args = json.loads(tool_call.function.arguments) if tool_call.function.arguments else {}
-                            result = str(handler.func(source, ai_prefix, **func_args))
-                            source.reply(f'{ai_prefix}{server.rtr("games_ai.tools.tool_success")}')
-                        except Exception as e:
-                            result = f"函数 {func_name} 执行出错: {e}"
-                            source.reply(f'{ai_prefix}{server.rtr("games_ai.tools.execution_error",func_name=func_name,ex=e)}')
-                        
-                    if debug_mode:
-                        source.reply(f"[DEBUG] Tool call result: \n{result}")
-
-                    response_message.append({
-                        "role": "tool",
-                        "tool_call_id": tool_call.id,
-                        "content": result,
-                    })
-                    history.append({
-                        "role": "tool",
-                        "tool_call_id": tool_call.id,
-                        "content": result,
-                    })
-                continue
-            else:
-                message = f'{ai_prefix}{ai_reply.content}'
-
-                if max_history > 0:
-                    history.append(ai_reply)
-                    with lock:
-                        shared = history_conversation.setdefault(username, {}).setdefault(ai_prefix, [])
-                        new_msgs = history[base_len:]
-                        shared.extend(new_msgs)
-                        max_len = max_history * 2 + current_tool_count * 2
-                        if debug_mode:
-                            source.reply(f"{ai_prefix}当前最大历史记录数: {max_len}")
-                        if len(shared) > max_len:
-                            trimmed = _safe_trim_history(list(shared), max_len)
-                            shared.clear()
-                            shared.extend(trimmed)
-                        user_tool_counts.setdefault(username, {})[ai_prefix] = current_tool_count
-                
-                source.reply(message)
-                break
-        except Exception as e:
-            error_code_map = {
-                400: server.rtr("games_ai.error_code_map.error400"),
-                401: server.rtr("games_ai.error_code_map.error401"),
-                402: server.rtr("games_ai.error_code_map.error402"),
-                403: server.rtr("games_ai.error_code_map.error403"),
-                404: server.rtr("games_ai.error_code_map.error404"),
-                408: server.rtr("games_ai.error_code_map.error408"),
-                422: server.rtr("games_ai.error_code_map.error422"),
-                429: server.rtr("games_ai.error_code_map.error429"),
-                500: server.rtr("games_ai.error_code_map.error500"),
-                502: server.rtr("games_ai.error_code_map.error502"),
-                503: server.rtr("games_ai.error_code_map.error503"),
-            }
-
-            error_code = getattr(e, 'status_code', None)
-            request_id = None
-
-            resp = getattr(e, 'response', None)
-            if resp is not None:
-                request_id = getattr(resp, '_request_id', None)
-
-            if request_id is None:
-                try:
-                    request_id = ai_reply._request_id
-                except (NameError, AttributeError):
-                    request_id = None
-
-            if error_code is not None:
-                error_desc = error_code_map.get(error_code, f"未知错误 (HTTP {error_code})")
-                rid_str = f" [Request ID: {request_id}]" if request_id else ""
-                source.reply(f'{ai_prefix}ERROR! [Code: {error_code}] {error_desc}{rid_str}\n{ai_prefix}{e}')
-            else:
-                source.reply(f'{ai_prefix}ERROR!\n{ai_prefix}{e}')
-            raise e
+        user_chat_param.response_ai(source, data)
 
 def get_username(source: CommandSource) -> str:
     if source.is_player:
@@ -859,10 +766,8 @@ def get_username(source: CommandSource) -> str:
 def clear_history(source: CommandSource,context: dict):
     server = source.get_server()
     username = get_username(source)
-    if username in history_conversation:
-        del history_conversation[username]
-        if username in user_tool_counts:
-            del user_tool_counts[username]
+    if username in all_chat_param:
+        del all_chat_param[username]
         source.reply(f'{prefix}{server.rtr("games_ai.clear_history_message.success",username=username)}')
     else:
         source.reply(f'{prefix}{server.rtr("games_ai.clear_history_message.no_history",username=username)}')
@@ -872,9 +777,8 @@ def clear_history_all(source: CommandSource,context: dict):
     if source.get_permission_level() < allow_permission:
         source.reply(f'{prefix}{server.rtr("games_ai.no_permission",permission=allow_permission)}')
     else:
-        count = len(history_conversation)
-        history_conversation.clear()
-        user_tool_counts.clear()
+        count = len(all_chat_param)
+        all_chat_param.clear()
         source.reply(f'{prefix}{server.rtr("games_ai.clear_history_message.clearall_success",count=count)}')
 
 class DataManager:
@@ -1136,11 +1040,13 @@ def debug(source: CommandSource, context: dict):
     global debug_mode
     if debug_mode:
         debug_mode = False
+        plugin_config.debug_mode = False
         server.say(f"{prefix}{server.rtr("games_ai.debug.disable")}")
         server.logger.info(f"{prefix}{server.rtr("games_ai.debug.disable")}")
         return
     else:
         debug_mode = True
+        plugin_config.debug_mode = True
         server.say(f"{prefix}{server.rtr("games_ai.debug.enable")}")
         server.logger.info(f"{prefix}{server.rtr("games_ai.debug.enable")}")
         return
@@ -1156,6 +1062,9 @@ def reloader(source: CommandSource, context: dict):
             config = json.load(f)
         _apply_config(server, config)
 
+        for user_chat_param in all_chat_param.values():
+            user_chat_param.reload_ai_info()
+
         tool_plugin_ids = set(TOOL_PLUGIN_IDS)
 
         reset_all_tools()
@@ -1163,6 +1072,7 @@ def reloader(source: CommandSource, context: dict):
         try:
             with open(plugin_config.skills_path, mode="r", encoding="utf-8") as f:
                 skills = json.loads(f.read())
+                plugin_config.skills_description = skills
         except Exception as e:
             server.logger.warning(f"{prefix} Failed to reload skills: {e}")
 
@@ -1185,6 +1095,21 @@ def reloader(source: CommandSource, context: dict):
 
         if new_enabled and was_running and not init_js_changed:
             server.logger.info(f"{prefix} Config hot-reloaded, JS bot will pick up changes automatically")
+            default_ai_info = ai_dict.get(default_ai, None)
+            if _autonomous_controller is not None and _autonomous_controller.is_running and default_ai_info is not None:
+                _autonomous_controller.reload_config(
+                    model=default_ai_info.get("ai_model", ""),
+                    base_url=default_ai_info.get("base_url", ""),
+                    api_key=default_ai_info.get("api_key", ""),
+                    system_prompt=str(server.rtr("games_ai.autonomous_bot.default_system_prompt")),
+                    chat_prompt=default_ai_info.get("prompt", ""),
+                    extra_body=default_ai_info.get("extra_body", {}),
+                    cycle_interval=mineflayer_cfg.get("cycle_interval", 15.0),
+                    bot_username=plugin_config.bot_username,
+                )
+                server.logger.info(f"{prefix} AutonomousBot controller config reloaded")
+            elif default_ai_info is None:
+                server.logger.warning(f"{prefix} No default AI configured, AutonomousBot controller config skipped")
         else:
             try:
                 if _autonomous_controller is not None:

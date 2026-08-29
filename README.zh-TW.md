@@ -14,7 +14,10 @@
 > **GamesAI 插件/模組 QQ 交流群：849544707** — 歡迎加入交流群討論問題、回饋建議，以及分享 prompt、skills、tools 等設定！
 
 > [!NOTE]
-> 歡迎使用版本 0.6.4！本次更新帶來了 **AI 工具權限系統**（`@register_tool` 的 `perm` 參數）、**熱重載時全量重建工具註冊**（內建工具重放、自訂 `tools.py` 重新匯入、第三方插件隨工具一起重載）以及**多項重載與權限修復**。白名單與 Minecraft Wiki 工具已遷移至 [GamesAI-Extra](https://github.com/PengZixuan30/Games_AI-Extra)。見[本次更新](#本次更新)
+> 歡迎使用版本 0.7.0！本次更新帶來了**基於 ChatParam 的每玩家對話架構**、新指令 **`!!ask switch <model>`** 與 **`!!ask -f <content>`**、移除舊的 `-m` / `--model` 系列指令，並為 **AI 請求全流程新增了除錯日誌**。詳見[本次更新](#本次更新)
+
+> [!NOTE]
+> **社群投票：切換 AI 模型時歷史該如何處理？** 0.7.0 暫時維持「完全保留歷史記錄」的現狀，最終方案將由投票決定並落地到 0.7.1。歡迎參與投票：[#20](https://github.com/PengZixuan30/Games_AI/issues/20)
 
 <details>
 <summary>目錄（點擊展開）</summary>
@@ -23,6 +26,9 @@
   - [安裝](#安裝)
   - [使用](#使用)
   - [|`!!data list keys`|讀取公共資料庫中的所有 key。|](#data-list-keys讀取公共資料庫中的所有-key)
+  - [AI 請求鏈路與對話機制](#ai-請求鏈路與對話機制)
+    - [請求鏈路](#請求鏈路)
+    - [每玩家狀態](#每玩家狀態)
   - [使用 Mineflayer Bot](#使用-mineflayer-bot)
     - [環境需求](#環境需求)
     - [指令](#指令)
@@ -56,32 +62,12 @@
     - [Mineflayer Bot 錯誤](#mineflayer-bot-錯誤)
     - [日誌與除錯](#日誌與除錯)
   - [本次更新](#本次更新)
-    - [Version 0.6.4](#version-064)
+    - [Version 0.7.0](#version-070)
       - [🎯 核心亮點](#-核心亮點)
-      - [1. AI 工具權限系統](#1-ai-工具權限系統)
-      - [2. 熱重載時全量重建工具註冊](#2-熱重載時全量重建工具註冊)
-      - [3. 工具集調整](#3-工具集調整)
-      - [4. 修復](#4-修復)
-    - [Version 0.6.3](#version-063)
-      - [🎯 核心亮點](#-核心亮點-1)
-      - [1. Mineflayer 版本相容自動修復](#1-mineflayer-版本相容自動修復)
-      - [2. 啟停 Bot 工具權限校驗](#2-啟停-bot-工具權限校驗)
-      - [3. 等待伺服器啟動後再啟動 Bot](#3-等待伺服器啟動後再啟動-bot)
-      - [4. 插件卸載時卸載已註冊的擴展插件](#4-插件卸載時卸載已註冊的擴展插件)
-    - [Version 0.6.2](#version-062)
-      - [🎯 核心亮點](#-核心亮點-2)
-      - [1. 新工具 `get_player_position`](#1-新工具-get_player_position)
-      - [2. 強制技能閱讀 `!!ask /<skill>`](#2-強制技能閱讀-ask-skill)
-      - [3. `games_ai.reload` 事件](#3-games_aireload-事件)
-    - [Version 0.6.1](#version-061)
-      - [🎯 核心亮點](#-核心亮點-3)
-      - [1. 擴展插件系統](#1-擴展插件系統)
-      - [2. 驗證與穩定性](#2-驗證與穩定性)
-    - [Version 0.6.0](#version-060)
-      - [🎯 核心亮點](#-核心亮點-4)
-      - [1. Mineflayer Bot 整合](#1-mineflayer-bot-整合)
-      - [2. 設定系統重製](#2-設定系統重製)
-      - [3. OpenAI 日誌橋接](#3-openai-日誌橋接)
+      - [1. ChatParam：每玩家一個對話物件](#1-chatparam每玩家一個對話物件)
+      - [2. 完整請求鏈路](#2-完整請求鏈路)
+      - [3. 其他改進與修復](#3-其他改進與修復)
+  - [AI 在本專案中的角色](#ai-在本專案中的角色)
   - [致謝與聲明](#致謝與聲明)
   - [贊助與貢獻者名單](#贊助與貢獻者名單)
   - [授權條款](#授權條款)
@@ -125,9 +111,9 @@ pip install openai requests websockets
 |指令|用途|
 |---|---|
 |`!!ask <content>`|向 AI 提問、聊天或請它幫你做一些事情。`<content>` 為你想讓 AI 做的事情或你想問 AI 的問題。|
-|`!!ask -m <model> <content>`|使用指定的模型向 AI 提問、聊天或請它幫你做一些事情。`<model>` 為你想使用的模型的 AI_ID 或暱稱，`<content>` 為你想讓 AI 做的事情或你想問 AI 的問題。|
 |`!!ask -n <content>`|向 AI 提問但不使用歷史記錄（當前對話仍會被儲存）。|
-|`!!ask -n -m <model> <content>`|使用指定的模型且不使用歷史記錄提問。|
+|`!!ask -f <content>`|強制提問：不等待目前這輪結束，將訊息併入正在執行的對話輪（別名 `-forced`）。詳見[AI 請求鏈路與對話機制](#ai-請求鏈路與對話機制)。|
+|`!!ask switch <model>`|切換目前對話使用的 AI 模型，`<model>` 為 AI_ID 或暱稱。詳見[AI 請求鏈路與對話機制](#ai-請求鏈路與對話機制)。|
 
 ---
 
@@ -145,6 +131,65 @@ pip install openai requests websockets
 |`!!data list`|讀取公共資料庫中的所有內容。|
 |`!!data list keys`|讀取公共資料庫中的所有 key。|
 ---
+
+---
+
+## AI 請求鏈路與對話機制
+
+本小節說明從你輸入 `!!ask` 到 AI 回覆之間發生了什麼，以及對話在插件內部是如何管理的。
+
+### 請求鏈路
+
+1. 執行 `!!ask <content>`（或 `!!ask -n <content>` / `!!ask -f <content>`）。
+2. 插件解析你的使用者名稱，構建帶 `使用者名稱:` / `訊息:` 標籤的使用者訊息（語言隨目前語言環境）。
+3. 你的**單玩家 `ChatParam` 物件**（見 `games_ai/chat_param.py`）按需惰性建立，使用 `all_ai` / `default_ai` 設定的模型。
+4. 每一輪，`ChatParam.response_ai` 組裝請求：
+   - system 訊息：目前時間、該模型的 prompt、技能列表（內建 + `skills.json` + 外部插件註冊）、公共資料列表；
+   - 對話歷史（使用 `!!ask -n` 時跳過）；
+   - 按你的權限等級篩選後的工具列表。
+5. 透過每個 AI 設定複用的用戶端（`openai_api.response_chat`）與 OpenAI 相容 API 通訊。
+6. 若 AI 呼叫了工具，插件執行之、注入結果，並**在同一輪內繼續**，直到 AI 給出最終文字回覆。
+7. 回覆帶上 AI 名稱前綴發送給你，並寫入歷史；歷史按 `max_history × 2 + tool_count × 2` 則裁切。
+
+```mermaid
+flowchart TD
+    U["玩家 / 主控台"] -->|"!!ask <content>"| ASK["ask_ai"]
+    U -->|"!!ask -n <content>"| NOH["無歷史模式"]
+    U -->|"!!ask -f <content>"| QUEUE["response_queue"]
+    U -->|"!!ask switch <model>"| SWITCH["重建 AI 用戶端<br/>0.7.0 保留歷史"]
+
+    ASK --> CP["ChatParam（每玩家一個）"]
+    NOH --> CPD["臨時 ChatParam"]
+    CP --> BUILD["response_ai — 組裝請求"]
+    CPD --> BUILD
+    BUILD -->|"system：時間 / prompt / 技能 / 資料"| API
+    BUILD -->|"歷史：response_list<br/>（-n 時跳過）"| API
+    BUILD -->|"工具：按權限篩選"| API
+
+    API["OpenAI 相容 API"] --> TOOLCALL{"有工具呼叫?"}
+    TOOLCALL -->|"是"| TOOL["執行工具並注入結果<br/>同一輪繼續"]
+    TOOL --> BUILD
+    TOOLCALL -->|"否"| REPLY["最終回覆 → 玩家"]
+    REPLY --> SAVE["寫入 response_list<br/>裁切：max_history × 2 + tool_count × 2"]
+
+    QUEUE -.->|"併入執行中的輪次<br/>或由自動補輪回答"| BUILD
+    SWITCH --> CP
+```
+
+### 每玩家狀態
+
+- `all_chat_param` 為每個玩家在記憶體中保留一個 `ChatParam`；`!!gamesai clear` / `!!gamesai clearall` 會刪除它們。
+- `ChatParam` 擁有：
+  - `response_list` — 對話歷史；
+  - `system_message` — 每輪重建（時間、prompt、技能、資料）；
+  - `response_queue` — `!!ask -f` 等待合併的訊息佇列；
+  - `is_stopped` — 輪次生命週期事件（用於序列化每個玩家的輪次）。
+- **`!!ask switch <model>`** 會為你的 `ChatParam` 重建 AI 用戶端，對話保留。0.7.0 完全保留歷史；處理策略正由社群投票決定 —— 見 [#20](https://github.com/PengZixuan30/Games_AI/issues/20)。
+- **`!!ask -f <content>`** 在輪次仍在執行時將請求入隊：執行中的輪次會合併它並繼續；若輪次恰好在合併前結束，則由自動補輪回答。
+- **`!!gamesai debug`** 會將請求流程日誌提升到 INFO 等級顯示在 MCDR 主控台（請求開始/結束、強制請求入隊/合併、工具呼叫）；未開啟時同一批日誌走 DEBUG 等級。
+
+> [!NOTE]
+> **社群投票：**切換 AI 模型時歷史應如何處理，正由社群投票決定 —— 見 [issue #20](https://github.com/PengZixuan30/Games_AI/issues/20)。0.7.0 暫時維持「完全保留歷史」的現狀，最終方案將在 0.7.1 落地。
 
 ---
 
@@ -168,13 +213,15 @@ GamesAI 0.6.0 引入了基於 [Mineflayer](https://github.com/PrismarineJS/minef
 
 ### 工作原理
 
-```
-玩家 !!ask → GamesAI 插件 → WS 客戶端 (Python) → WS 伺服器 (Node.js) → Mineflayer Bot
-                                                                           ↓
-                                                                    Minecraft 伺服器
-
-AI（自主控制器）:
-  get_state → 分析狀態 → bot_call_action(goto/dig/attack/...) → 循環
+```mermaid
+flowchart LR
+    A["玩家"] -->|"!!ask"| B["GamesAI 插件 (Python)"]
+    B --> C["WS 客戶端 (Python)"]
+    C -->|"WebSocket"| D["WS 伺服器 (Node.js)"]
+    D --> E["Mineflayer Bot"]
+    E --> F["Minecraft 伺服器"]
+    B --> G["自主控制器 (AI)"]
+    G -->|"get_state → 分析狀態 →<br/>bot_call_action(goto / dig / attack / …)"| D
 ```
 
 插件啟動一個 Node.js 程序執行 WebSocket 伺服器，Python WebSocket 客戶端（插件內建）透過本地連線與其通訊，形成 MCDR 與 Mineflayer Bot 之間的橋樑。Bot 啟動後，**自主 AI 控制器**會定時讀取機器人狀態、檢查聊天訊息，並自主決定執行什麼操作。
@@ -680,146 +727,49 @@ def on_gamesai_reload(server: PluginServerInterface):
 
 ## 本次更新
 
-### Version 0.6.4
+### Version 0.7.0
 
 #### 🎯 核心亮點
 
-- **🔐 AI 工具權限系統** — `@register_tool` 新增 `perm` 參數；`perm` 高於請求玩家的工具根本不會提供給 AI。`perm` 支援可呼叫物件（如 `get_plugin_config_perm`），可動態跟隨 `permission` 設定。
-- **♻️ 熱重載時全量重建工具註冊** — `!!gamesai reload` 現在會徹底清空並重建工具註冊表：內建工具重放恢復、自訂 `tools.py` 重新匯入、註冊過工具的第三方插件被真正重新載入以刷新工具程式碼。
-- **🧰 工具集調整** — 白名單工具（`get_whitelist_name`、`add_to_whitelist`、`remove_from_whitelist`）和 `search_minecraft_wiki` 遷移至 [GamesAI-Extra](https://github.com/PengZixuan30/Games_AI-Extra)；`get_online_players` 在缺少 `online_player_api` 時回退為 RCON `list` 查詢。
+- **🧠 每玩家 ChatParam 架構** — 每個玩家的對話現在由一個專屬 `ChatParam` 物件管理：它擁有對話歷史、系統訊息、強制請求佇列與輪次生命週期事件。歷史處理、模型切換、強制提問都經由該物件。
+- **🔀 模型切換：`!!ask switch <model>`** — 隨時切換目前對話使用的 AI 模型。0.7.0 暫時**完全保留歷史**；處理策略正由社群投票決定，見 [#20](https://github.com/PengZixuan30/Games_AI/issues/20)，將在 0.7.1 落地。
+- **⚡ 強制提問：`!!ask -f <content>`** — 在輪次仍在執行時插入問題：訊息會被合併進執行中的輪次（或由自動補輪回答），無需等待上一個回覆結束。
+- **🗑️ 移除的指令** — `!!ask -m <model> <content>`、`!!ask --model ...` 及其 `-n` / `--no-history` 組合已被移除；請改用 `!!ask switch <model>` + `!!ask -n <content>`。
+- **📋 除錯日誌** — `!!gamesai debug` 現在可以讓完整的 AI 請求流程在 MCDR 主控台可見（模型切換、強制請求入隊/合併、輪次生命週期、工具呼叫）。
 
-#### 1. AI 工具權限系統
+#### 1. ChatParam：每玩家一個對話物件
 
-`register_tool(description=..., perm=..., parameters=...)` — `perm` 可以是 `int` 或返回 `int` 的零參可呼叫物件（預設 `0` 表示所有玩家可用）。每次 `!!ask` 前，插件會從註冊表構建工具列表，只把 `perm` 不高於玩家權限等級的工具傳給模型；工具函式內部的執行時權限檢查依然生效。管理資料、技能、自訂工具或啟停 Bot 的內建工具現在都使用 `get_plugin_config_perm`（設定中的 `permission` 值，請求時即時讀取）。這修復了舊版「所有工具對所有玩家可見」的問題。
+`games_ai/chat_param.py` 引入 `BasicChatParam` / `ChatParam`：
 
-#### 2. 熱重載時全量重建工具註冊
+- `response_list` — 該玩家的對話歷史；
+- `system_message` — 每輪重建（目前時間、prompt、技能列表、公共資料）；
+- `response_queue` — 等待合併的 `!!ask -f` 訊息；
+- `is_stopped` — 輪次生命週期事件，用於序列化每個玩家的輪次；
+- `trim_response_list()` — 有界歷史（`max_history × 2 + tool_count × 2`）；
+- `reload_ai_info()` — `!!gamesai reload` 後刷新 AI 設定與使用者端。
 
-`!!gamesai reload` 現在執行完整的工具重置：
+所有玩家物件保存在 `all_chat_param` 中；`!!gamesai clear` / `!!gamesai clearall` 會刪除它們。
 
-- **內建工具** — 透過記錄的註冊閉包重新註冊（不重新執行模組程式碼，Bot 程序與 WebSocket 控制代碼不受影響）；
-- **自訂 `tools.py`** — 舊的外部工具被清除後重新匯入，檔案中被刪除的工具會真正消失；
-- **第三方插件** — 透過 `@register_tool` 註冊過工具的插件按模組頂層名稱追蹤並由 MCDR 重新載入，重新執行其 import/`on_load` 註冊程式碼。
+#### 2. 完整請求鏈路
 
-這取代了舊版對已載入模組呼叫 `importlib.import_module` 的做法（該做法是 no-op，重載後內建工具全部遺失）。詳見[重載期間發生了什麼](#重載期間發生了什麼)。
+`!!ask <content>` → `ask_ai` 構建使用者訊息 → 玩家的 `ChatParam` → `response_ai` 組裝請求（system 訊息 + 歷史 + 按權限篩選的工具）→ 經複用的使用者端（`openai_api.response_chat`）存取 OpenAI 相容 API → 回覆發送給玩家；工具呼叫被執行並回填，直到 AI 給出最終文字回覆。詳見[AI 請求鏈路與對話機制](#ai-請求鏈路與對話機制)。
 
-#### 3. 工具集調整
+#### 3. 其他改進與修復
 
-- 白名單工具（`get_whitelist_name`、`add_to_whitelist`、`remove_from_whitelist`）和 `search_minecraft_wiki` 遷移至 [GamesAI-Extra](https://github.com/PengZixuan30/Games_AI-Extra) 插件。
-- `get_online_players` 在未安裝 `online_player_api` 插件但 RCON 執行時，回退為 RCON `list` 查詢。
+- `!!ask switch <model>` 現在附帶本地化確認訊息，並就地更新對話（0.7.0 保留歷史）；
+- `response_chat` 改為注入 `OpenAI` 使用者端（每個 AI 設定一個）並附帶型別檢查；Mineflayer 自主控制器已適配新簽名；
+- `!!gamesai reload` 會刷新既有 `ChatParam` 物件（重建使用者端），並在熱重載路徑中刷新 `AutonomousBotController` 設定；
+- 強制請求流程有了完整的除錯日誌（入隊、合併、補輪）。
 
-#### 4. 修復
+## AI 在本專案中的角色
 
-- 修復 `perm=plugin_config.allow_permission` 在 import 時取值的問題——權限現在在請求時惰性解析。
-- 修復重載邏輯：舊版清空 `TOOL_SCHEMAS` 後對已匯入模組呼叫 `importlib.import_module`，導致重載後內建工具消失。
-- 移除殘留的 `tr_key` 參數（會導致工具註冊拋出 `TypeError`）。
-- 合併擴展插件重載列表與工具註冊插件列表，並做失敗隔離（`REGISTER_PLUGIN_LIST.pop` / `TOOL_PLUGIN_IDS.discard`）。
+GamesAI 本身是 AI 驅動的插件，而 AI 也在本專案自身的維護中扮演重要角色：
 
-### Version 0.6.3
-
-#### 🎯 核心亮點
-
-- **🔧 Mineflayer 版本相容自動修復** — 當 Minecraft 伺服器升級到已安裝 mineflayer 不支援的版本（`Server version 'X' is not supported`）時，插件現在會自動刷新 npm 依賴並重啟 Bot；舊版本插件安裝的過期依賴也會在下次啟動時自動刷新一次
-- **🔒 啟停 Bot 工具權限校驗** — AI 工具 `run_mineflayer_bot`（`bot_start`）和 `stop_mineflayer_bot`（`bot_stop`）現在要求達到設定的權限等級，與 `!!aibot join` / `!!aibot leave` 指令一致
-- **🕐 等待伺服器啟動** — Bot 會先等待 Minecraft 伺服器啟動再連線，不再因 MCDR 先於伺服器啟動而連線失敗
-- **📦 擴展插件隨本體卸載** — 插件卸載時一併卸載所有呼叫過 `register_self()` 的外部插件，並做了失敗隔離
-
-#### 1. Mineflayer 版本相容自動修復
-
-修復 `Server version 'X' is not supported. Latest supported version is ...` 報錯（例如伺服器升級到更新的 Minecraft 版本後）。插件偵測到該錯誤後會自動執行 `npm install`，將 `mineflayer`/`minecraft-data` 等依賴刷新到最新版本並重啟 Bot。刷新操作受 10 分鐘冷卻和每會話最多 3 次的限制。詳見[Mineflayer Bot 錯誤](#mineflayer-bot-錯誤)。
-
-#### 2. 啟停 Bot 工具權限校驗
-
-啟動/停止 Mineflayer Bot 的 AI 工具（`bot_start` / `bot_stop`）現在會校驗發起請求玩家的權限等級是否達到設定的 `permission` 值，無權限玩家無法再透過 AI 啟停 Bot。`!!aibot join` / `!!aibot leave` 指令自 0.6.0 起已有該校驗。
-
-#### 3. 等待伺服器啟動後再啟動 Bot
-
-`_run_mineflayer_bot` 現在會先檢查 Minecraft 伺服器是否正在執行。若伺服器未執行（例如 MCDR 啟動時伺服器尚未開啟），插件會在背景等待，伺服器啟動後自動啟動 Mineflayer Bot——不再出現「伺服器未就緒導致 Bot 啟動即連線失敗」的情況。等待期間插件被卸載會乾淨地取消等待，重複的啟動請求也會被忽略。
-
-#### 4. 插件卸載時卸載已註冊的擴展插件
-
-插件本體被卸載時，會一併卸載所有呼叫過 `register_self()` 的外部插件。每個卸載操作都有獨立的例外處理，單個插件卸載失敗不會阻塞其餘插件。（卸載迴圈自 0.6.1 引入，0.6.3 起增加失敗隔離與結果校驗加固。）
-
-### Version 0.6.2
-
-#### 🎯 核心亮點
-
-- **📍 玩家位置查詢** — 新增 `get_player_position` 工具，查詢線上玩家的座標和維度（依賴 `minecraft_data_api`）
-- **📖 強制技能閱讀** — `!!ask /<skill> <content>` 語法，強制 AI 優先讀取指定技能檔案
-- **📡 reload 事件** — `!!gamesai reload` 完成時派發 `games_ai.reload` 事件，其他插件可監聽同步
-- **📚 熱重載文件** — README 新增完整[熱重載](#熱重載)章節
-
-#### 1. 新工具 `get_player_position`
-
-查詢指定線上玩家的座標（x, y, z）和維度（主世界/地獄/終界）。依賴於 `minecraft_data_api` 插件。Bot 也可呼叫（`@register_bot_tool`）。
-
-#### 2. 強制技能閱讀 `!!ask /<skill>`
-
-玩家可使用 `!!ask /技能名 <content>` 格式，強制 AI 在回答前透過 `read_skills` 工具讀取指定技能檔案。插件會驗證技能檔案是否存在並提供回饋，適用於需要 AI 嚴格遵循特定 SOP 的場景。
-
-#### 3. `games_ai.reload` 事件
-
-每次 `!!gamesai reload` 完成後，插件會派發 `games_ai.reload` 事件，攜帶觸發重載的 `CommandSource`。其他 MCDR 插件可註冊事件監聽器在 GamesAI 熱重載完成時同步狀態。詳見[熱重載](#熱重載)。
-
-### Version 0.6.1
-
-#### 🎯 核心亮點
-
-- **🔌 擴展插件系統** — 為 MCDR 插件開發者提供 `register_self()` 和 `register_skills()` API
-- **🛡️ 輸入驗證** — `!!aibot join` 時驗證 Bot 使用者名稱合法性
-- **📋 日誌改進** — 已註冊插件重新載入/卸載生命週期的詳細日誌
-
-#### 1. 擴展插件系統
-
-第三方 MCDR 插件現在可以更深度地與 GamesAI 整合：
-
-- **`register_self(plugin_id)`** — 在你的插件 `on_load` 中呼叫，使其在 `!!gamesai reload` 時自動重新載入。這對於註冊了自訂工具、需要在 AI 修改後同步設定/Skills 變更的插件至關重要。詳見[熱重載](#熱重載)。
-- **`register_skills(file_name, description, content)`** — 從插件程式碼中以程式設計方式註冊技能檔案，無需手動編輯 `skills.json`。技能會出現在 AI 的系統提示中，並可透過 `read_skills` 工具讀取。
-
-#### 2. 驗證與穩定性
-
-- `!!aibot join` 現在會驗證 Bot 使用者名稱——拒絕包含非法字元（非 `[a-zA-Z0-9_]`）的使用者名稱。
-- 修復了走訪 `REGISTER_PLUGIN_LIST` 時刪除元素可能導致跳過條目的 Bug。
-- 為擴展插件的生命週期（重新載入/卸載狀態）新增了完整的日誌記錄。
-
-### Version 0.6.0
-
-#### 🎯 核心亮點
-
-- **🤖 Mineflayer Bot** — 由 AI 透過 WebSocket 全自主控制的 Minecraft 機器人
-- **⚙️ 設定系統重製** — 型別自適應設定、`!!aibot` 管理指令、輸入驗證
-- **📋 日誌橋接** — OpenAI/httpx SDK 日誌無縫路由至 MCDR 日誌系統
-
-#### 1. Mineflayer Bot 整合
-
-0.6.0 最大的新特性：基於 Mineflayer 的全自主 Minecraft 機器人，透過 WebSocket 指令介面由 AI 控制。
-
-**支援的操作**（20+）：`goto`（A* 尋路）、`efly`（鞘翅飛行）、`dig`、`place`、`attack`、`useOn`、`equip`/`unequip`（裝備/卸下盔甲）、`mount`/`dismount`（騎乘/離開）、`craft`（合成）、容器與熔爐管理、`lookAt`、`setControlState` 等。
-
-**擴展 `get_state`**：30+ 欄位 — 位置、視角 (yaw/pitch)、速度、盔甲 (head/chest/legs/feet)、氧氣、經驗、世界時間、天氣、維度、睡眠狀態等。
-
-**自訂物理引擎**：擊退回應（透過 `entity_velocity` 封包）和實體碰撞/擠壓。尋路時自動暫停物理以避免干擾。
-
-**Bot 管理**：
-- `!!aibot join` / `!!aibot leave` — 生命週期控制
-- `!!aibot set username/password/auth` — 設定 Bot 身份，含輸入驗證
-- `bot_start` / `bot_stop` 工具 — AI 自主控制
-- `delegate_to_bot` — 將複雜任務移交給自主控制器
-
-**其他改進**：死亡自動重生、預設啟用物理引擎、`path_update` noPath 檢測（無法到達時立即返回錯誤）、聊天訊息自動去除 `§` 字元。
-
-#### 2. 設定系統重製
-
-- **型別自適應 `set_config`**：`!!gamesai config set` 現在讀取舊值的型別並自動將新值轉換為匹配型別。設定 float 為 `"20"` 仍保持 float，bool 保持 bool 等。型別不匹配錯誤會被捕捉並報告。
-- **`!!aibot set` 指令**：無需手動編輯 JSON 即可管理 Bot 的使用者名稱、密碼和認證方式。使用者名稱/密碼驗證為 `[a-zA-Z0-9_]`，auth 限制為 `microsoft`/`mojang`/`offline`。
-
-#### 3. OpenAI 日誌橋接
-
-> [!NOTE]
-> 徹底解決了舊版 OpenAI SDK 原始日誌會佔用 MCDR 主控台導致輸入失常及顯示異常的問題。
-
-`openai` 和 `httpx` Python 日誌現已完全重定向至 MCDR Logger：
-- 所有 HTTP 請求/回應日誌出現在 MCDR 主控台
-- 原始 handler 已清除、propagation 已停用 — 無重複 stderr 輸出
+1. 本 README 最初由作者（yello）排版，後全部交由 AI 修改；
+2. 所有翻譯檔案（`lang/*.yml`）均由 AI 修改；
+3. 每次發布前的邏輯檢查由 AI 完成；
+4. 快照/開發版本中出現的問題將由 AI 排查；
+5. GitHub 回饋的 issue、PR 等將先由 AI 排查問題，再交由維護者處理。
 
 ## 致謝與聲明
 

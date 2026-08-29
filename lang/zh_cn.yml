@@ -28,6 +28,10 @@ games_ai:
     ask_help: "以向AI提问"
     ask_no_history_help: "以向AI提问(不使用历史记录)"
 
+    switch_help: "以切换你使用的AI模型"
+
+    ask_force_help: "以向AI提问(强制模式,立即插入当前对话)"
+
     clear_help: "以清除你的历史聊天记录"
 
     clearall_help: "以清除所有历史聊天记录"
@@ -85,6 +89,7 @@ games_ai:
 
     model_error: "错误的AI模型!当前有这些AI模型: "
     model_more: "无法正确匹配!现在匹配到了如下AI模型: "
+    switch_success: "已切换 AI 模型: {model}(历史记录已保留)"
 
     data_list: "公共数据列表:"
     thinking: "§7正在思考...§r"

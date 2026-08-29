@@ -9,6 +9,7 @@ from typing import Callable
 from .openai_api import response_chat
 from .games_ai_tool import get_tool_handler, register_tool, register_bot_tool, get_bot_tool_schemas
 from .mineflayer import MineflayerWSClient
+from openai import OpenAI
 from mcdreforged.command.command_source import CommandSource
 from mcdreforged.plugin.si.server_interface import ServerInterface
 
@@ -119,6 +120,10 @@ class AutonomousBotController:
         self._model = model
         self._base_url = base_url
         self._api_key = api_key
+        self._openai_client = OpenAI(
+            api_key=self._api_key,
+            base_url=self._base_url,
+        )
         self._system_prompt = system_prompt
         self._chat_prompt = chat_prompt
         self._extra_body = extra_body or {}
@@ -174,6 +179,37 @@ class AutonomousBotController:
     @property
     def is_running(self) -> bool:
         return self._running
+
+    def reload_config(
+        self,
+        model: str,
+        base_url: str,
+        api_key: str,
+        system_prompt: str = "",
+        chat_prompt: str = "",
+        extra_body: dict | None = None,
+        cycle_interval: float = 15.0,
+        bot_username: str = "Bot",
+    ) -> None:
+        """
+        Update controller config in-place. Used on plugin hot-reload so that
+        the running controller picks up AI/bot config changes without a full
+        Mineflayer restart. Safe to call while the loop is running: the next
+        cycle reads the new attributes.
+        """
+        self._model = model
+        self._base_url = base_url
+        self._api_key = api_key
+        self._openai_client = OpenAI(
+            api_key=self._api_key,
+            base_url=self._base_url,
+        )
+        self._system_prompt = system_prompt
+        self._chat_prompt = chat_prompt
+        self._extra_body = extra_body or {}
+        self._cycle_interval = cycle_interval
+        self._bot_username = bot_username
+        self._log.info("[AutonomousBot] Controller config reloaded")
 
     # ── internal loop ───────────────────────────────────────
 
@@ -295,10 +331,9 @@ class AutonomousBotController:
         for _ in range(max_loops):
             try:
                 ai_msg = response_chat(
+                    self._openai_client,
                     model=self._model,
-                    url=self._base_url,
-                    message=messages,
-                    api_key=self._api_key,
+                    response_list=messages,
                     tools=get_bot_tool_schemas(),
                     extra_body=self._extra_body,
                 )
