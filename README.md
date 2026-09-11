@@ -14,10 +14,10 @@ English  |  [简体中文](/README.zh-CN.md)  |  [繁體中文](/README.zh-TW.md
 > **GamesAI Plugin/Mod QQ Group: 849544707** — Join us to discuss issues, share feedback, and exchange prompt, skills, tools configurations!
 
 > [!NOTE]
-> Welcome to version 0.7.0! This release introduces the **per-user ChatParam conversation architecture**, new **`!!ask switch <model>`** and **`!!ask -f <content>`** commands, removes the old `-m` / `--model` variants, and adds **debug logging for the whole AI request flow**. See [What's New](#whats-new) for details.
+> Welcome to version 0.7.1! This release brings **automatic context management**: the fixed `max_history` option is gone, each model's context window is resolved automatically, real usage is read from the provider's `usage` field, and the conversation is compressed (older rounds summarized) only when the context actually grows too large. See [What's New](#whats-new) for details.
 
 > [!NOTE]
-> **Community vote: how should history be handled when switching AI models?** v0.7.0 keeps the current "fully preserve history" behavior; the final policy will be decided by vote and land in v0.7.1. Join the poll: [#20](https://github.com/PengZixuan30/Games_AI/issues/20)
+> **Switching models now uses a summary hand-off** (option B1 of the community vote in [#20](https://github.com/PengZixuan30/Games_AI/issues/20), implemented in v0.7.1): `!!ask switch <model>` has the **old** model compress the conversation into one neutral factual summary, clears the raw history, and passes that summary to the new model. See [Summary Hand-off on Model Switch](#summary-hand-off-on-model-switch).
 
 <details>
 <summary>Table of Contents (click to expand)</summary>
@@ -27,7 +27,11 @@ English  |  [简体中文](/README.zh-CN.md)  |  [繁體中文](/README.zh-TW.md
   - [Usage](#usage)
   - [AI Request Pipeline \& Chat Mechanism](#ai-request-pipeline--chat-mechanism)
     - [The request chain](#the-request-chain)
+    - [The stateless path (`!!ask -n`)](#the-stateless-path-ask--n)
+    - [Automatic Context Management](#automatic-context-management)
     - [Per-user state](#per-user-state)
+    - [Summary Hand-off on Model Switch](#summary-hand-off-on-model-switch)
+    - [Stopping a Running Round](#stopping-a-running-round)
   - [Using the Mineflayer Bot](#using-the-mineflayer-bot)
     - [Prerequisites](#prerequisites)
     - [Commands](#commands)
@@ -38,10 +42,9 @@ English  |  [简体中文](/README.zh-CN.md)  |  [繁體中文](/README.zh-TW.md
   - [Configuration](#configuration-1)
     - [1.prefix](#1prefix)
     - [2.permission](#2permission)
-    - [3.max\_history](#3max_history)
-    - [4.all\_ai](#4all_ai)
-    - [5.default\_ai](#5default_ai)
-    - [6.mineflayer\_bot](#6mineflayer_bot)
+    - [3.all\_ai](#3all_ai)
+    - [4.default\_ai](#4default_ai)
+    - [5.mineflayer\_bot](#5mineflayer_bot)
   - [Tools \& Skills](#tools--skills)
     - [Built-in Tools](#built-in-tools)
     - [Custom Tools via Config File](#custom-tools-via-config-file)
@@ -61,8 +64,15 @@ English  |  [简体中文](/README.zh-CN.md)  |  [繁體中文](/README.zh-TW.md
     - [Mineflayer Bot Errors](#mineflayer-bot-errors)
     - [Logging \& Debugging](#logging--debugging)
   - [What's New](#whats-new)
-    - [Version 0.7.0](#version-070)
+    - [Version 0.7.1](#version-071)
       - [🎯 Highlights](#-highlights)
+      - [1. Automatic Context Management](#1-automatic-context-management)
+      - [2. Summary Hand-off When Switching Models](#2-summary-hand-off-when-switching-models)
+      - [3. A Stateless Path for `!!ask -n`](#3-a-stateless-path-for-ask--n)
+      - [4. Configuration \& Behaviour Changes](#4-configuration--behaviour-changes)
+      - [5. Other Improvements](#5-other-improvements)
+    - [Version 0.7.0](#version-070)
+      - [🎯 Highlights](#-highlights-1)
       - [1. ChatParam: One Conversation Object per Player](#1-chatparam-one-conversation-object-per-player)
       - [2. The Full Request Chain](#2-the-full-request-chain)
       - [3. Other Improvements \& Fixes](#3-other-improvements--fixes)
@@ -98,7 +108,7 @@ Type `!!gamesai` anywhere to display all available features of this plugin.
 |`!!gamesai clear`|Clear your own chat history. Chat history is unrelated to the public database.|
 |`!!gamesai clearall`|Clear all players' chat history. Chat history is unrelated to the public database.|
 |`!!gamesai reload`|Reload the plugin configuration file. See [Hot Reload](#hot-reload) for details.|
-|`!!gamesai check`|Check for plugin updates.|
+|`!!gamesai check`|Check for plugin updates and force-refresh the context-window table.|
 |`!!gamesai speedtest [model]`|Test API server connection latency. If no model is specified, all models are tested.|
 |`!!gamesai config get <key>`|Read a configuration value.|
 |`!!gamesai config set <key> <value>`|Update a configuration value (auto type-adapts; automatically triggers [Hot Reload](#hot-reload)).|
@@ -112,7 +122,8 @@ You can also use `!!ask` directly to ask the AI questions, chat, or ask it to do
 |`!!ask <content>`|Ask the AI a question, chat, or ask it to do something. `<content>` is what you want the AI to do or the question you want to ask.|
 |`!!ask -n <content>`|Ask the AI without using conversation history (current conversation is still saved).|
 |`!!ask -f <content>`|Force-ask without waiting: the request is merged into the round that is currently running (alias: `-forced`). See [AI Request Pipeline & Chat Mechanism](#ai-request-pipeline--chat-mechanism).|
-|`!!ask switch <model>`|Switch the AI model for your current conversation. `<model>` is the AI_ID or nickname. See [AI Request Pipeline & Chat Mechanism](#ai-request-pipeline--chat-mechanism).|
+|`!!ask switch <model>`|Switch the AI model for your current conversation (`<model>` is the AI_ID or nickname). The history is cleared and the old model summarizes it right before your next request, handing the summary to the new model. See [Summary Hand-off on Model Switch](#summary-hand-off-on-model-switch).|
+|`!!ask stop`|Immediately stop everything you have in flight: your running round (tool calls included), a running `!!ask -n` request and a task you delegated to the bot. The interrupted step is deleted from the history and queued `!!ask -f` messages are discarded. See [Stopping a running round](#stopping-a-running-round).|
 
 ---
 
@@ -140,39 +151,84 @@ This section explains what happens between your `!!ask` and the AI's reply, and 
 
 1. You run `!!ask <content>` (or `!!ask -n <content>` / `!!ask -f <content>`).
 2. The plugin resolves your username and builds the user message (labeled with `Username:` / `Message:` in your current language).
-3. Your per-user `ChatParam` object (see `games_ai/chat_param.py`) is created lazily and uses the model configured by `all_ai` / `default_ai`.
-4. Each round, `ChatParam.response_ai` assembles the request:
+3. Your per-user `ChatParam` object (see `games_ai/chat_param.py`) is created lazily and uses the model configured by `all_ai` / `default_ai`. `!!ask -n` uses a throwaway `NonHistoryChatParam` instead — see [The stateless path](#the-stateless-path-ask--n).
+4. Each round, `response_ai` assembles the request:
    - system messages: current time, the model's prompt, the skills list (built-in + `skills.json` + registered by external plugins), and the public data list;
-   - conversation history (skipped with `!!ask -n`);
+   - conversation history (the stateless path keeps none);
    - tools filtered by your permission level.
-5. The round talks to the OpenAI-compatible API through a client created once per AI config (`openai_api.response_chat`).
+5. The round talks to the OpenAI-compatible API through `openai_api.response_chat`. A history object owns one client per AI config; the stateless path reuses a client per `base_url` + API key.
 6. If the AI calls a tool, the plugin executes it, injects the result, and **continues the same round** until the AI produces a final text reply.
-7. The reply is sent with the AI's name prefix and saved into the history; the history is trimmed to `max_history × 2 + tool_count × 2` messages.
+7. The reply is sent with the AI's name prefix and saved into the history; the context is then managed automatically (see [Automatic Context Management](#automatic-context-management)).
 
 ```mermaid
 flowchart TD
     U["Player / Console"] -->|"!!ask <content>"| ASK["ask_ai"]
-    U -->|"!!ask -n <content>"| NOH["No-history mode"]
+    U -->|"!!ask -n <content>"| NOH["NonHistoryChatParam<br/>(stateless)"]
     U -->|"!!ask -f <content>"| QUEUE["response_queue"]
-    U -->|"!!ask switch <model>"| SWITCH["Rebuild AI client<br/>history kept in v0.7.0"]
+    U -->|"!!ask switch <model>"| SWITCH["Summary hand-off<br/>old model summarizes, history cleared"]
+    U -->|"!!ask stop"| STOP["Abort round / -n request / bot task<br/>interrupted step dropped"]
 
     ASK --> CP["ChatParam (per player)"]
-    NOH --> CPD["Temp ChatParam"]
     CP --> BUILD["response_ai — build request"]
-    CPD --> BUILD
+    NOH --> BUILD
     BUILD -->|"system: time / prompt / skills / data"| API
-    BUILD -->|"history: response_list<br/>(skipped with -n)"| API
+    BUILD -->|"history: response_list<br/>(none in the stateless path)"| API
     BUILD -->|"tools: filtered by permission"| API
 
     API["OpenAI-compatible API"] --> TOOLCALL{"tool_calls?"}
     TOOLCALL -->|"Yes"| TOOL["Execute tool, inject result<br/>continue the same round"]
     TOOL --> BUILD
     TOOLCALL -->|"No"| REPLY["Final reply → player"]
-    REPLY --> SAVE["Save into response_list<br/>trim: max_history × 2 + tool_count × 2"]
+    REPLY --> SAVE["ChatParam: save into response_list<br/>+ automatic context management"]
+    REPLY --> DROP["NonHistoryChatParam: discard<br/>the whole round"]
 
     QUEUE -.->|"merged into running round<br/>or answered by follow-up round"| BUILD
     SWITCH --> CP
+    STOP -.->|"stop at the next checkpoint<br/>+ delete the interrupted step"| BUILD
 ```
+
+### The stateless path (`!!ask -n`)
+
+`!!ask -n <content>` answers one question and keeps nothing. It is served by `NonHistoryChatParam`, a self-contained class in `games_ai/chat_param.py` that shares no helper, attribute or lifecycle with the history objects.
+
+**What it does not have:** dialogue history (`response_list`), the forced-request queue, the round lifecycle event, the tool counter, context management (token estimation, usage calibration, history compression, summarization requests) and any per-user state — nothing is stored in `all_chat_param`, and the object is discarded as soon as the answer is sent.
+
+**What still matches the normal path:**
+
+- the same system messages (time, prompt, skills list, public data) and the same tools for your permission level;
+- tool calls are still executed and fed back **inside the same round**, until the AI produces a final text reply;
+- the same reply format and the same error report (HTTP status mapping plus the provider's request ID).
+
+**Two differences worth knowing:**
+
+- **Single-round window guard** — with no history to compress, the request is simply measured before it is sent: if it would exceed **80 %** of the model's window, the newest message is truncated to the remaining room (a single round can hardly overflow a window; an oversized tool result can). The full machinery of [Automatic Context Management](#automatic-context-management) applies to the history path only.
+- **Shared HTTP client** — clients are cached per `base_url` + API key (at most 8 of them), so repeated `-n` calls neither rebuild a connection pool nor repeat a TLS handshake. Provider `usage` is read but ignored, because without history there is nothing to calibrate.
+
+### Automatic Context Management
+
+GamesAI no longer uses a fixed `max_history` value. Instead, every request is measured against the model's own context window and the conversation is compressed only when it is actually needed.
+
+**How the window is resolved** (highest priority first):
+
+1. `context_window` in the AI entry of `all_ai` — per-model override;
+2. the context-window table: fetched from [`data/context_windows.json`](https://github.com/PengZixuan30/Games_AI/blob/main/data/context_windows.json) (GitHub Raw, with jsDelivr as a second source), cached at `config/games_ai/cache/context_windows.json`, refreshed by the startup / 24 h update-check chain — and by `!!gamesai check`, which bypasses the 24 h TTL;
+3. a table bundled with the plugin version (works fully offline; generated module `games_ai/context_table_data.py`, synced from the repository JSON);
+4. a conservative default of `32768` tokens for unknown models.
+
+**Triggers** (checked before *and* after every request):
+
+- the current context has reached **80 %** of the window, or
+- a single request has reached **20 %** of the window (for example a huge tool result such as a log file).
+
+**What happens when a trigger fires:**
+
+- the newest **10 rounds** are always kept verbatim (one round = one user message plus its assistant/tool messages);
+- older rounds are replaced by a single neutral, factual **summary** (generated with the current model, without tools). Summaries do not imitate the previous replies' style, and an existing summary is merged into the new one;
+- if the conversation is still too large, or the summary fails, oversized messages are truncated and the oldest rounds are dropped as a last resort — the next request always fits.
+
+The real input size comes from the provider's own `usage` field (`prompt_tokens` / `total_tokens`), and the local estimate is calibrated against it per `base_url|model`, so estimates converge to the real numbers within a few rounds.
+
+Run `!!gamesai debug` to see the window, usage, calibration factor and every compression step in the MCDR console.
 
 ### Per-user state
 
@@ -182,12 +238,62 @@ flowchart TD
   - `system_message` — rebuilt every round (time, prompt, skills, data);
   - `response_queue` — messages from `!!ask -f` waiting to be merged;
   - `is_stopped` — the round lifecycle event (used to serialize rounds per player).
-- **`!!ask switch <model>`** rebuilds the AI client of your `ChatParam` and keeps the conversation. In v0.7.0 history is fully preserved; the handling policy is being decided by a community vote — see [#20](https://github.com/PengZixuan30/Games_AI/issues/20).
+- **`!!ask -n` keeps no state at all**: it is served by `NonHistoryChatParam`, which is not registered in `all_chat_param` and is dropped when the answer has been sent — see [The stateless path](#the-stateless-path-ask--n).
+- **`!!ask switch <model>`** rebuilds the AI client of your `ChatParam` with a **summary hand-off**: the raw history is cleared right away, and the old model compresses it into one neutral factual summary **right before your next request** (same timing as automatic context compression), which is then injected as the first system message of the new session. See [Summary Hand-off on Model Switch](#summary-hand-off-on-model-switch).
 - **`!!ask -f <content>`** queues the request while a round is still running: the in-flight round merges it and keeps going; if the round just ended before the merge, an automatic follow-up round answers it.
 - **`!!gamesai debug`** switches the request-flow logs to INFO level in the MCDR console (request start/finish, forced-request queue/merge, tool calls); without it, the same logs go to DEBUG.
 
 > [!NOTE]
-> **Community vote:** how conversation history should be handled when switching AI models is being decided by a community vote — see [issue #20](https://github.com/PengZixuan30/Games_AI/issues/20). v0.7.0 keeps the current "fully preserve history" behavior; the final policy will land in v0.7.1.
+> **Community vote result:** the poll in [issue #20](https://github.com/PengZixuan30/Games_AI/issues/20) is closed. Option **B1 (summary hand-off)** is implemented in v0.7.1 — the previous model's style no longer shapes the new model's replies, while the facts of the conversation are carried over.
+
+### Summary Hand-off on Model Switch
+
+`!!ask switch <model>` does not simply keep or wipe the conversation; it hands the facts over (option **B1**, the winning design of the poll in [#20](https://github.com/PengZixuan30/Games_AI/issues/20)). The compression runs at the **same moment as the automatic context compression** — right before the next request, never inside the command:
+
+1. on the command itself: the switch waits for a running round to finish, keeps a snapshot of the conversation together with the old model, clears the raw history, and rebuilds everything for the new model. No API call is made, so the command returns instantly — even for a very long conversation;
+2. **right before your next request** (in the preflight pass, exactly like automatic compression): the **old** model is asked for one neutral, factual summary of that snapshot — topic, settled conclusions, open items, and any explicit user requirements (the same summarization prompt as context compression, sent without tools, 60 s timeout);
+3. the summary is injected as the **first system message of the new conversation**, wrapped in a note that tells the new model to continue with its own instructions and style and not to imitate the previous one;
+4. the question you asked is then answered normally, with the summary in context.
+
+| Situation | What happens | What you see |
+|---|---|---|
+| History exists | Snapshot kept, history cleared, hand-off scheduled | "…will be compressed into a summary by the old model right before your next question." |
+| Hand-off succeeds before the next request | Summary becomes the first system message, then the round runs | Nothing extra (like automatic compression), only debug logs |
+| Hand-off fails (timeout, error, empty reply) | The old conversation is dropped, the round still runs | "The summary hand-off failed: the previous conversation was dropped…" |
+| Switching twice before the next request | The original snapshot is kept and summarized once, by the model that was active when it was taken | Same as above |
+| No history yet | Nothing to hand over, no extra request ever | Plain "switched" message |
+| Already using that model | Nothing is touched | "You are already using AI model…" |
+
+Notes:
+
+- the switch waits for a running round to finish first, so a snapshot is never taken from a half-written conversation;
+- switching also resets the tool counter, the forced-request queue and the usage/calibration counters of the conversation;
+- the extra summarizing request is only paid when you actually ask again — and only once per switch (with a 60 s timeout). It never blocks the command and never fails the switch; a failed hand-off just leaves the new conversation without the old context;
+- `!!ask stop` does not cancel a scheduled hand-off: it belongs to the previous conversation, not to the running round. `!!gamesai clear` removes it together with the conversation object;
+- using `-n` costs nothing here: only the history path summarizes. See [The stateless path](#the-stateless-path-ask--n).
+
+### Stopping a Running Round
+
+`!!ask stop` aborts everything **you** have in flight, right away:
+
+| What is running | What the command does |
+|---|---|
+| A round of your conversation (the model is thinking, or tools are executing) | The round stops at its next checkpoint, the interrupted step is deleted from the history, and queued `!!ask -f` messages are discarded |
+| A `!!ask -n` request | The request is abandoned; its answer is thrown away (the stateless path keeps nothing anyway) |
+| A task you delegated to the autonomous bot | The queued task is removed, and the cycle executing it stops and discards what it produced |
+
+How the interrupted step is deleted:
+
+- a trailing **tool-call group** (the assistant message that requested the tools plus its tool results) is removed as a whole, so no orphan tool message is left behind;
+- otherwise **everything the interrupted round appended** is removed — your message, messages merged from `!!ask -f`, injected skill notes — stopping at the last completed answer, so an interrupted ask never happened;
+- if that round had already produced its final answer, that answer is removed too.
+
+Details:
+
+- an in-flight HTTP request cannot be cancelled, so the round stops at the next checkpoint: before the next request, right after the response arrives, or between two tool calls of a batch. The delay is therefore at most one request;
+- the command only ever touches your own conversations (no target argument), and needs no special permission;
+- with nothing running it answers "There is no conversation in progress.";
+- `!!ask stop` is a literal command, so a question that literally begins with `stop ` is treated as a command (use `!!ask -n stop ...` or rephrase) — the same applies to `switch`.
 
 ---
 
@@ -280,7 +386,6 @@ The default configuration file structure is as follows:
 {
   "prefix": "[GamesAI]",
   "permission": 3,
-  "max_history": 10,
   "all_ai": {
       "<Your AI ID>":{
           "prompt": "You are a mature, reliable Minecraft bot tool named \"GamesAI\".",
@@ -288,7 +393,8 @@ The default configuration file structure is as follows:
           "base_url": "<Your API Base URL>",
           "ai_model": "<Your AI Model>",
           "api_key": "<Your API Key>",
-          "extra_body": {}
+          "extra_body": {},
+          "context_window": null
       }
     },
   "default_ai": "<Your AI ID>",
@@ -328,14 +434,7 @@ The minimum permission level required to execute commands like `!!data`. See the
 
 Since 0.6.4, this value also controls which **AI tools** are offered to a player: tools whose `perm` is above the player's level are not passed to the AI model at all, so the model cannot see or call them. Built-in tools that manage data, skills, custom tools, or the bot use this value (via `get_plugin_config_perm`), and it is re-read on every request, so changes take effect immediately after a reload.
 
-### 3.max_history
-Type: `int`
-
-Default: `10`
-
-The maximum number of conversation turns retained per player. Unrelated to the public database. Set to `0` to completely disable history.
-
-### 4.all_ai
+### 3.all_ai
 Type: `dict`
 
 Default: see file
@@ -350,14 +449,16 @@ All AI configuration entries, consisting of multiple sub-dictionaries. Each sub-
 
 **extra_body**: Please refer to your API provider's documentation for the `extra_body` parameter. For DeepSeek users migrating from the previous `thinking` option, use `{"thinking": {"type": "enabled"}}`. Defaults to `{}` (empty).
 
-### 5.default_ai
+**context_window** (optional): Overrides the context window (in tokens) used by [automatic context management](#automatic-context-management) for this model. Leave it as `null` to use the value from the context-window table. Useful as a cost-control knob for models with a very large window, e.g. `"context_window": 65536`.
+
+### 4.default_ai
 Type: `str`
 
 Default: `<Your AI ID>`
 
 The model used when a player simply uses `!!ask`. Should be one of the keys in the `all_ai` dictionary (i.e. the plugin's internal AI_ID). An incorrect value will prevent `!!ask` from working properly.
 
-### 6.mineflayer_bot
+### 5.mineflayer_bot
 Type: `dict`
 
 Default: see above
@@ -407,10 +508,10 @@ The GamesAI plugin provides many built-in tools, listed in the table below. If y
 |ai_add_data|`key`, `value`|Write a data entry to the database (append mode).|
 |read_skills|`skills`|Read a registered skill instruction file to guide AI behavior for specific tasks.|
 |write_skills|`skills`, `summary`, `content`|Create or overwrite a skill file and register it in the skills index.|
-|modify_skills|`skills`, `summary`, `content`|Modify an existing skill file and update its summary in the index.|
+|modify_skills|`skills`, `old_string`, `new_string`, `summary` (optional)|Edit an existing skill file by **regular-expression replacement**: `old_string` is a Python regex matched against the whole file, `new_string` is the replacement and may use backreferences such as `\1` or `\g<name>`; every match is replaced. When the pattern does not compile or matches nothing, the same text is retried as a literal string. Passing `summary` also updates the skills index.|
 |delete_skills|`skills`|Delete a skill file and remove it from the skills index.|
 |read_custom_tools|None|Read the current content of the custom `tools.py` file.|
-|modify_custom_tools|`tools`|Replace the entire custom `tools.py` file with new code.|
+|modify_custom_tools|`old_string`, `new_string`|Edit the custom `tools.py` file by **regular-expression replacement** (same rules as `modify_skills`); then call `reload_plugin`.|
 |append_custom_tools|`tools`|Append new tool code to the end of the custom `tools.py` file.|
 |setting_timer|`duration`|Pause execution for the specified number of seconds before continuing.|
 |reload_plugin|None|Hot-reload the plugin to apply configuration, skills, and custom tools changes without losing chat history. See [Hot Reload](#hot-reload).|
@@ -425,6 +526,8 @@ The GamesAI plugin provides many built-in tools, listed in the table below. If y
 
 > [!NOTE]
 > Since 0.6.4, tools with a `perm` above the requesting player's permission level are not offered to the AI at all. Tools that write/delete data, manage skills, manage custom tools, or start/stop the bot require the configured `permission` level.
+>
+> Since 0.7.1, everything sent to the model for a tool call is English: the tool schema (name, description, parameters) and the tool result, including error and permission-denied messages. The progress messages printed to players remain localized.
 
 </details>
 
@@ -447,7 +550,7 @@ def my_custom_tool(source: CommandSource, ai_prefix: str):
 > The `from games_ai.games_ai_tool import register_tool` import and the `@register_tool` decorator above the function definition **must** be present.
 
 > [!TIP]
-> In version 0.5.7+, the AI can autonomously **read, modify, and append** the custom tools file using the `read_custom_tools`, `modify_custom_tools`, and `append_custom_tools` tools. Just ask the AI to add a new tool for you — it will read the current file, write the new code, and apply changes via [Hot Reload](#hot-reload).
+> In version 0.5.7+, the AI can autonomously **read, edit, and append** the custom tools file using the `read_custom_tools`, `modify_custom_tools` and `append_custom_tools` tools. Just ask the AI to add a new tool for you — it reads the current file, applies a precise `old_string` → `new_string` replacement, and applies the change via [Hot Reload](#hot-reload).
 
 The `description` parameter is mandatory and tells the AI what the tool does. The `parameters` dictionary (optional) defines the arguments the AI should pass in, following the [OpenAI function calling schema](https://platform.openai.com/docs/guides/function-calling). The function signature must include `source: CommandSource` and `ai_prefix: str` as the first two parameters, followed by any custom parameters defined in `parameters`.
 
@@ -521,7 +624,7 @@ GamesAI ships with two **built-in skills** that the AI automatically reads befor
 | Skill File | Description |
 |---|---|
 | `skills_management.md` | Guides the AI on how to read, write, modify, and delete skill files correctly. |
-| `custom_tools_management.md` | Guides the AI on how to read, modify, and append custom tool code safely. |
+| `custom_tools_management.md` | Guides the AI on how to read, edit and append custom tool code safely — including the mandatory step of confirming the user's requirements, parameters, permission level and expected return value **before** writing any code. |
 | `mineflayer_bot_guide.md` | Guides the AI on how to control the Mineflayer bot (available only when the bot is running). |
 
 > [!TIP]
@@ -599,7 +702,7 @@ Hot reload can be triggered in the following ways:
 
 When a hot reload is performed, the plugin executes the following steps in order:
 
-1. **Re-read the configuration file** (`config/games_ai/config.json`) — Applies all changes to `prefix`, `permission`, `max_history`, `all_ai`, `default_ai`, etc.
+1. **Re-read the configuration file** (`config/games_ai/config.json`) — Applies all changes to `prefix`, `permission`, `all_ai`, `default_ai`, etc. (including per-model `context_window`).
 2. **Re-register all tools (0.6.4+)** — Completely clears the tool registry and rebuilds it from every source: built-in tools are replayed from recorded registrations, custom `tools.py` tools are re-imported, and plugins that registered tools are reloaded so their registration code runs again (see steps 4 and 6).
 3. **Reload Skills** (`config/games_ai/skills/skills.json`) — Refreshes the skill index; the available skills list in the AI's system prompt is updated synchronously.
 4. **Reload Custom Tools** (`config/games_ai/tools/tools.py`) — Hot-loads custom tool code without restarting MCDR.
@@ -725,12 +828,75 @@ def on_gamesai_reload(server: PluginServerInterface):
 
 ## What's New
 
+### Version 0.7.1
+
+#### 🎯 Highlights
+
+- **🧮 Automatic Context Management** — The fixed `max_history` option is gone. Each model's context window is resolved automatically, real usage is read from the provider's `usage` field, and the conversation is compressed only when it actually grows too large.
+- **🔀 Summary Hand-off on `!!ask switch`** — The community vote in [#20](https://github.com/PengZixuan30/Games_AI/issues/20) chose option **B1**: the raw history is cleared at once and the **old** model compresses it into one neutral factual summary right before your next request (same timing as automatic context compression), so the switch never blocks and the new model gets the facts without the old model's style.
+- **🛑 `!!ask stop`** — Stop everything you have in flight at once: the running round (tool calls included), a running `!!ask -n` request and a task delegated to the bot. The interrupted step is deleted from the history instead of being left half-written.
+- **🪶 A Stateless `!!ask -n`** — One-shot questions no longer build (and throw away) a full conversation object: `NonHistoryChatParam` keeps no history, no queue and no context bookkeeping, and reuses one HTTP client per endpoint.
+- **📊 Usage-Aware Requests** — `response_chat` now returns the provider's `usage`, so the plugin knows the real input size of every request and calibrates its local estimate per `base_url|model`.
+- **🧩 New `context_window` Option** — An optional per-AI value in `all_ai` that overrides the window used for context management (handy as a cost-control knob for very large-window models).
+
+#### 1. Automatic Context Management
+
+Every request is measured against the model's own context window; the conversation is compressed only when needed. See [Automatic Context Management](#automatic-context-management) for the full description.
+
+- **Window resolution**: per-AI `context_window` → remote table [`data/context_windows.json`](https://github.com/PengZixuan30/Games_AI/blob/main/data/context_windows.json) (GitHub Raw with jsDelivr fallback, cached for 24 h) → version-bundled table → conservative default (`32768`).
+- **Triggers** (checked before *and* after every request): the current context reaches **80 %** of the window, or a single request reaches **20 %** of the window — the latter catches sudden spikes such as reading a large log file through a tool.
+- **Compression**: the newest **10 rounds** always stay verbatim; older rounds are replaced by one neutral factual summary generated by the current model (without tools). If that is still not enough, oversized messages are truncated and the oldest rounds are dropped, so the next request always fits.
+- **Calibration**: local token estimates are corrected against real `usage` values per `base_url|model`, converging within a few rounds.
+
+#### 2. Summary Hand-off When Switching Models
+
+`!!ask switch <model>` now implements option **B1** of the poll in [#20](https://github.com/PengZixuan30/Games_AI/issues/20) (the poll is closed):
+
+- the summary request is **deferred**, exactly like automatic context compression: the command only clears the history and keeps a snapshot, and the **old** model writes the neutral factual summary (topic, settled conclusions, open items, explicit user requirements — a no-tools request with a 60 s timeout) right before your next request. The switch therefore returns instantly and no longer blocks on a summarizing request;
+- the raw history is cleared at switch time, so the previous model's replies can no longer shape the new model's tone or persona;
+- the summary is injected as the first system message of the new conversation, together with a note telling the new model to continue with its own instructions and style;
+- if the deferred summary fails, the round still answers; the player is told that the previous conversation was dropped;
+- a switch to the model you already use touches nothing, and a conversation without history needs no extra request;
+- the switch waits for a running round to finish and resets the tool counter, the forced-request queue and the usage counters.
+
+See [Summary Hand-off on Model Switch](#summary-hand-off-on-model-switch).
+
+#### 3. A Stateless Path for `!!ask -n`
+
+One-shot questions used to create a full `ChatParam` (history, queue, lifecycle event, calibration state, context management) and discard it right after the answer. They are now served by `NonHistoryChatParam`, a self-contained class that keeps nothing:
+
+- **No retained state** — the round lives inside `response_ai` and is released when it returns; nothing is registered in `all_chat_param`, and there is no history, queue, `is_stopped` event or tool counter;
+- **No context management** — no token estimation, no usage calibration, no history compression, and therefore no extra summarization request;
+- **Identical answers** — the same system messages, the same permission-filtered tools, the same reply format and the same error report as the normal path; tool calls are still executed and fed back inside the round;
+- **Single-round window guard** — if the whole request would exceed 80 % of the model's window, the newest message is truncated to the remaining room (the history path keeps its full context management instead);
+- **Shared HTTP client** — clients are cached per `base_url` + API key, so repeated `-n` calls do not pay for a new connection pool and TLS handshake each time.
+
+See [The stateless path](#the-stateless-path-ask--n) for the details.
+
+#### 4. Configuration & Behaviour Changes
+
+- **`max_history` removed** — existing configuration files keep working; the key is simply ignored now.
+- **`context_window` added** (optional, per AI entry) — see [3.all_ai](#3all_ai).
+- **New remote table** — `data/context_windows.json` is maintained in this repository (**249 entries** covering 19 providers plus hosted platforms, verified 2026-09-11; sources and caveats in [`data/context_windows.sources.md`](https://github.com/PengZixuan30/Games_AI/blob/main/data/context_windows.sources.md)). The plugin fetches it on startup and together with the 24 h update check, and caches it at `config/games_ai/cache/context_windows.json`; `!!gamesai check` forces a refresh regardless of the 24 h TTL. Maintainers can edit the JSON and run `python tools/build_context_table.py` to re-sync the bundled table and verify it.
+- **One refresh chain** — the table refresh shares the startup / 24 h update-check thread instead of running on a second thread of its own, and concurrent refreshes can no longer download the table twice.
+
+#### 5. Other Improvements
+
+- `response_chat` also accepts a per-request `timeout` and returns `(message, usage)`;
+- New `context_table` module with table matching, validation, caching and silent offline fallback; the version-bundled table now lives in the generated `games_ai/context_table_data.py` (one entry per line) instead of being inlined into the logic module;
+- **All built-in tool text is English** — the `description` and parameter descriptions of all 26 built-in tools, **and** every tool return value the model reads back (results, error and permission messages) are now English, so the function-calling prompt no longer mixes languages. Only the notices printed to players stay localized;
+- **`modify_skills` and `modify_custom_tools` now edit instead of rewriting** — both take `old_string` (a Python regular expression) and `new_string` (with backreferences such as `\1`), replacing every match instead of overwriting the whole file. A pattern that does not compile or matches nothing is retried as literal text; no match means nothing is written and the model is told so. `modify_skills` keeps an optional `summary` that still updates the skills index;
+- `!!gamesai debug` reports the window, usage, calibration factor and every compression step;
+- **new `!!ask stop` command** — aborts the player's running round at its next checkpoint (a request in flight cannot be cancelled), drops the interrupted step from the history, discards queued `!!ask -f` messages, and also stops a running `!!ask -n` request and a task delegated to the autonomous bot. See [Stopping a Running Round](#stopping-a-running-round);
+- the fallback shown for an unmapped HTTP error code is now a translation key (`games_ai.error_code_map.error_unknown`), so it follows the player's language like the other error codes;
+- the `custom_tools_management` skill now requires the AI to **confirm the user's requirements, parameters, permission level and expected return value before writing any tool code** (new mandatory "Step 0"), and to ask again about risky or irreversible behaviour.
+
 ### Version 0.7.0
 
 #### 🎯 Highlights
 
 - **🧠 Per-User ChatParam Architecture** — Each player's conversation is now a dedicated `ChatParam` object that owns the dialogue history, system messages, a forced-request queue and a round lifecycle event. History handling, model switching and forced requests all go through this object.
-- **🔀 Model Switching: `!!ask switch <model>`** — Switch the AI model of your current conversation on the fly. v0.7.0 keeps the history fully; the handling policy is subject to a community vote in [#20](https://github.com/PengZixuan30/Games_AI/issues/20) and will be finalized in v0.7.1.
+- **🔀 Model Switching: `!!ask switch <model>`** — Switch the AI model of your current conversation on the fly. v0.7.0 kept the history fully; the policy was decided by the community vote in [#20](https://github.com/PengZixuan30/Games_AI/issues/20) (option B1, summary hand-off) and is implemented in v0.7.1.
 - **⚡ Forced Requests: `!!ask -f <content>`** — Fire a question into a still-running round: it is merged into the in-flight round (or answered by an automatic follow-up round) without waiting for the previous reply to finish.
 - **🗑️ Removed Commands** — `!!ask -m <model> <content>`, `!!ask --model ...`, and their `-n` / `--no-history` combinations are gone; use `!!ask switch <model>` + `!!ask -n <content>` instead.
 - **📋 Debug Logging** — `!!gamesai debug` now makes the full AI request flow visible in the MCDR console (model switch, forced-request queue/merge, round lifecycle, tool calls).
@@ -743,7 +909,7 @@ def on_gamesai_reload(server: PluginServerInterface):
 - `system_message` — rebuilt every round (current time, prompt, skills list, public data);
 - `response_queue` — incoming `!!ask -f` messages waiting to be merged;
 - `is_stopped` — the round lifecycle event that serializes rounds per player;
-- `trim_response_list()` — bounded history (`max_history × 2 + tool_count × 2`);
+- `trim_response_list()` — bounded history (`max_history × 2 + tool_count × 2`, replaced by automatic context management in 0.7.1);
 - `reload_ai_info()` — refreshes the AI config and client after `!!gamesai reload`.
 
 All player objects are held in `all_chat_param`; `!!gamesai clear` / `!!gamesai clearall` remove them.

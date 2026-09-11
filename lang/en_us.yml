@@ -29,6 +29,7 @@ games_ai:
     ask_no_history_help: " to ask AI a question (without history)"
 
     switch_help: " to switch the AI model"
+    ask_stop_help: "Immediately stop the current conversation (running tool calls included) and delete the unfinished step"
 
     ask_force_help: " to ask AI a question (forced, inject into the current round immediately)"
 
@@ -88,7 +89,14 @@ games_ai:
 
     model_error: "Invalid AI model! Available AI models: "
     model_more: "Unable to match precisely! The following AI models were matched: "
-    switch_success: "Switched to AI model: {model} (history preserved)"
+    switch_success: "Switched to AI model: {model}"
+    switch_same_model: "You are already using AI model: {model}\nThe history is unchanged"
+    switch_summary: "Switched to AI model: {model}\nThe previous conversation will be compressed into a summary by the old model right before your next question."
+    switch_summary_failed: "The summary hand-off failed: the previous conversation was dropped, so this question does not include it."
+    stop_bot_task: "Stopped the task delegated to the bot."
+    stop_no_history: "Stopped the running no-history request."
+    stop_round: "Stopped the current conversation and deleted the unfinished step."
+    stop_none: "There is no conversation in progress."
 
     data_list: "Public data list:"
     thinking: "§7Thinking...§r"
@@ -96,6 +104,12 @@ games_ai:
     skill_selected: "Skill file §e{skill}§r selected. The AI will prioritize this skill's guidance."
     skill_not_found: "§cSkill file '{skill}' not found§r, using default skill list."
     skill_injected: "The user requests that you use the read_skills tool to read the skill file '{skill}', and strictly follow its guidance when performing the task."
+
+  context:
+    summary_prompt: "Summarize the conversation below objectively and neutrally: the topic, settled conclusions, open items, and any explicit user requirements or constraints. State facts only: do not imitate any speaking style, do not use the first person, do not add information that is not present in the conversation, and keep it under 400 words."
+    summary_prefix: "[Summary of earlier conversation (older turns were compressed)]"
+    switch_summary_prefix: "[Conversation summary handed over on a model switch (produced by the previous model; the raw conversation has been cleared): continue this conversation with your own instructions and style, and do not imitate the previous model's tone or style.]"
+    truncated: "(truncated: {orig} chars -> {kept} chars kept)"
 
   tools:
     execution_error: "Function {func_name} execution error! Reason: {ex}"
@@ -221,3 +235,4 @@ games_ai:
    error500: "API server internal error"
    error502: "Gateway error, please try again later"
    error503: "Server is busy, please try again later"
+   error_unknown: "Unknown error (HTTP {code})"

@@ -6,10 +6,11 @@ from .database import PublicDatabase
 from .config import plugin_config
 from .tools_interpreter import load_external_tools
 from .mineflayer import write_default_init, write_package_json, run_node, start_mineflayer_client, stop_mineflayer_client, stop_mineflayer_process, get_default_init_hash, is_node_running, MineflayerWSClient
-from .mineflayer_ai import AutonomousBotController, set_bot_controller
+from .mineflayer_ai import AutonomousBotController, set_bot_controller, get_bot_controller
 from .external_skills_loader import EXTERNAL_SKILLS_LIST
 from .register_extra_plugin import REGISTER_PLUGIN_LIST
-from .chat_param import ChatParam
+from .chat_param import ChatParam, NonHistoryChatParam, register_no_history, unregister_no_history, stop_no_history
+from . import context_table
 
 import time,os,requests,lzma,json,threading,datetime,logging
 
@@ -20,7 +21,7 @@ import re
 
 PLUGIN_METADATA = {
     "id": "games_ai",
-    "version": "0.7.0",
+    "version": "0.7.1",
     "name": "GamesAI",
     "description": {
         "zh_cn": "此插件可以让你在游戏中使用AI",
@@ -47,13 +48,12 @@ _mineflayer_pending_abort = threading.Event()
 _mineflayer_wait_thread: threading.Thread | None = None
 
 def on_load(server: PluginServerInterface, old):
-    global prefix,allow_permission,max_history,mcdr_lang,_timer,ai_dict,default_ai,name_to_id,data_path,skills
+    global prefix,allow_permission,mcdr_lang,_timer,ai_dict,default_ai,name_to_id,data_path,skills
     _timer = None
     
     DEFAULT_CONFIG = {
         "prefix": "[GamesAI]",
         "permission": 3,
-        "max_history": 10,
         "all_ai": {
             "<Your AI ID>":{
                 "prompt": str(server.rtr("games_ai.system_message.default")),
@@ -159,6 +159,8 @@ def my_custom_tool(source: CommandSource, ai_prefix: str):
 
     register_commands(server, config)
 
+    # Startup + 24h loop: checks plugin updates and refreshes the remote
+    # context-window table (non-blocking, silently falls back to the bundled one).
     threading.Thread(target=cyclic_check_updates, daemon=True, args=(server,)).start()
 
 
@@ -201,6 +203,8 @@ def register_commands(server: PluginServerInterface, config: dict):
 
     builder.command('!!ask switch', helper.switch_help)
     builder.command('!!ask switch <model>', switch_model)
+
+    builder.command('!!ask stop', ask_stop)
 
     builder.command('!!data', helper.data_help)
 
@@ -285,33 +289,33 @@ def _write_mineflayer_config(server: PluginServerInterface, config: dict):
 
 
 @register_tool(
-    description="启动 Mineflayer 机器人，使其加入 Minecraft 服务器。如果机器人已在运行则不做任何操作。",
+    description="Start the Mineflayer bot so that it joins the Minecraft server. Does nothing when the bot is already running.",
     perm=get_plugin_config_perm,
 )
 def run_mineflayer_bot(source: CommandSource, ai_prefix: str):
     server = source.get_server()
     if source.get_permission_level() < plugin_config.allow_permission:
-        return server.rtr("games_ai.tools.permission_denied")
+        return "Permission denied: this tool requires a higher permission level than the requesting player has"
     if is_node_running():
-        return f"Mineflayer 机器人已在运行（{plugin_config.bot_username}）"
+        return f"The Mineflayer bot is already running ({plugin_config.bot_username})"
     source.reply(f"{ai_prefix}{server.rtr('games_ai.tools.bot_start')}")
     _toggle_aibot(server, True)
-    return "正在启动 Mineflayer 机器人..."
+    return "Starting the Mineflayer bot..."
 
 
 @register_tool(
-    description="停止 Mineflayer 机器人，使其离开 Minecraft 服务器。",
+    description="Stop the Mineflayer bot so that it leaves the Minecraft server.",
     perm=get_plugin_config_perm,
 )
 def stop_mineflayer_bot(source: CommandSource, ai_prefix: str):
     server = source.get_server()
     if source.get_permission_level() < plugin_config.allow_permission:
-        return server.rtr("games_ai.tools.permission_denied")
+        return "Permission denied: this tool requires a higher permission level than the requesting player has"
     if not is_node_running():
-        return "Mineflayer 机器人未在运行"
+        return "The Mineflayer bot is not running"
     source.reply(f"{ai_prefix}{server.rtr('games_ai.tools.bot_stop')}")
     _toggle_aibot(server, False)
-    return "正在停止 Mineflayer 机器人..."
+    return "Stopping the Mineflayer bot..."
 
 def _run_mineflayer_bot(server: ServerInterface, bot_config: dict, mineflayer_init_js_path: str):
     if not server.is_server_running():
@@ -416,15 +420,13 @@ def _launch_mineflayer_bot(server: ServerInterface, bot_config: dict, mineflayer
 
 
 def _apply_config(server: PluginServerInterface, config: dict):
-    global prefix, allow_permission, max_history, mcdr_lang, ai_dict, default_ai, name_to_id
+    global prefix, allow_permission, mcdr_lang, ai_dict, default_ai, name_to_id
 
     prefix = config.get('prefix', '[GamesAI]')
-    max_history = config.get('max_history', 10)
     allow_permission = config.get('permission', 3)
 
     plugin_config.prefix = prefix
     plugin_config.allow_permission = allow_permission
-    plugin_config.max_history = max_history
     
     prompt_dir = os.path.join(os.path.dirname(os.path.dirname(plugin_config.skills_path)), "prompt")
     if not os.path.exists(prompt_dir):
@@ -446,6 +448,12 @@ def _apply_config(server: PluginServerInterface, config: dict):
             except FileNotFoundError:
                 server.logger.warning(f"{prefix} Prompt file not found: {prompt_full_path}, using default prompt")
                 raw_prompt = str(server.rtr("games_ai.system_message.default"))
+        context_window = ai_config.get("context_window")
+        try:
+            context_window = int(context_window) if context_window is not None else None
+        except (TypeError, ValueError):
+            server.logger.warning(f"{prefix} Invalid context_window for AI '{ai_id}', ignoring it")
+            context_window = None
         ai_dict[ai_id] = {
             "prompt": raw_prompt,
             "ai_name": ai_config.get("ai_name", "[GamesAI]"),
@@ -453,6 +461,7 @@ def _apply_config(server: PluginServerInterface, config: dict):
             "ai_model": ai_config.get("ai_model", ""),
             "api_key": ai_config.get("api_key", ""),
             "extra_body": ai_config.get("extra_body", {}),
+            "context_window": context_window,
         }
 
     default_ai = config.get("default_ai", list(ai_dict.keys())[0] if ai_dict else "")
@@ -517,6 +526,7 @@ class gamesai_help:
         send_help(source, prefix, command="!!ask -n <content>", command_help_key="games_ai.gamesai_help_message.ask_no_history_help")
         send_help(source, prefix, command="!!ask -f <content>", command_help_key="games_ai.gamesai_help_message.ask_force_help")
         send_help(source, prefix, command="!!ask switch <model>", command_help_key="games_ai.gamesai_help_message.switch_help")
+        send_help(source, prefix, command="!!ask stop", command_help_key="games_ai.gamesai_help_message.ask_stop_help")
         send_help(source, prefix, message=server.rtr("games_ai.gamesai_help_message.all_ai_model") + str(list(ai_dict.keys())))
 
     @staticmethod
@@ -639,6 +649,7 @@ def _chat_log(server: ServerInterface, msg: str) -> None:
         server.logger.debug(f"[GamesAI]{msg}")
 
 
+@new_thread("games_ai@switch_model")
 def switch_model(source: CommandSource, context: dict):
     server = source.get_server()
 
@@ -662,12 +673,25 @@ def switch_model(source: CommandSource, context: dict):
             source.reply(f"{prefix}{server.rtr("games_ai.user_message.model_error")}{list(ai_dict.keys())}")
             return
 
+    ai_name = ai_dict.get(model_id, {}).get("ai_name", model_id)
+
     if username in all_chat_param and all_chat_param.get(username) is not None:
-        all_chat_param[username].change_model(source, model_id)
+        # v0.7.1 policy: summary hand-off (option B1 of issue #20). The old model
+        # summarizes the conversation right before the next request, so the switch itself
+        # never blocks and costs nothing until the player asks something.
+        result = all_chat_param[username].change_model(source, model_id)
     else:
         all_chat_param[username] = ChatParam(server, model_id=model_id)
-    _chat_log(server, f"[switch] {username} switched to model_id={model_id}")
-    source.reply(f"{prefix}{server.rtr('games_ai.user_message.switch_success', model=all_chat_param[username].ai_info.get('ai_name', model_id))}")
+        result = "empty"
+
+    _chat_log(server, f"[switch] {username} -> model_id={model_id}, hand-off={result}")
+
+    if result == "same":
+        source.reply(f"{prefix}{server.rtr('games_ai.user_message.switch_same_model', model=ai_name)}")
+    elif result == "scheduled":
+        source.reply(f"{prefix}{server.rtr('games_ai.user_message.switch_summary', model=ai_name)}")
+    else:
+        source.reply(f"{prefix}{server.rtr('games_ai.user_message.switch_success', model=ai_name)}")
 
 
 @new_thread("games_ai@ask_ai")
@@ -687,10 +711,15 @@ def ask_ai(source: CommandSource, context: dict, no_history: bool = False, force
     ai_prefix = ai_dict.get(model_id, {}).get("ai_name")
 
     if no_history:
-        chat_param = ChatParam(server, model_id=model_id)
+        # stateless one-shot: no history, no context management (see NonHistoryChatParam)
+        chat_param = NonHistoryChatParam(server, model_id=model_id)
         chat_param.add_to_response_list("user", user_message)
         source.reply(f"{ai_prefix}{server.rtr("games_ai.user_message.thinking")}")
-        chat_param.response_ai(source, data)
+        register_no_history(username, chat_param)
+        try:
+            chat_param.response_ai(source, data)
+        finally:
+            unregister_no_history(username, chat_param)
         return
 
     default_skills = [
@@ -762,6 +791,39 @@ def get_username(source: CommandSource) -> str:
         return source.player
     else:
         return "Server Control Panel"
+
+
+def ask_stop(source: CommandSource, context: dict):
+    """
+    ``!!ask stop`` — abort everything this player has in flight.
+
+    * the running round of the player's conversation (tool calls included); the step that
+      was interrupted is dropped from the history, and queued ``!!ask -f`` messages are
+      discarded;
+    * a running ``!!ask -n`` request (stateless: the answer is simply thrown away);
+    * a task the player delegated to the autonomous Mineflayer bot.
+    """
+    server = source.get_server()
+    username = get_username(source)
+    stopped: list[str] = []
+
+    user_chat_param = all_chat_param.get(username)
+    if user_chat_param is not None and user_chat_param.request_stop():
+        stopped.append("games_ai.user_message.stop_round")
+
+    if stop_no_history(username):
+        stopped.append("games_ai.user_message.stop_no_history")
+
+    bot_controller = get_bot_controller()
+    if bot_controller is not None and bot_controller.is_running and bot_controller.stop_user_task(username):
+        stopped.append("games_ai.user_message.stop_bot_task")
+
+    _chat_log(server, f"[stop] {username} stopped: {stopped or 'nothing running'}")
+    if not stopped:
+        source.reply(f"{prefix}{server.rtr('games_ai.user_message.stop_none')}")
+        return
+    for key in stopped:
+        source.reply(f"{prefix}{server.rtr(key)}")
 
 def clear_history(source: CommandSource,context: dict):
     server = source.get_server()
@@ -870,12 +932,12 @@ class DataManager:
 
 class AiDataManager:
     @staticmethod
-    @register_tool(description="读取公共数据中的键值对, 输入key以获取对应的value, 推荐在读取之前先查看现有的key都有哪些", parameters={
+    @register_tool(description="Read one key/value pair from the public database. Listing the existing keys first is recommended.", parameters={
         "type": "object",
         "properties": {
             "key": {
                 "type": "string",
-                "description": "要读取的数据的键"
+                "description": "Key to read"
             }
         },
         "required": ["key"]
@@ -885,29 +947,29 @@ class AiDataManager:
         source.reply(f'{ai_prefix}{server.rtr("games_ai.tools.reading_data",key=key)}')
         result = PublicDatabase(data_path).read_data(key)
         if result is None:
-            return f"键 {key} 不存在"
+            return f"Key '{key}' does not exist"
         else:
-            return f"键 {key} 的值为 {result}"
+            return f"The value of key '{key}' is {result}"
 
     @staticmethod
-    @register_tool(description="读取公共数据中的所有键")
+    @register_tool(description="List every key of the public database")
     def ai_read_all_keys(source: CommandSource, ai_prefix: str):
         server = source.get_server()
         source.reply(f'{ai_prefix}{server.rtr("games_ai.tools.reading_all_keys")}')
         keys = PublicDatabase(data_path).get_all_key()
-        return f"当前所有的键有: {keys}"
+        return f"All current keys: {keys}"
 
     @staticmethod
-    @register_tool(description="向公共数据中写入键值对(新增/覆写模式), 输入key和value以写入数据, 注意写入方式为覆写, 需避免覆盖重要数据, 数据不存在时将自动创建", perm=get_plugin_config_perm, parameters={
+    @register_tool(description="Write a key/value pair into the public database (create or overwrite). The value is overwritten, so avoid clobbering important data; a missing key is created automatically.", perm=get_plugin_config_perm, parameters={
         "type": "object",
         "properties": {
             "key": {
                 "type": "string",
-                "description": "要写入的数据的键"
+                "description": "Key to write"
             },
             "value": {
                 "type": "string",
-                "description": "要写入的数据的值"
+                "description": "Value to write"
             }
         },
         "required": ["key", "value"]
@@ -916,21 +978,21 @@ class AiDataManager:
         server = source.get_server()
         source.reply(f'{ai_prefix}{server.rtr("games_ai.tools.writing_data",key=key,value=value)}')
         if source.get_permission_level() < allow_permission:
-            return f'向你发起这项命令的玩家没有权限使用此功能'
+            return "Permission denied: the requesting player is not allowed to use this tool"
         PublicDatabase(data_path).write_data(key, value)
-        return f"已将键 {key} 的值写入 {value}"
+        return f"Wrote the value of key '{key}': {value}"
 
     @staticmethod
-    @register_tool(description="向公共数据中追加数据(新增/追加模式), 输入key和value以追加数据, 数据将被追加到原数据的末尾, 不存在时自动创建", perm=get_plugin_config_perm, parameters={
+    @register_tool(description="Append a value to the public database (create or append). The value is appended to the end of the existing one; a missing key is created automatically.", perm=get_plugin_config_perm, parameters={
         "type": "object",
         "properties": {
             "key": {
                 "type": "string",
-                "description": "要追加数据的键"
+                "description": "Key to append to"
             },
             "value": {
                 "type": "string",
-                "description": "要追加的数据的值"
+                "description": "Value to append"
             }
         },
         "required": ["key", "value"]
@@ -939,22 +1001,22 @@ class AiDataManager:
         server = source.get_server()
         source.reply(f'{ai_prefix}{server.rtr("games_ai.tools.adding_data",key=key,value=value)}')
         if source.get_permission_level() < allow_permission:
-            return f'向你发起这项命令的玩家没有权限使用此功能'
+            return "Permission denied: the requesting player is not allowed to use this tool"
         old_value = PublicDatabase(data_path).read_data(key)
         if old_value == None:
             new_value = value
         else:
             new_value = old_value + value
         PublicDatabase(data_path).write_data(key, new_value)
-        return f"已将键 {key} 的值增加 {value}, 当前值为 {new_value}"
+        return f"Appended {value} to key '{key}', current value: {new_value}"
 
     @staticmethod
-    @register_tool(description="从公共数据中删除数据, 输入key以删除对应的数据, 注意删除后无法恢复, 即使key不存在, 也仍然会进行删除", perm=get_plugin_config_perm, parameters={
+    @register_tool(description="Delete a key from the public database. Deletion cannot be undone, and it succeeds even when the key does not exist.", perm=get_plugin_config_perm, parameters={
         "type": "object",
         "properties": {
             "key": {
                 "type": "string",
-                "description": "要删除的数据的键"
+                "description": "Key to delete"
             }
         },
         "required": ["key"]
@@ -963,23 +1025,23 @@ class AiDataManager:
         server = source.get_server()
         source.reply(f'{ai_prefix}{server.rtr("games_ai.tools.deleting_data",key=key)}')
         if source.get_permission_level() < allow_permission:
-            return f'向你发起这项命令的玩家没有权限使用此功能'
+            return "Permission denied: the requesting player is not allowed to use this tool"
         PublicDatabase(data_path).delete_data(key)
-        return f"已删除键 {key} 的数据"
+        return f"Deleted the data of key '{key}'"
     
     @staticmethod
-    @register_tool(description="读取公共数据中的所有键值对")
+    @register_tool(description="List every key/value pair of the public database")
     def ai_read_all_data(source: CommandSource, ai_prefix: str):
         server = source.get_server()
         source.reply(f'{ai_prefix}{server.rtr("games_ai.tools.reading_all_data")}')
         value = PublicDatabase(data_path).data_list()
-        return f'当前数据库中的所有数据: {value}'
+        return f"All data in the public database: {value}"
 
 @new_thread("games_ai@update")
 def check_update(source: CommandSource, context: dict):
     server = source.get_server()
     try:
-        update(server)
+        update(server, force_table=True)
     except Exception as e:
         server.say(f"{prefix}{server.rtr("games_ai.update.no_metadata")}")
         server.logger.warning(f"{prefix}{server.rtr("games_ai.update.no_metadata")}")
@@ -996,9 +1058,18 @@ def cyclic_check_updates(server: PluginServerInterface):
         _timer.daemon = True
         _timer.start()
 
-def update(server: PluginServerInterface):
+def update(server: PluginServerInterface, force_table: bool = False):
     global unload_status_code
     unload_status_code = 0
+
+    # Refresh the context-window table as part of the same startup/24h run.
+    # Keep this the very first statement: the branches below return early.
+    # Manual `!!gamesai check` passes force_table=True to bypass the 24h TTL.
+    try:
+        context_table.refresh_table(server, force=force_table)
+    except Exception as e:
+        server.logger.debug(f"{prefix} Context window table refresh failed: {e}")
+
     server.say(f"{prefix}{server.rtr("games_ai.update.checking_update")}")
     server.logger.info(f"{prefix}{server.rtr("games_ai.update.checking_update")}")
     response = requests.get("https://api.mcdreforged.com/catalogue/everything_slim.json.xz")

@@ -61,20 +61,21 @@ _LK = "games_ai.autonomous_bot"
 
 @register_tool(
     description=(
-        "当玩家要求执行涉及 Minecraft Bot 操作的复杂任务时，调用此工具将任务移交给自治 Bot 控制器。"
-        "Bot 控制器会在独立线程中自主决定具体执行步骤（如导航、挖掘、放置等）。"
-        "仅当任务确实需要 Bot 在 Minecraft 世界中执行操作时才调用，纯问答不需要。"
+        "Hand a complex Minecraft-bot task over to the autonomous bot controller, which decides "
+        "and performs the individual steps (navigation, digging, placing, ...) in its own thread. "
+        "Only call this when the task really requires the bot to act in the Minecraft world; "
+        "plain questions do not need it."
     ),
     parameters={
         "type": "object",
         "properties": {
             "task": {
                 "type": "string",
-                "description": "用自然语言描述需要 Bot 执行的任务，尽量包含位置、目标等关键信息",
+                "description": "Natural-language description of the task for the bot, including positions and goals when known",
             },
             "username": {
                 "type": "string",
-                "description": "发起请求的玩家名称",
+                "description": "Name of the player who requested the task",
             },
         },
         "required": ["task"],
@@ -84,7 +85,7 @@ _LK = "games_ai.autonomous_bot"
 def delegate_to_bot(source: CommandSource, ai_prefix: str, task: str, username: str = ""):
     ctrl = get_bot_controller()
     if ctrl is None or not ctrl.is_running:
-        return source.get_server().rtr(f"{_LK}.controller_not_running") if source.get_server() else "Autonomous Bot controller is not running."
+        return "The autonomous bot controller is not running; check that mineflayer_bot.enabled is on and the bot has been started."
 
     if not username:
         try:
@@ -93,7 +94,7 @@ def delegate_to_bot(source: CommandSource, ai_prefix: str, task: str, username: 
             username = "Unknown"
 
     ctrl.send_user_message(username, task)
-    return source.get_server().rtr(f"{_LK}.task_delegated", task=task) if source.get_server() else f"Task delegated to bot: {task}"
+    return f"Task delegated to the autonomous bot controller: {task}"
 
 
 class AutonomousBotController:
@@ -144,6 +145,51 @@ class AutonomousBotController:
         self._cycle_count = 0
         self._error_count = 0
         self._last_chat_context: str = ""
+
+        # `!!ask stop` support: usernames whose task is being executed in this cycle,
+        # plus a cycle-wide abort flag checked between API calls and tool calls.
+        self._cycle_lock = threading.Lock()
+        self._cycle_users: set[str] = set()
+        self._cycle_abort = threading.Event()
+
+    def stop_user_task(self, username: str) -> bool:
+        """
+        Drop a player's queued task and abort the cycle that is executing it, if any.
+
+        Pending queue entries of that player are removed; when the running cycle is
+        handling a task from that player, the cycle stops at its next checkpoint and the
+        messages it produced are discarded instead of being appended to the conversation.
+
+        :return: True when something was actually stopped.
+        """
+        dropped = 0
+        kept: list[dict] = []
+        while True:
+            try:
+                item = self._queue.get_nowait()
+            except queue.Empty:
+                break
+            if item.get("username") == username:
+                dropped += 1
+            else:
+                kept.append(item)
+        for item in kept:
+            self._queue.put(item)
+
+        with self._cycle_lock:
+            running = username in self._cycle_users
+            if running:
+                self._cycle_abort.set()
+
+        if dropped or running:
+            self._log.info(
+                "[AutonomousBot] stop requested for %s (queued=%d, running=%s)", username, dropped, running
+            )
+            return True
+        return False
+
+    def _cycle_stopped(self) -> bool:
+        return self._cycle_abort.is_set()
 
     def start(self):
         if self._running:
@@ -229,18 +275,30 @@ class AutonomousBotController:
     def _one_cycle(self):
         user_msgs = self._drain_queue()
 
-        state = self._get_bot_state()
+        with self._cycle_lock:
+            self._cycle_users = {um.get("username", "") for um in user_msgs}
+            self._cycle_abort.clear()
 
-        messages = self._build_messages(state, user_msgs)
-        before_count = len(messages)
+        try:
+            state = self._get_bot_state()
 
-        reply = self._call_ai_with_tools(messages)
+            messages = self._build_messages(state, user_msgs)
+            before_count = len(messages)
 
-        new_msgs = messages[before_count:]
-        if new_msgs:
-            self._conversation.extend(new_msgs)
+            reply = self._call_ai_with_tools(messages)
 
-        self._trim_conversation()
+            new_msgs = messages[before_count:]
+            if new_msgs and not self._cycle_stopped():
+                self._conversation.extend(new_msgs)
+            elif new_msgs:
+                # interrupted by `!!ask stop`: the half-finished step is dropped
+                self._log.info("[AutonomousBot] cycle aborted by stop, %d message(s) discarded", len(new_msgs))
+
+            self._trim_conversation()
+        finally:
+            with self._cycle_lock:
+                self._cycle_users = set()
+                self._cycle_abort.clear()
 
     # ── helpers ─────────────────────────────────────────────
 
@@ -329,8 +387,11 @@ class AutonomousBotController:
         assistant_reply = None
 
         for _ in range(max_loops):
+            if self._cycle_stopped():
+                self._log.info("[AutonomousBot] aborted before the next AI call")
+                break
             try:
-                ai_msg = response_chat(
+                ai_msg, _usage = response_chat(
                     self._openai_client,
                     model=self._model,
                     response_list=messages,
@@ -349,6 +410,9 @@ class AutonomousBotController:
             messages.append(ai_msg)
 
             for tc in ai_msg.tool_calls:
+                if self._cycle_stopped():
+                    self._log.info("[AutonomousBot] aborted, remaining tool call(s) skipped")
+                    break
                 result = self._execute_tool(tc.function.name, tc.function.arguments)
                 messages.append({
                     "role": "tool",
@@ -362,18 +426,18 @@ class AutonomousBotController:
 
     def _execute_tool(self, func_name: str, arguments: str) -> str:
         if self._ws is None or not self._ws.is_connected:
-            return "Bot 尚未连接到服务器（WebSocket 未连接），无法执行此操作。请稍后重试。"
+            return "The bot is not connected to the server (WebSocket not connected), so this action cannot run; try again later."
 
         handler = get_tool_handler(func_name)
         if handler is None:
-            return f"未知函数: {func_name}"
+            return f"Unknown function: {func_name}"
 
         try:
             func_args = json.loads(arguments) if arguments else {}
             result = handler.func(_DUMMY_SOURCE, "[AutonomousBot]", **func_args)
             return str(result) if result is not None else "OK"
         except Exception as e:
-            return f"函数 {func_name} 执行出错: {e}"
+            return f"Error while executing function {func_name}: {e}"
 
     def _trim_conversation(self):
         if len(self._conversation) <= _MAX_CONVERSATION_MESSAGES:

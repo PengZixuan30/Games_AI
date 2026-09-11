@@ -10,7 +10,7 @@ This skill describes how to use the skills-related tools (`read_skills`, `write_
 |------|---------|
 | `read_skills` | Read the content of a skill file |
 | `write_skills` | Create a new skill file (or overwrite an existing one) |
-| `modify_skills` | Modify an existing skill file |
+| `modify_skills` | Edit an existing skill file by regular-expression replacement |
 | `delete_skills` | Delete a skill file |
 
 ---
@@ -43,7 +43,22 @@ The summary will be stored in the skills index (`skills.json`) so the AI can dis
 
 ## Modifying an Existing Skill
 
-Use `modify_skills` with the same parameters as `write_skills`. This updates both the skill file content and its summary in the index.
+Use `modify_skills` with a **regular-expression replacement** instead of rewriting the whole file:
+
+| Parameter | Meaning |
+|-----------|---------|
+| **skills** | The exact file name (e.g., `my_skill.md`) |
+| **old_string** | A Python regular expression matched against the whole file |
+| **new_string** | The replacement text; backreferences like `\1` or `\g<name>` are supported |
+| **summary** | Optional: a new one-line description for the skills index. Omit it to keep the current summary |
+
+Rules:
+
+- Every match of `old_string` is replaced, so anchor your pattern (`^`/`$` with care) when it must hit one place only;
+- If the pattern is not a valid regular expression, or matches nothing, the same text is retried as a **literal** string — so plain text containing `(`, `.` or `*` still works;
+- If nothing matches at all, the tool reports an error and the file is left untouched — `old_string` must be copied from the current file content (read it with `read_skills` first);
+- To insert something, match a small unique anchor and use a backreference to keep it, e.g. `old_string`: `(## Notes)`, `new_string`: `\1\n\nExtra paragraph`;
+- The result message tells you how many occurrences were replaced and whether regex or literal matching was used.
 
 ---
 
@@ -65,5 +80,6 @@ After completing any `write_skills`, `modify_skills`, or `delete_skills` operati
 2. **Batch and reload**: When creating/modifying/deleting multiple skills, do all operations first, then call `reload_plugin` once.
 3. **One skill at a time**: Each tool call works on exactly one skill file.
 4. **Use descriptive summaries**: When writing/modifying skills, the summary should clearly state the trigger condition (e.g., "When doing X, you must read this skill file").
-5. **Write in Markdown**: Skill content should be well-structured Markdown with clear headings, code blocks for commands, and step-by-step instructions.
-6. **Filename convention**: Use lowercase with underscores, ending in `.md` (e.g., `my_feature.md`).
+5. **Edit, don't rewrite**: Prefer `modify_skills` with a precise `old_string` pattern over `write_skills` when changing an existing skill — a full overwrite is how working content gets lost.
+6. **Write in Markdown**: Skill content should be well-structured Markdown with clear headings, code blocks for commands, and step-by-step instructions.
+7. **Filename convention**: Use lowercase with underscores, ending in `.md` (e.g., `my_feature.md`).

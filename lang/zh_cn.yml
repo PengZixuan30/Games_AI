@@ -29,6 +29,7 @@ games_ai:
     ask_no_history_help: "以向AI提问(不使用历史记录)"
 
     switch_help: "以切换你使用的AI模型"
+    ask_stop_help: "立即停止当前对话(含正在执行的工具调用)，并删除未完成的一步"
 
     ask_force_help: "以向AI提问(强制模式,立即插入当前对话)"
 
@@ -89,7 +90,14 @@ games_ai:
 
     model_error: "错误的AI模型!当前有这些AI模型: "
     model_more: "无法正确匹配!现在匹配到了如下AI模型: "
-    switch_success: "已切换 AI 模型: {model}(历史记录已保留)"
+    switch_success: "已切换 AI 模型: {model}"
+    switch_same_model: "你当前使用的已经是 AI 模型: {model}\n历史记录未变动"
+    switch_summary: "已切换 AI 模型: {model}\n上一段对话将在你下次提问前由原模型压缩为摘要转接。"
+    switch_summary_failed: "摘要转接失败：上一段对话已丢弃，本次提问不包含此前的对话内容。"
+    stop_bot_task: "已停止委派给 Bot 的任务。"
+    stop_no_history: "已停止正在进行的无历史提问。"
+    stop_round: "已停止当前对话，并删除未完成的一步。"
+    stop_none: "当前没有进行中的对话。"
 
     data_list: "公共数据列表:"
     thinking: "§7正在思考...§r"
@@ -97,6 +105,12 @@ games_ai:
     skill_selected: "已选择技能文件 §e{skill}§r，AI 将优先遵循该技能的指导。"
     skill_not_found: "§c未找到技能文件 '{skill}'§r，将使用默认技能列表。"
     skill_injected: "用户要求你优先使用 read_skills 工具读取技能文件 '{skill}'，并严格遵循其指导执行任务。"
+
+  context:
+    summary_prompt: "请客观、中性地总结以下对话的要点：讨论主题、已达成的结论、未完成事项、用户明确提出的要求或约束。要求：只陈述事实，不要模仿任何说话风格，不要使用第一人称，不要添加对话中不存在的信息，不超过400字。"
+    summary_prefix: "【历史对话摘要（较早的对话已被压缩）】"
+    switch_summary_prefix: "【切换模型转接的对话摘要（由上一个模型生成，原对话已清空）：请以你自己的设定与风格继续这段对话，不要模仿此前模型的语气与风格。】"
+    truncated: "（内容过长已截断：原 {orig} 字符，保留 {kept} 字符）"
 
   tools:
     execution_error: "函数 {func_name} 执行出错! 原因: {ex}"
@@ -221,3 +235,4 @@ games_ai:
    error500: "API 服务器内部错误"
    error502: "网关错误, 请稍后重试"
    error503: "服务器繁忙, 请稍后重试"
+   error_unknown: "未知错误 (HTTP {code})"

@@ -54,22 +54,40 @@ def response_chat(
     *,
     tools = None,
     extra_body = None,
-) -> ChatCompletionMessage:
+    timeout: float | None = None,
+) -> tuple[ChatCompletionMessage, dict | None]:
+    """
+    Send one chat completion request.
 
+    :return: ``(message, usage)`` — ``usage`` is the raw provider usage dict
+             (``prompt_tokens`` / ``completion_tokens`` / ``total_tokens`` / cache fields)
+             or ``None`` when the provider did not report it. The usage is used for
+             context management (calibration and window triggers).
+    """
     if not isinstance(client, OpenAI):
         raise TypeError("Must pass in OpenAI object")
     if not isinstance(model, str):
         raise TypeError("Model must be string")
 
-    response: ChatCompletion = client.chat.completions.create(
+    kwargs = dict(
         model=model,
         messages=response_list,
         tools=tools,
         extra_body=extra_body,
         stream=False,
     )
+    if timeout is not None:
+        kwargs["timeout"] = timeout
+
+    response: ChatCompletion = client.chat.completions.create(**kwargs)
 
     if not isinstance(response, ChatCompletion):
         raise TypeError("Response type was error")
 
-    return response.choices[0].message
+    usage: dict | None = None
+    if response.usage is not None:
+        try:
+            usage = response.usage.model_dump()
+        except AttributeError:
+            usage = dict(response.usage)
+    return response.choices[0].message, usage

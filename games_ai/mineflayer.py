@@ -214,13 +214,13 @@ def _get_client():
 
 
 @register_tool(
-    description="让 Mineflayer 机器人在 Minecraft 聊天中发送一条消息",
+    description="Send a message to the Minecraft chat as the Mineflayer bot",
     parameters={
         "type": "object",
         "properties": {
             "message": {
                 "type": "string",
-                "description": "要发送的聊天消息内容",
+                "description": "Chat message to send",
             }
         },
         "required": ["message"],
@@ -236,27 +236,27 @@ def bot_chat(source: CommandSource, ai_prefix: str, message: str):
     try:
         result = client.send_command("chat", {"message": message})
         source.reply(f"{ai_prefix}{server.rtr('games_ai.tools.bot_chat', message=message)}")
-        return f"机器人已发送消息: {message}"
+        return f"Bot sent the message: {message}"
     except TimeoutError:
-        return "发送消息超时，Bot 可能未响应"
+        return "Timed out while sending the message; the bot may not be responding"
     except ConnectionError as e:
-        return f"连接错误: {str(e)}"
+        return f"Connection error: {e}"
     except Exception as e:
-        return f"发送消息失败: {str(e)}"
+        return f"Failed to send the message: {e}"
 
 
 @register_tool(
-    description="让 Mineflayer 机器人私聊某个玩家",
+    description="Send a private message from the Mineflayer bot to a player",
     parameters={
         "type": "object",
         "properties": {
             "username": {
                 "type": "string",
-                "description": "要私聊的玩家名称",
+                "description": "Name of the player to whisper",
             },
             "message": {
                 "type": "string",
-                "description": "要发送的私聊消息内容",
+                "description": "Private message to send",
             },
         },
         "required": ["username", "message"],
@@ -272,17 +272,17 @@ def bot_whisper(source: CommandSource, ai_prefix: str, username: str, message: s
     try:
         result = client.send_command("whisper", {"username": username, "message": message})
         source.reply(f"{ai_prefix}{server.rtr('games_ai.tools.bot_whisper')}")
-        return f"机器人已发送私聊给 {username}"
+        return f"Bot whispered {username}"
     except TimeoutError:
-        return "发送私聊超时，Bot 可能未响应"
+        return "Timed out while sending the whisper; the bot may not be responding"
     except ConnectionError as e:
-        return f"连接错误: {str(e)}"
+        return f"Connection error: {e}"
     except Exception as e:
-        return f"发送私聊失败: {str(e)}"
+        return f"Failed to send the whisper: {e}"
 
 
 @register_tool(
-    description="获取 Mineflayer 机器人的当前状态（位置、血量、饥饿值、游戏模式、背包物品）",
+    description="Get the current state of the Mineflayer bot (position, health, hunger, game mode, inventory)",
 )
 @register_bot_tool()
 def bot_get_state(source: CommandSource, ai_prefix: str):
@@ -296,61 +296,61 @@ def bot_get_state(source: CommandSource, ai_prefix: str):
         data = result.get("data", result)
         return json.dumps(data, ensure_ascii=False, indent=2)
     except TimeoutError:
-        return "获取状态超时，Bot 可能未响应"
+        return "Timed out while getting the bot state; the bot may not be responding"
     except ConnectionError as e:
-        return f"连接错误: {str(e)}"
+        return f"Connection error: {e}"
     except Exception as e:
-        return f"获取状态失败: {str(e)}"
+        return f"Failed to get the bot state: {e}"
 
 
 @register_tool(
     description=(
-        "向 Mineflayer 机器人发送任意 action 指令。可用 action 列表：\n"
-        "- get_state: 获取机器人完整状态，params: {}\n"
-        "- goto: 寻路到坐标，params: {x, y, z, range?}\n"
-        "- efly: 使用鞘翅飞到坐标（需要身上有鞘翅并已起飞），params: {x, y, z}\n"
-        "- stopEfly: 停止鞘翅飞行，params: {}\n"
-        "- stop: 停止所有移动，params: {}\n"
-        "- lookAt: 看向坐标或旋转视角，params: {x, y, z, force?: bool} 或 {yaw, pitch, force?: bool}。方向参考（弧度）：南=0, 西=1.57(π/2), 北=3.14(π), 东=-1.57(-π/2)；上(pitch)=-1.57, 下(pitch)=1.57, 水平(pitch)=0\n"
-        "- dig: 挖掘方块，params: {x, y, z}\n"
-        "- place: 放置方块，params: {x, y, z, face?: {x, y, z}}\n"
-        "- activateBlock: 右键方块（开箱/按钮等），params: {x, y, z}\n"
-        "- equip: 装备物品，params: {itemName: string, destination?: string}。destination 可选: hand(主手)/head(头盔)/torso(胸甲)/legs(护腿)/feet(靴子)/off-hand(副手)"
-        "- unequip: 卸下装备，params: {destination?: string}。destination 可选: head/torso/chest/legs/feet，默认 torso\n"
-        "- toss: 丢弃物品，params: {itemName?: string, amount?: int}\n"
-        "- setQuickBarSlot: 切换快捷栏，params: {slot: int(0-8)}\n"
-        "- attack: 攻击实体，params: {entityName?: string, range?: float}\n"
-        "- useOn: 对实体使用物品，params: {entityName: string}\n"
-        "- activateItem: 使用手持物品（如吃东西），params: {}\n"
-        "- deactivateItem: 停止使用物品，params: {}\n"
-        "- nearbyEntities: 获取附近实体，params: {maxDistance?: float, limit?: int}\n"
-        "- findBlocks: 搜索附近方块，params: {blockName: string, maxDistance?: float, count?: int}\n"
-        "- getBlock: 获取坐标处方块信息，params: {x, y, z}\n"
-        "- sleep: 在附近床上睡觉，params: {}\n"
-        "- wake: 起床，params: {}\n"
-        "- mount: 骑乘实体（矿车/船/马等），params: {entityName?: string}（不提供则自动骑最近的）\n"
-        "- dismount: 离开骑乘的实体，params: {}\n"
-        "- setControlState: 控制骑乘实体的移动（forward/back/left/right/jump/sneak/sprint），params: {control: string, state?: bool}\n"
-        "- findContainers: 查找附近容器，params: {maxDistance?: float, count?: int}\n"
-        "- viewContainer: 查看容器内容物，params: {x, y, z}\n"
-        "- takeFromContainer: 从容器取物品到身上，params: {x, y, z, itemName: string, count?: int}\n"
-        "- putToContainer: 将身上物品放入容器，params: {x, y, z, itemName: string, count?: int}\n"
-        "- openFurnace: 打开熔炉并查看状态，params: {x, y, z}\n"
-        "- furnacePutInput: 将物品放入熔炉烧炼，params: {x, y, z, itemName: string, count?: int}\n"
-        "- furnacePutFuel: 将燃料放入熔炉，params: {x, y, z, itemName: string, count?: int}\n"
-        "- furnaceTakeOutput: 从熔炉取出成品，params: {x, y, z}\n"
-        "- craft: 合成物品（背包或工作台），params: {itemName: string, count?: int, x?, y?, z?}（不提供坐标则在背包中合成）"
+        "Send any action to the Mineflayer bot. Available actions:\n"
+        "- get_state: full bot state, params: {}\n"
+        "- goto: pathfind to coordinates, params: {x, y, z, range?}\n"
+        "- efly: fly to coordinates with an elytra (an elytra must be equipped and flight already started), params: {x, y, z}\n"
+        "- stopEfly: stop elytra flight, params: {}\n"
+        "- stop: stop all movement, params: {}\n"
+        "- lookAt: look at coordinates or set the view rotation, params: {x, y, z, force?: bool} or {yaw, pitch, force?: bool}. Direction reference (radians): south=0, west=1.57(pi/2), north=3.14(pi), east=-1.57(-pi/2); pitch: up=-1.57, down=1.57, horizontal=0\n"
+        "- dig: break a block, params: {x, y, z}\n"
+        "- place: place a block, params: {x, y, z, face?: {x, y, z}}\n"
+        "- activateBlock: right-click a block (open a chest, press a button, ...), params: {x, y, z}\n"
+        "- equip: equip an item, params: {itemName: string, destination?: string}. destination: hand/head/torso/legs/feet/off-hand"
+        "- unequip: take equipment off, params: {destination?: string}. destination: head/torso/chest/legs/feet, default torso\n"
+        "- toss: drop items, params: {itemName?: string, amount?: int}\n"
+        "- setQuickBarSlot: switch the hotbar slot, params: {slot: int(0-8)}\n"
+        "- attack: attack an entity, params: {entityName?: string, range?: float}\n"
+        "- useOn: use an item on an entity, params: {entityName: string}\n"
+        "- activateItem: use the held item (for example eat), params: {}\n"
+        "- deactivateItem: stop using the held item, params: {}\n"
+        "- nearbyEntities: list nearby entities, params: {maxDistance?: float, limit?: int}\n"
+        "- findBlocks: search for nearby blocks, params: {blockName: string, maxDistance?: float, count?: int}\n"
+        "- getBlock: get block information at coordinates, params: {x, y, z}\n"
+        "- sleep: sleep in a nearby bed, params: {}\n"
+        "- wake: wake up, params: {}\n"
+        "- mount: ride an entity (minecart/boat/horse, ...), params: {entityName?: string} (the nearest one is used when omitted)\n"
+        "- dismount: leave the ridden entity, params: {}\n"
+        "- setControlState: control the ridden entity (forward/back/left/right/jump/sneak/sprint), params: {control: string, state?: bool}\n"
+        "- findContainers: find nearby containers, params: {maxDistance?: float, count?: int}\n"
+        "- viewContainer: view the contents of a container, params: {x, y, z}\n"
+        "- takeFromContainer: take items from a container into the inventory, params: {x, y, z, itemName: string, count?: int}\n"
+        "- putToContainer: put items from the inventory into a container, params: {x, y, z, itemName: string, count?: int}\n"
+        "- openFurnace: open a furnace and view its state, params: {x, y, z}\n"
+        "- furnacePutInput: put items into a furnace to smelt them, params: {x, y, z, itemName: string, count?: int}\n"
+        "- furnacePutFuel: put fuel into a furnace, params: {x, y, z, itemName: string, count?: int}\n"
+        "- furnaceTakeOutput: take the smelted output out of a furnace, params: {x, y, z}\n"
+        "- craft: craft an item (inventory or crafting table), params: {itemName: string, count?: int, x?, y?, z?} (crafts in the inventory when no coordinates are given)"
     ),
     parameters={
         "type": "object",
         "properties": {
             "action": {
                 "type": "string",
-                "description": "要执行的 action 名称，如 'goto'、'get_state' 等。注意：发送消息请使用 bot_chat 或 bot_whisper，不要通过本工具",
+                "description": "Action name to run, e.g. 'goto' or 'get_state'. Note: send messages with bot_chat or bot_whisper instead of this tool",
             },
             "params": {
                 "type": "object",
-                "description": "action 所需的参数，JSON 对象格式。如 {'message': 'hello'} 或 {}",
+                "description": "Parameters for the action, as a JSON object, e.g. {'message': 'hello'} or {}",
             },
         },
         "required": ["action"],
@@ -359,7 +359,7 @@ def bot_get_state(source: CommandSource, ai_prefix: str):
 @register_bot_tool()
 def bot_call_action(source: CommandSource, ai_prefix: str, action: str, params: dict | None = None):
     if action in ("chat", "whisper"):
-        return f"请勿使用 bot_call_action 发送消息，应使用独立的 bot_chat 或 bot_whisper 工具。"
+        return "Do not send messages through bot_call_action; use the dedicated bot_chat or bot_whisper tool instead"
     server = source.get_server()
     client, err = _get_client()
     if err is not None:
@@ -371,14 +371,14 @@ def bot_call_action(source: CommandSource, ai_prefix: str, action: str, params: 
         data = result.get("data", result)
         status = result.get("status", "unknown")
         if status == "error":
-            return f"Bot 返回错误: {data.get('error', data)}"
+            return f"The bot returned an error: {data.get('error', data)}"
         return json.dumps(data, ensure_ascii=False, indent=2)
     except TimeoutError:
-        return f"指令 '{action}' 超时，Bot 可能未响应"
+        return f"Action '{action}' timed out; the bot may not be responding"
     except ConnectionError as e:
-        return f"连接错误: {str(e)}"
+        return f"Connection error: {e}"
     except Exception as e:
-        return f"执行 '{action}' 失败: {str(e)}"
+        return f"Failed to run action '{action}': {e}"
 
 
 _INIT_JS_CONTENT = r"""// This is the script for the Mineflayer bot service.

@@ -2,7 +2,7 @@ from mcdreforged.command.command_source import CommandSource
 
 from dataclasses import dataclass
 from typing import Callable
-import os, json, time
+import os, json, re, time
 
 from .config import plugin_config
 from .external_skills_loader import read_external_skills
@@ -83,6 +83,64 @@ def get_plugin_config_perm() -> int:
     return plugin_config.allow_permission
 
 
+def _regex_replace_file(path: str, old_string: str, new_string: str) -> tuple[int, str, str]:
+    r"""
+    Replace text in a file, treating ``old_string`` as a Python regular expression.
+
+    Falls back to a literal (non-regex) replacement when the pattern does not compile or
+    matches nothing, so a plain-text edit containing characters such as ``(`` or ``.``
+    still works. Backreferences (``\1``, ``\g<name>``) are interpreted in regex mode only.
+
+    :return: ``(replacements, mode, error)`` — ``error`` is empty on success.
+    """
+    if not old_string:
+        return 0, "", "old_string must not be empty"
+
+    try:
+        with open(path, mode='r', encoding='utf-8') as f:
+            content = f.read()
+    except FileNotFoundError:
+        return 0, "", f"file not found: {path}"
+    except Exception as e:
+        return 0, "", f"failed to read {path}: {e}"
+
+    new_content: str | None = None
+    count = 0
+    mode = ""
+
+    try:
+        pattern = re.compile(old_string)
+    except re.error:
+        pattern = None                                  # not a valid regex: retry it literally
+
+    if pattern is not None:
+        try:
+            candidate, hits = pattern.subn(new_string, content)
+        except re.error as e:
+            return 0, "", f"invalid replacement text in new_string: {e}"
+        if hits:
+            new_content, count, mode = candidate, hits, "regular expression"
+
+    if new_content is None:                             # literal fallback
+        try:
+            candidate, hits = re.subn(re.escape(old_string), lambda _m: new_string, content)
+        except re.error as e:
+            return 0, "", f"literal replacement failed: {e}"
+        if hits:
+            new_content, count, mode = candidate, hits, "literal"
+
+    if new_content is None:
+        return 0, "", "old_string did not match anything in the file, nothing was changed"
+
+    try:
+        with open(path, mode='w', encoding='utf-8') as f:
+            f.write(new_content)
+    except Exception as e:
+        return 0, "", f"failed to write {path}: {e}"
+
+    return count, mode, ""
+
+
 _BOT_SAFE_TOOL_NAMES: set[str] = set()
 
 
@@ -114,7 +172,7 @@ def reset_all_tools():
         apply()
 
 
-@register_tool(description="获取服务器当前的在线玩家列表")
+@register_tool(description="Get the list of players currently online on the server")
 @register_bot_tool()
 def get_online_players(source: CommandSource, ai_prefix: str):
     server = source.get_server()
@@ -124,20 +182,20 @@ def get_online_players(source: CommandSource, ai_prefix: str):
         if server.is_rcon_running():
             return server.rcon_query("list")
         else:
-            return "无法获取当前在线玩家列表"
+            return "Unable to get the online player list (online_player_api is missing and RCON is not running)"
     online_players = __online_players_api.get_player_list()
     if online_players:
         return ", ".join(online_players)
     else:
-        return "无在线玩家"
+        return "No players are online"
 
 
-@register_tool(description="计算一个数学表达式, 只能使用数字和+-*/()运算符", parameters={
+@register_tool(description="Evaluate a mathematical expression. Only digits and the + - * / ( ) operators are allowed.", parameters={
     "type": "object",
     "properties": {
         "expression": {
             "type": "string",
-            "description": "要计算的数学表达式，例如 (2+3)*4。只能包含数字和+-*/()运算符"
+            "description": "Mathematical expression to evaluate, e.g. (2+3)*4. Digits and the + - * / ( ) operators only"
         }
     },
     "required": ["expression"]
@@ -147,22 +205,22 @@ def calculator(source: CommandSource, ai_prefix: str, expression: str):
     source.reply(f'{ai_prefix}{source.get_server().rtr("games_ai.tools.calculating_expression", expression=expression)}')
     try:
         if not all(c.isdigit() or c in "+-*/(). " for c in expression):
-            return "表达式包含非法字符"
+            return "The expression contains illegal characters"
         result = eval(expression)
-        return f"计算结果: {result}"
+        return f"Result: {result}"
     except Exception as e:
-        return f"计算错误: {str(e)}"
+        return f"Calculation error: {e}"
     
-@register_tool(description="计算一个数学表达式, 只能使用数字和+-*/()运算符, 结果会被转换成 盒、组、个 的格式返回", parameters={
+@register_tool(description="Evaluate a mathematical expression and convert the result into boxes (27 stacks), stacks and items.", parameters={
     "type": "object",
     "properties": {
         "expression": {
             "type": "string",
-            "description": "要计算的数学表达式，例如 (2+3)*4。只能包含数字和+-*/()运算符"
+            "description": "Mathematical expression to evaluate, e.g. (2+3)*4. Digits and the + - * / ( ) operators only"
         },
         "single_limit": {
             "type": "integer",
-            "description": "每组的数量上限,默认为64"
+            "description": "Maximum number of items per stack, default 64"
         }
     },
     "required": ["expression"]
@@ -172,22 +230,22 @@ def item_caculator(source: CommandSource, ai_prefix: str, expression: str, singl
     source.reply(f'{ai_prefix}{source.get_server().rtr("games_ai.tools.calculating_expression", expression=expression)}')
     try:
         if not all(c.isdigit() or c in "+-*/(). " for c in expression):
-            return "表达式包含非法字符"
+            return "The expression contains illegal characters"
         result = eval(expression)
         single = result % single_limit
         box = result // (single_limit*27)
         stack = (result - box*single_limit*27 - single) // single_limit
-        return f"计算结果: {result}, 共有 {box} 箱, {stack} 组, {single} 个"
+        return f"Result: {result} = {box} box(es) + {stack} stack(s) + {single} item(s)"
     except Exception as e:
-        return f"计算错误: {str(e)}"
+        return f"Calculation error: {e}"
 
 
-@register_tool(description="阅读技能, 调用多个工具前必备, 每次只能读取一个skills", parameters={
+@register_tool(description="Read one skill file. Required before chaining several tool calls; one skill per call.", parameters={
     "type": "object",
     "properties": {
         "skills": {
             "type": "string",
-            "description": "你要阅读的技能文件的文件名"
+            "description": "File name of the skill file to read"
         }
     },
     "required": ["skills"]
@@ -201,16 +259,16 @@ def read_skills(source: CommandSource, ai_prefix: str, skills: str):
 
     external_content = read_external_skills(skills)
     if external_content is not None:
-        return f"skills的内容: \n{external_content}"
+        return f"Skill file content:\n{external_content}"
 
     custom_path = os.path.join(os.path.dirname(plugin_config.skills_path), skills)
 
     if os.path.isfile(custom_path):
         try:
             with open(custom_path, mode='r', encoding='utf-8') as f:
-                return f"skills的内容: \n{f.read()}"
+                return f"Skill file content:\n{f.read()}"
         except Exception as e:
-            errors.append(f"自定义路径读取失败: {e}")
+            errors.append(f"custom skill path read failed: {e}")
 
     _plugin_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     if os.path.isfile(_plugin_root):
@@ -220,37 +278,37 @@ def read_skills(source: CommandSource, ai_prefix: str, skills: str):
                 zip_path = f"skills/{skills}"
                 if zip_path in zf.namelist():
                     content = zf.read(zip_path).decode('utf-8')
-                    return f"skills的内容: \n{content}"
+                    return f"Skill file content:\n{content}"
                 else:
-                    errors.append(f"内置skills中未找到: {zip_path}")
+                    errors.append(f"not found in the bundled skills: {zip_path}")
         except (zipfile.BadZipFile, KeyError, OSError) as e:
-            errors.append(f"内置skills读取失败: {e}")
+            errors.append(f"bundled skills read failed: {e}")
 
     if plugin_config.builtin_skills_dir:
         builtin_path = os.path.join(plugin_config.builtin_skills_dir, skills)
         try:
             with open(builtin_path, mode='r', encoding='utf-8') as f:
-                return f"skills的内容: \n{f.read()}"
+                return f"Skill file content:\n{f.read()}"
         except Exception as e:
-            errors.append(f"内置目录读取失败: {e}")
+            errors.append(f"bundled skills directory read failed: {e}")
 
-    error_detail = "; ".join(errors) if errors else "文件不存在于任何路径"
-    return f"skills读取失败, 原因: {error_detail}"
+    error_detail = "; ".join(errors) if errors else "the file does not exist in any search path"
+    return f"Failed to read the skill file: {error_detail}"
 
-@register_tool(description="写入技能, 调用多个工具前必备, 每次只能写入一个skills", perm=get_plugin_config_perm, parameters={
+@register_tool(description="Create or overwrite one skill file and register its summary in the skills index.", perm=get_plugin_config_perm, parameters={
     "type": "object",
     "properties": {
         "skills": {
             "type": "string",
-            "description": "你要写入的技能文件的文件名"
+            "description": "File name of the skill file to write"
         },
         "summary": {
             "type": "string",
-            "description": "你要写入的技能的简介"
+            "description": "One-line summary of the skill, stored in the skills index"
         },
         "content": {
             "type": "string",
-            "description": "你要写入的技能内容"
+            "description": "Full Markdown content of the skill"
         }
     },
     "required": ["skills", "summary", "content"]
@@ -259,7 +317,7 @@ def write_skills(source: CommandSource, ai_prefix: str, skills: str, summary: st
     server = source.get_server()
     source.reply(f"{ai_prefix}{server.rtr("games_ai.tools.writing_skills", skills=skills)}")
     if source.get_permission_level() < plugin_config.allow_permission:
-        return server.rtr("games_ai.tools.permission_denied")
+        return "Permission denied: this tool requires a higher permission level than the requesting player has"
     skills_path = os.path.join(os.path.dirname(plugin_config.skills_path), skills)
     try:
         with open(skills_path, mode='w', encoding='utf-8') as f:
@@ -285,38 +343,53 @@ def write_skills(source: CommandSource, ai_prefix: str, skills: str, summary: st
         with open(plugin_config.skills_path, mode='w', encoding='utf-8') as f:
             json.dump(index_data, f, ensure_ascii=False, indent=4)
 
-        return f"skills写入成功"
+        return "Skill file written successfully"
     except Exception as e:
-        return f"skills写入失败, 原因: {e}"
+        return f"Failed to write the skill file: {e}"
 
-@register_tool(description="修改技能, 调用多个工具前必备, 每次只能修改一个skills", perm=get_plugin_config_perm, parameters={
+@register_tool(description=(
+    "Edit an existing skill file by regular-expression replacement. "
+    "'old_string' is a Python regular expression matched against the whole file and "
+    "'new_string' is the replacement (backreferences such as \\1 or \\g<name> are supported); "
+    "every match is replaced. If the pattern does not compile or matches nothing, the same "
+    "text is retried as a literal string. Always call read_skills first."
+), perm=get_plugin_config_perm, parameters={
     "type": "object",
     "properties": {
         "skills": {
             "type": "string",
-            "description": "你要修改的技能文件的文件名"
+            "description": "File name of the skill file to edit"
+        },
+        "old_string": {
+            "type": "string",
+            "description": "Regular expression to search for in the skill file"
+        },
+        "new_string": {
+            "type": "string",
+            "description": "Replacement text; backreferences like \\1 and \\g<name> are supported"
         },
         "summary": {
             "type": "string",
-            "description": "你要修改的技能的简介"
-        },
-        "content": {
-            "type": "string",
-            "description": "你要修改的技能内容"
+            "description": "Optional new one-line summary for the skills index; leave empty to keep the current one"
         }
     },
-    "required": ["skills", "summary", "content"]
+    "required": ["skills", "old_string", "new_string"]
 })
-def modify_skills(source: CommandSource, ai_prefix: str, skills: str, summary: str, content: str):
+def modify_skills(source: CommandSource, ai_prefix: str, skills: str, old_string: str, new_string: str, summary: str = ""):
     server = source.get_server()
     source.reply(f"{ai_prefix}{server.rtr("games_ai.tools.modifying_skills", skills=skills)}")
     if source.get_permission_level() < plugin_config.allow_permission:
-        return server.rtr("games_ai.tools.permission_denied")
+        return "Permission denied: this tool requires a higher permission level than the requesting player has"
     skills_path = os.path.join(os.path.dirname(plugin_config.skills_path), skills)
-    try:
-        with open(skills_path, mode='w', encoding='utf-8') as f:
-            f.write(content)
+    if not os.path.isfile(skills_path):
+        return f"Skill file not found: {skills}. Use read_skills with the exact file name first."
 
+    count, mode, error = _regex_replace_file(skills_path, old_string, new_string)
+    if error:
+        return f"Failed to modify skill '{skills}': {error}"
+
+    index_note = ""
+    if summary:
         try:
             with open(plugin_config.skills_path, mode='r', encoding='utf-8') as f:
                 index_data = json.load(f)
@@ -336,17 +409,16 @@ def modify_skills(source: CommandSource, ai_prefix: str, skills: str, summary: s
 
         with open(plugin_config.skills_path, mode='w', encoding='utf-8') as f:
             json.dump(index_data, f, ensure_ascii=False, indent=4)
+        index_note = " The index summary was updated."
 
-        return f"skills修改成功"
-    except Exception as e:
-        return f"skills修改失败, 原因: {e}"
+    return f"Skill '{skills}' modified: replaced {count} occurrence(s) by {mode} matching.{index_note}"
 
-@register_tool(description="删除技能, 调用多个工具前必备, 每次只能删除一个skills", perm=get_plugin_config_perm, parameters={
+@register_tool(description="Delete one skill file together with its skills-index entry.", perm=get_plugin_config_perm, parameters={
     "type": "object",
     "properties": {
         "skills": {
             "type": "string",
-            "description": "你要删除的技能文件的文件名"
+            "description": "File name of the skill file to delete"
         }
     },
     "required": ["skills"]
@@ -355,8 +427,10 @@ def delete_skills(source: CommandSource, ai_prefix: str, skills: str):
     server = source.get_server()
     source.reply(f"{ai_prefix}{server.rtr("games_ai.tools.deleting_skills", skills=skills)}")
     if source.get_permission_level() < plugin_config.allow_permission:
-        return server.rtr("games_ai.tools.permission_denied")
+        return "Permission denied: this tool requires a higher permission level than the requesting player has"
     skills_path = os.path.join(os.path.dirname(plugin_config.skills_path), skills)
+    if not os.path.isfile(skills_path):
+        return f"Skill file not found: {skills}. Use read_skills with the exact file name first."
     try:
         os.remove(skills_path)
 
@@ -373,16 +447,16 @@ def delete_skills(source: CommandSource, ai_prefix: str, skills: str):
         with open(plugin_config.skills_path, mode='w', encoding='utf-8') as f:
             json.dump(index_data, f, ensure_ascii=False, indent=4)
 
-        return f"skills删除成功"
+        return "Skill file deleted successfully"
     except Exception as e:
-        return f"skills删除失败, 原因: {e}"
+        return f"Failed to delete the skill file: {e}"
     
-@register_tool(description="设置一个计时器, 等待这段时间之后再执行下一步操作", parameters={
+@register_tool(description="Wait for the given number of seconds before continuing.", parameters={
     "type": "object",
     "properties": {
         "duration": {
             "type": "number",
-            "description": "等待的时长（秒）"
+            "description": "Seconds to wait"
         }
     },
     "required": ["duration"]
@@ -392,49 +466,65 @@ def setting_timer(source: CommandSource, ai_prefix: str, duration: int):
     server = source.get_server()
     source.reply(f"{ai_prefix}{server.rtr("games_ai.tools.setting_timer", duration=duration)}")
     time.sleep(duration)
-    return f"计时器结束，已等待 {duration} 秒"
+    return f"Timer finished after {duration} second(s)"
 
-@register_tool(description="读取自定义tools文件", perm=get_plugin_config_perm)
+@register_tool(description="Read the custom tools file (tools.py)", perm=get_plugin_config_perm)
 def read_custom_tools(source: CommandSource, ai_prefix: str):
     server = source.get_server()
     source.reply(f"{ai_prefix}{server.rtr("games_ai.tools.reading_custom_tools")}")
     if source.get_permission_level() < plugin_config.allow_permission:
-        return server.rtr("games_ai.tools.permission_denied")
+        return "Permission denied: this tool requires a higher permission level than the requesting player has"
+    if not os.path.isfile(plugin_config.tools_path):
+        return f"Custom tools file not found: {plugin_config.tools_path}"
     try:
         with open(plugin_config.tools_path, mode='r', encoding='utf-8') as f:
             tools_content = f.read()
-        return f"tools文件内容:\n{tools_content}"
+        return f"Custom tools file content:\n{tools_content}"
     except Exception as e:
-        return f"tools文件读取失败, 原因: {e}"
+        return f"Failed to read the custom tools file: {e}"
 
-@register_tool(description="修改自定义tools文件, 为AI提供更灵活的功能, 修改之前务必先阅读tools文件和相关skills", perm=get_plugin_config_perm, parameters={
+@register_tool(description=(
+    "Edit the custom tools file (tools.py) by regular-expression replacement. "
+    "'old_string' is a Python regular expression matched against the whole file and "
+    "'new_string' is the replacement (backreferences such as \\1 or \\g<name> are supported); "
+    "every match is replaced. If the pattern does not compile or matches nothing, the same "
+    "text is retried as a literal string. Always call read_custom_tools first."
+), perm=get_plugin_config_perm, parameters={
     "type": "object",
     "properties": {
-        "tools": {
+        "old_string": {
             "type": "string",
-            "description": "要修改的源代码, 请确保代码是有效的Python代码"
+            "description": "Regular expression to search for in the custom tools file"
         },
+        "new_string": {
+            "type": "string",
+            "description": "Replacement text; backreferences like \\1 and \\g<name> are supported"
+        }
     },
-    "required": ["tools"]
+    "required": ["old_string", "new_string"]
 })
-def modify_custom_tools(source: CommandSource, ai_prefix: str, tools: str):
+def modify_custom_tools(source: CommandSource, ai_prefix: str, old_string: str, new_string: str):
     server = source.get_server()
     source.reply(f"{ai_prefix}{server.rtr("games_ai.tools.modifying_custom_tools")}")
     if source.get_permission_level() < plugin_config.allow_permission:
-        return server.rtr("games_ai.tools.permission_denied")
-    try:
-        with open(plugin_config.tools_path, mode='w', encoding='utf-8') as f:
-            f.write(tools)
-        return f"tools文件修改成功"
-    except Exception as e:
-        return f"tools文件修改失败, 原因: {e}"
+        return "Permission denied: this tool requires a higher permission level than the requesting player has"
+    if not os.path.isfile(plugin_config.tools_path):
+        return f"Custom tools file not found: {plugin_config.tools_path}"
 
-@register_tool(description="新增一个自定义tools到原有tools文件的末尾, 修改之前务必先阅读tools文件和相关skills", perm=get_plugin_config_perm, parameters={
+    count, mode, error = _regex_replace_file(plugin_config.tools_path, old_string, new_string)
+    if error:
+        return f"Failed to modify the custom tools file: {error}"
+    return (
+        f"Custom tools file modified: replaced {count} occurrence(s) by {mode} matching. "
+        f"Call reload_plugin to apply the change."
+    )
+
+@register_tool(description="Append new tool code to the end of the custom tools file. Read the file and the related skills first.", perm=get_plugin_config_perm, parameters={
     "type": "object",
     "properties": {
         "tools": {
             "type": "string",
-            "description": "要追加到tools文件末尾的Python源代码, 请确保代码是有效的Python代码"
+            "description": "Python source code to append; it must be valid Python and register its tools with the @register_tool decorator"
         },
     },
     "required": ["tools"]
@@ -443,31 +533,33 @@ def append_custom_tools(source: CommandSource, ai_prefix: str, tools: str):
     server = source.get_server()
     source.reply(f"{ai_prefix}{server.rtr("games_ai.tools.appending_custom_tools")}")
     if source.get_permission_level() < plugin_config.allow_permission:
-        return server.rtr("games_ai.tools.permission_denied")
+        return "Permission denied: this tool requires a higher permission level than the requesting player has"
+    if not os.path.isfile(plugin_config.tools_path):
+        return f"Custom tools file not found: {plugin_config.tools_path}"
     try:
         with open(plugin_config.tools_path, mode='r', encoding='utf-8') as f:
             existing = f.read()
         new_content = existing.rstrip("\n") + "\n\n" + tools.strip() + "\n"
         with open(plugin_config.tools_path, mode='w', encoding='utf-8') as f:
             f.write(new_content)
-        return f"tools追加成功"
+        return "Tool code appended successfully"
     except Exception as e:
-        return f"tools追加失败, 原因: {e}"
+        return f"Failed to append tool code: {e}"
 
-@register_tool(description="重载插件")
+@register_tool(description="Reload the plugin so that new or changed skills and tools take effect")
 def reload_plugin(source: CommandSource, ai_prefix: str):
     server = source.get_server()
     source.reply(f"{ai_prefix}{server.rtr("games_ai.tools.reloading_plugin")}")
     server.execute_command("!!gamesai reload", source)
-    return f"插件已重载"
+    return "Plugin reloaded"
 
 
-@register_tool(description="获取指定玩家的位置、维度", parameters={
+@register_tool(description="Get the position and dimension of a player", parameters={
     "type": "object",
     "properties": {
         "player": {
             "type": "string",
-            "description": "要查询的玩家名称"
+            "description": "Name of the player to query"
         }
     },
     "required": ["player"]
@@ -478,23 +570,23 @@ def get_player_position(source: CommandSource, ai_prefix: str, player: str):
     source.reply(f'{ai_prefix}{server.rtr("games_ai.tools.getting_player_position", player=player)}')
     api = server.get_plugin_instance('minecraft_data_api')
     if api is None:
-        return "无法获取 minecraft_data_api 插件实例，请检查是否已安装并加载"
+        return "Unable to get the minecraft_data_api plugin instance; check that it is installed and loaded"
     try:
         data = api.get_player_info(player)
         if data is None:
-            return f"查询玩家 {player} 超时，请稍后重试"
+            return f"Timed out while querying player {player}, please try again later"
         pos = data.get('Pos', [])
         dim_raw = data.get('Dimension', '')
         if not pos or len(pos) < 3:
-            return f"未能从玩家 {player} 的数据中解析出坐标"
+            return f"Could not parse coordinates from the data of player {player}"
         dim_map = {
-            'minecraft:overworld': '主世界',
-            'minecraft:the_nether': '下界',
-            'minecraft:the_end': '末地',
+            'minecraft:overworld': 'Overworld',
+            'minecraft:the_nether': 'The Nether',
+            'minecraft:the_end': 'The End',
         }
         dim_name = dim_map.get(dim_raw, dim_raw)
-        return f"玩家 {player} 的位置: ({pos[0]:.1f}, {pos[1]:.1f}, {pos[2]:.1f}), 维度: {dim_name}"
+        return f"Player {player} position: ({pos[0]:.1f}, {pos[1]:.1f}, {pos[2]:.1f}), dimension: {dim_name}"
     except ValueError as e:
-        return f"查询玩家 {player} 失败: {e}"
+        return f"Failed to query player {player}: {e}"
     except Exception as e:
-        return f"获取玩家 {player} 信息失败: {e}"
+        return f"Failed to get information for player {player}: {e}"

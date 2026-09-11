@@ -14,10 +14,10 @@
 > **GamesAI 插件/模组 QQ 交流群：849544707** — 欢迎加入交流群讨论问题、反馈建议，以及分享 prompt、skills、tools 等配置！
 
 > [!NOTE]
-> 欢迎使用版本 0.7.0！本次更新带来了**基于 ChatParam 的每玩家对话架构**、新命令 **`!!ask switch <model>`** 与 **`!!ask -f <content>`**、移除旧的 `-m` / `--model` 系列命令，并为 **AI 请求全流程新增了调试日志**。详见[本次更新](#本次更新)。
+> 欢迎使用版本 0.7.1！本次更新带来了**上下文自动管理**：固定的 `max_history` 配置已移除，插件会自动解析各模型的上下文窗口、从服务商返回的 `usage` 获取真实用量，并且只在上下文确实过大时才压缩对话（较早的轮次会转为摘要）。详见[本次更新](#本次更新)。
 
 > [!NOTE]
-> **社区投票：切换 AI 模型时历史该如何处理？** 0.7.0 暂时维持"完全保留历史记录"的现状,最终方案将由投票决定并落地到 0.7.1。欢迎参与投票：[#20](https://github.com/PengZixuan30/Games_AI/issues/20)
+> **切换模型现在采用"摘要转接"**（[#20](https://github.com/PengZixuan30/Games_AI/issues/20) 社区投票的方案 B1，已在 v0.7.1 实现）：`!!ask switch <model>` 会先让**旧模型**把当前对话压缩成一段中性事实摘要，清空原历史，再把摘要交给新模型。详见[切换模型时的摘要转接](#切换模型时的摘要转接)。
 
 <details>
 <summary>目录(点击展示)</summary>
@@ -27,7 +27,11 @@
   - [使用](#使用)
   - [AI 请求链路与对话机制](#ai-请求链路与对话机制)
     - [请求链路](#请求链路)
+    - [无历史路径(`!!ask -n`)](#无历史路径ask--n)
+    - [上下文自动管理](#上下文自动管理)
     - [每玩家状态](#每玩家状态)
+    - [切换模型时的摘要转接](#切换模型时的摘要转接)
+    - [停止正在进行的对话](#停止正在进行的对话)
   - [使用 Mineflayer Bot](#使用-mineflayer-bot)
     - [环境要求](#环境要求)
     - [指令](#指令)
@@ -38,10 +42,9 @@
   - [配置](#配置-1)
     - [1.prefix](#1prefix)
     - [2.permission](#2permission)
-    - [3.max\_history](#3max_history)
-    - [4.all\_ai](#4all_ai)
-    - [5.default\_ai](#5default_ai)
-    - [6.mineflayer\_bot](#6mineflayer_bot)
+    - [3.all\_ai](#3all_ai)
+    - [4.default\_ai](#4default_ai)
+    - [5.mineflayer\_bot](#5mineflayer_bot)
   - [工具与Skills](#工具与skills)
     - [内置工具](#内置工具)
     - [在配置文件中自定义工具](#在配置文件中自定义工具)
@@ -61,8 +64,15 @@
     - [Mineflayer Bot 错误](#mineflayer-bot-错误)
     - [日志与调试](#日志与调试)
   - [本次更新](#本次更新)
-    - [Version 0.7.0](#version-070)
+    - [Version 0.7.1](#version-071)
       - [🎯 核心亮点](#-核心亮点)
+      - [1. 上下文自动管理](#1-上下文自动管理)
+      - [2. 切换模型时的摘要转接](#2-切换模型时的摘要转接)
+      - [3. `!!ask -n` 的无状态路径](#3-ask--n-的无状态路径)
+      - [4. 配置与行为变更](#4-配置与行为变更)
+      - [5. 其他改进](#5-其他改进)
+    - [Version 0.7.0](#version-070)
+      - [🎯 核心亮点](#-核心亮点-1)
       - [1. ChatParam:每玩家一个对话对象](#1-chatparam每玩家一个对话对象)
       - [2. 完整请求链路](#2-完整请求链路)
       - [3. 其他改进与修复](#3-其他改进与修复)
@@ -97,7 +107,7 @@ pip install openai requests websockets
 |`!!gamesai clear`|清除玩家的历史聊天记录，历史聊天记录与公共数据库无关|
 |`!!gamesai clearall`|清除所有玩家的历史聊天记录，历史聊天记录与公共数据库无关|
 |`!!gamesai reload`|重新加载插件配置文件。详见[热重载](#热重载)|
-|`!!gamesai check`|检查插件更新|
+|`!!gamesai check`|检查插件更新，并强制刷新上下文窗口表|
 |`!!gamesai speedtest [model]`|测试 API 服务器连接延迟，不指定模型时测试全部|
 |`!!gamesai config get <key>`|读取一个配置项的值。|
 |`!!gamesai config set <key> <value>`|修改一个配置项的值（自动适配旧值类型，修改后自动触发[热重载](#热重载)）。|
@@ -111,7 +121,8 @@ pip install openai requests websockets
 |`!!ask <content>`|向AI提问或者聊天或者帮你做一些事情，content为你想让AI做的事情或者你想问AI的问题|
 |`!!ask -n <content>`|向AI提问但不使用历史记录（当前对话仍会被保存）|
 |`!!ask -f <content>`|强制提问：不等待当前轮结束，将消息并入正在运行的对话轮（别名 `-forced`）。详见[AI 请求链路与对话机制](#ai-请求链路与对话机制)。|
-|`!!ask switch <model>`|切换当前对话使用的 AI 模型，model为AI_ID或昵称。详见[AI 请求链路与对话机制](#ai-请求链路与对话机制)。|
+|`!!ask switch <model>`|切换当前对话使用的 AI 模型，model为AI_ID或昵称。切换时清空历史，并在你下次提问前由旧模型压缩为摘要转接给新模型，详见[切换模型时的摘要转接](#切换模型时的摘要转接)。|
+|`!!ask stop`|立即停止你名下所有正在进行的对话：运行中的对话轮（含工具调用）、正在进行的 `!!ask -n` 提问、以及你委派给 Bot 的任务。未完成的一步会从历史中删除，`!!ask -f` 排队消息会被丢弃。详见[停止正在进行的对话](#停止正在进行的对话)。|
 
 ---
 
@@ -139,39 +150,84 @@ pip install openai requests websockets
 
 1. 执行 `!!ask <content>`(或 `!!ask -n <content>` / `!!ask -f <content>`)。
 2. 插件解析你的用户名,构建带 `用户名:` / `消息:` 标签的用户消息(语言随当前语言环境)。
-3. 你的**单玩家 `ChatParam` 对象**(见 `games_ai/chat_param.py`)按需惰性创建,使用 `all_ai` / `default_ai` 配置的模型。
-4. 每一轮,`ChatParam.response_ai` 组装请求:
+3. 你的**单玩家 `ChatParam` 对象**(见 `games_ai/chat_param.py`)按需惰性创建,使用 `all_ai` / `default_ai` 配置的模型。`!!ask -n` 则改用一次性的 `NonHistoryChatParam`,见[无历史路径](#无历史路径ask--n)。
+4. 每一轮,`response_ai` 组装请求:
    - system 消息:当前时间、该模型的 prompt、技能列表(内置 + `skills.json` + 外部插件注册)、公共数据列表;
-   - 对话历史(使用 `!!ask -n` 时跳过);
+   - 对话历史(无历史路径不保留任何历史);
    - 按你的权限等级过滤后的工具列表。
-5. 通过每个 AI 配置复用的客户端(`openai_api.response_chat`)与 OpenAI 兼容 API 通讯。
+5. 通过 `openai_api.response_chat` 与 OpenAI 兼容 API 通讯:有历史的对象每个 AI 配置持有一个客户端,无历史路径则按 `base_url` + API Key 复用客户端。
 6. 若 AI 调用了工具,插件执行之、注入结果,并**在同一轮内继续**,直到 AI 给出最终文本回复。
-7. 回复带上 AI 名称前缀发送给你,并写入历史;历史按 `max_history × 2 + tool_count × 2` 条裁剪。
+7. 回复带上 AI 名称前缀发送给你,并写入历史;随后上下文会被自动管理(见[上下文自动管理](#上下文自动管理))。
 
 ```mermaid
 flowchart TD
     U["玩家 / 控制台"] -->|"!!ask <content>"| ASK["ask_ai"]
-    U -->|"!!ask -n <content>"| NOH["无历史模式"]
+    U -->|"!!ask -n <content>"| NOH["NonHistoryChatParam<br/>（无状态）"]
     U -->|"!!ask -f <content>"| QUEUE["response_queue"]
-    U -->|"!!ask switch <model>"| SWITCH["重建 AI 客户端<br/>0.7.0 保留历史"]
+    U -->|"!!ask switch <model>"| SWITCH["摘要转接<br/>旧模型生成摘要，历史清空"]
+    U -->|"!!ask stop"| STOP["中止对话轮 / -n 请求 / Bot 任务<br/>删除未完成的一步"]
 
     ASK --> CP["ChatParam（每玩家一个）"]
-    NOH --> CPD["临时 ChatParam"]
     CP --> BUILD["response_ai — 组装请求"]
-    CPD --> BUILD
+    NOH --> BUILD
     BUILD -->|"system：时间 / prompt / 技能 / 数据"| API
-    BUILD -->|"历史：response_list<br/>（-n 时跳过）"| API
+    BUILD -->|"历史：response_list<br/>（无历史路径没有历史）"| API
     BUILD -->|"工具：按权限过滤"| API
 
     API["OpenAI 兼容 API"] --> TOOLCALL{"有工具调用?"}
     TOOLCALL -->|"是"| TOOL["执行工具并注入结果<br/>同一轮继续"]
     TOOL --> BUILD
     TOOLCALL -->|"否"| REPLY["最终回复 → 玩家"]
-    REPLY --> SAVE["写入 response_list<br/>裁剪：max_history × 2 + tool_count × 2"]
+    REPLY --> SAVE["ChatParam：写入 response_list<br/>+ 上下文自动管理"]
+    REPLY --> DROP["NonHistoryChatParam：整轮丢弃"]
 
     QUEUE -.->|"并入运行中的轮次<br/>或由自动补轮回答"| BUILD
     SWITCH --> CP
+    STOP -.->|"在下一个检查点停止<br/>并删除未完成的一步"| BUILD
 ```
+
+### 无历史路径(`!!ask -n`)
+
+`!!ask -n <content>` 回答一次提问,不留任何东西。它由 `NonHistoryChatParam` 处理 —— 这是 `games_ai/chat_param.py` 中一个自包含的类,与有历史的对象**不共享任何助手函数、属性或生命周期**。
+
+**它没有的东西:**对话历史(`response_list`)、强制请求队列、轮次生命周期事件、工具计数、上下文管理(token 估算、用量校准、历史压缩与摘要请求),以及任何每玩家状态 —— 不会写入 `all_chat_param`,回答发出后对象即被丢弃。
+
+**与常规路径仍然一致的部分:**
+
+- 相同的 system 消息(时间、prompt、技能列表、公共数据),以及按你权限等级过滤的同一套工具;
+- 工具调用仍会被执行并回注,**在同一轮内**继续,直到 AI 给出最终文本回复;
+- 相同的回复格式与相同的错误上报(HTTP 状态码映射 + 服务商 Request ID)。
+
+**两点值得知道的差异:**
+
+- **单轮超窗保险** —— 没有历史可压缩,所以请求在发出前只做一次整体测量:若超过模型窗口的 **80%**,则把最新一条消息截断到剩余空间(单轮几乎不可能超窗,但超大工具结果有可能)。完整的[上下文自动管理](#上下文自动管理)只作用于有历史的路径。
+- **共享 HTTP 客户端** —— 客户端按 `base_url` + API Key 缓存(最多 8 个),因此连续 `-n` 不必反复重建连接池、重复 TLS 握手。服务商返回的 `usage` 会被读取但不使用:没有历史就没有可校准的对象。
+
+### 上下文自动管理
+
+GamesAI 不再使用固定的 `max_history` 配置。每次请求都会与模型自身的上下文窗口进行比对,只有在确实需要时才压缩对话。
+
+**窗口的来源**(优先级由高到低):
+
+1. `all_ai` 中该 AI 条目的 `context_window` —— 单模型覆盖;
+2. 上下文窗口表:从 [`data/context_windows.json`](https://github.com/PengZixuan30/Games_AI/blob/main/data/context_windows.json) 获取(GitHub Raw,jsDelivr 作为第二源),缓存在 `config/games_ai/cache/context_windows.json`,由启动 / 24 小时更新检查链路刷新 —— 执行 `!!gamesai check` 也会刷新,且无视 24 小时 TTL;
+3. 随插件版本内置的兜底表(完全离线可用;由仓库 JSON 同步生成的模块 `games_ai/context_table_data.py`);
+4. 未知模型使用保守默认值 `32768` token。
+
+**触发条件**(每次请求**之前**与**之后**都会检查):
+
+- 当前上下文达到窗口的 **80%**,或
+- 单次请求达到窗口的 **20%**(例如一次读取日志产生的超大工具结果)。
+
+**触发后会发生什么:**
+
+- 最近的 **10 轮**对话始终原样保留(1 轮 = 一条用户消息及其后续 assistant/tool 消息);
+- 更早的轮次被替换为一条中性、事实性的**摘要**(用当前模型生成,且不携带工具)。摘要不会模仿此前回复的风格,已有摘要会并入新摘要;
+- 若仍然过大,或摘要失败,则先截断超长消息、再丢弃最旧的轮次作为最后的保险 —— 保证下一次请求一定能装得下。
+
+真实输入量取自服务商返回的 `usage` 字段(`prompt_tokens` / `total_tokens`),本地估算会按 `base_url|model` 与之校准,几轮内即可收敛到真实数值。
+
+执行 `!!gamesai debug` 可在 MCDR 控制台看到窗口、用量、校准系数与每一次压缩过程。
 
 ### 每玩家状态
 
@@ -181,12 +237,62 @@ flowchart TD
   - `system_message` — 每轮重建(时间、prompt、技能、数据);
   - `response_queue` — `!!ask -f` 等待合并的消息队列;
   - `is_stopped` — 轮次生命周期事件(用于串行化每个玩家的轮次)。
-- **`!!ask switch <model>`** 会为你的 `ChatParam` 重建 AI 客户端,对话保留。0.7.0 完全保留历史;处理策略正由社区投票决定 —— 见 [#20](https://github.com/PengZixuan30/Games_AI/issues/20)。
+- **`!!ask -n` 不保留任何状态**:它由 `NonHistoryChatParam` 处理,不会注册进 `all_chat_param`,回答发出后即被丢弃 —— 见[无历史路径](#无历史路径ask--n)。
+- **`!!ask switch <model>`** 会为你的 `ChatParam` 重建 AI 客户端,并执行**摘要转接**:切换时立即清空原历史,并由旧模型在你**下次提问前**把这段对话压缩成一段中性事实摘要,作为新会话的第一条 system 消息注入。详见[切换模型时的摘要转接](#切换模型时的摘要转接)。
 - **`!!ask -f <content>`** 在轮次仍在运行时将请求入队:运行中的轮次会合并它并继续;若轮次恰好在合并前结束,则由自动补轮回答。
 - **`!!gamesai debug`** 会将请求流程日志提升到 INFO 级别显示在 MCDR 控制台(请求开始/结束、强制请求入队/合并、工具调用);未开启时同一批日志走 DEBUG 级别。
 
 > [!NOTE]
-> **社区投票:**切换 AI 模型时历史应如何处理,正由社区投票决定 —— 见 [issue #20](https://github.com/PengZixuan30/Games_AI/issues/20)。0.7.0 暂时维持"完全保留历史"的现状,最终方案将在 0.7.1 落地。
+> **社区投票结果:** [issue #20](https://github.com/PengZixuan30/Games_AI/issues/20) 的投票已结束,采用**方案 B1(摘要转接)**,已在 v0.7.1 实现 —— 新模型的回复不再被上一个模型的风格带偏,同时对话中的事实被保留下来。
+
+### 切换模型时的摘要转接
+
+`!!ask switch <model>` 不是简单地保留或清空对话,而是把**事实**转接过去(方案 **B1**,即 [#20](https://github.com/PengZixuan30/Games_AI/issues/20) 投票选出的方案)。压缩发生的时机与**自动上下文压缩完全一致** —— 在下一次请求之前,而不是在指令执行时:
+
+1. 指令执行时:等待正在运行的轮次结束 → 保存当前对话与旧模型的快照 → 清空原历史 → 为新模型重建客户端与 system 消息。**不发任何 API 请求**,因此即使对话很长,指令也会立即返回;
+2. **你下次提问前**(preflight 阶段,与自动压缩同一位置):由**旧模型**对快照做一次中性、事实性的总结 —— 讨论主题、已确认结论、未完成事项、用户明确提出的要求(复用上下文压缩所用的同一条摘要提示词,不带工具,60 秒超时);
+3. 摘要作为**新会话的第一条 system 消息**注入,并附上一句提示:让新模型以自己的设定与风格继续,不要模仿上一个模型;
+4. 随后正常回答这次提问(上下文中已包含该摘要)。
+
+| 情形 | 行为 | 你会看到 |
+|---|---|---|
+| 有历史 | 保存快照、清空历史、安排转接 | "……将在你下次提问前由原模型压缩为摘要转接。" |
+| 下次请求前转接成功 | 摘要成为第一条 system 消息,本轮照常进行 | 无额外提示(与自动压缩一样),仅调试日志 |
+| 转接失败(超时、报错、空回复) | 丢弃旧对话,本轮仍然回答 | "摘要转接失败:上一段对话已丢弃……" |
+| 下次提问前又切换了一次 | 保留最初的快照,并由当时生效的模型只总结一次 | 同上 |
+| 尚无历史 | 无可转接,永远不发额外请求 | 普通的"已切换"提示 |
+| 切换到的就是当前模型 | 什么都不动 | "你当前使用的已经是……" |
+
+补充说明:
+
+- 切换前会等待正在运行的轮次结束,不会对写了一半的对话做快照;
+- 切换还会重置该对话的工具计数、强制请求队列与用量/校准计数;
+- 摘要请求只在你**真正再次提问时**才产生,每次切换最多一次(超时 60 秒)。它不会阻塞指令,也不会让切换失败;转接失败只是让新对话不带旧上下文;
+- `!!ask stop` 不会取消已安排的转接:它属于上一段对话,而不属于运行中的轮次;`!!gamesai clear` 会连同对话对象一起清除它;
+- `-n` 路径与此无关:只有带历史的路径才做摘要。见[无历史路径](#无历史路径ask--n)。
+
+### 停止正在进行的对话
+
+`!!ask stop` 会立即中止**你自己**名下所有正在进行的内容:
+
+| 正在进行的内容 | 指令行为 |
+|---|---|
+| 你的对话轮(模型正在思考,或工具正在执行) | 该轮在下一个检查点停止,未完成的一步从历史中删除,`!!ask -f` 排队消息被丢弃 |
+| `!!ask -n` 提问 | 放弃该请求,答案直接丢弃(无状态路径本就不保留任何内容) |
+| 你委派给自治 Bot 的任务 | 队列中的任务被移除,正在执行它的循环停止并丢弃已产生的内容 |
+
+"未完成的一步"如何删除:
+
+- 末尾是**工具调用组**(请求工具的 assistant 消息 + 其工具结果)时整组删除,不会残留孤立的 tool 消息;
+- 否则删除**该轮追加的全部消息** —— 你的消息、由 `!!ask -f` 合并进来的消息、注入的技能提示 —— 直到上一条已完成的回答为止,等于这次提问从未发生;
+- 若该轮已经产出了最终回答,该回答也会被删除。
+
+补充说明:
+
+- 进行中的 HTTP 请求无法真正中断,因此该轮会在下一个检查点停止:下一次请求之前、响应刚返回时,或一批工具调用之间 —— 延迟最多一次请求;
+- 该指令只作用于你自己的对话(没有目标参数),也不需要额外权限;
+- 当前没有任何进行中的对话时,回复"当前没有进行中的对话。";
+- `!!ask stop` 是字面量指令,因此以 `stop ` 开头的提问会被当作指令(可改用 `!!ask -n stop ...` 或换个说法)——`switch` 同理。
 
 ---
 
@@ -279,7 +385,6 @@ Bot 支持 20+ 种操作，通过 `bot_call_action` AI 工具调用：
 {
   "prefix": "[GamesAI]",
   "permission": 3,
-  "max_history": 10,
   "all_ai": {
       "<Your AI ID>":{
           "prompt": "你是一名成熟、稳重的Minecraft机器人工具，你的名字叫做“GamesAI”",
@@ -287,7 +392,8 @@ Bot 支持 20+ 种操作，通过 `bot_call_action` AI 工具调用：
           "base_url": "<Your API Base URL>",
           "ai_model": "<Your AI Model>",
           "api_key": "<Your API Key>",
-          "extra_body": {}
+          "extra_body": {},
+          "context_window": null
       }
     },
   "default_ai": "<Your AI ID>",
@@ -329,14 +435,7 @@ Bot 支持 20+ 种操作，通过 `bot_call_action` AI 工具调用：
 自 0.6.4 起，该值同时决定向玩家 AI 提供哪些**工具**：`perm` 高于玩家权限等级的工具不会传给 AI 模型，模型既看不到也无法调用。管理数据、技能、自定义工具或启停 Bot 的内置工具都使用该值（通过 `get_plugin_config_perm`），并在每次请求时实时读取，重载后立即生效。
 
 
-### 3.max_history
-值的类型: int
-
-默认值: 10
-
-填入每个玩家最大可保留的历史记录，与公共数据库无关。设置为 `0` 时完全禁用历史记录功能
-
-### 4.all_ai
+### 3.all_ai
 值的类型: dict
 
 默认值：见文件
@@ -351,14 +450,16 @@ Bot 支持 20+ 种操作，通过 `bot_call_action` AI 工具调用：
 
 **extra_body**：请参考各API提供商对 `extra_body` 项的说明以编写。对于DeepSeek用户，想要移植原有 `thinking` 的，直接填写 `{"thinking": {"type": "enabled"}}`。不填时默认 `{}`（空）。
 
-### 5.default_ai
+**context_window**（可选）：为该模型覆盖[上下文自动管理](#上下文自动管理)所使用的上下文窗口（单位 token）。留空（`null`）时使用上下文窗口表中的数值。对于窗口极大的模型，可作为成本控制开关，例如 `"context_window": 65536`。
+
+### 4.default_ai
 值的类型: str
 
 默认值: \<Your AI ID\>
 
 填入当用户直接使用`!!ask`时使用的模型，应该填入all_ai字典中的某一个键(即为插件内部的AI_ID)，如果错填，会导致无法正常使用`!!ask`指令
 
-### 6.mineflayer_bot
+### 5.mineflayer_bot
 值的类型: `dict`
 
 默认值: 见上方
@@ -408,10 +509,10 @@ GamesAI插件提供了很多内置的工具，见下表。如果你想要更多�
 |ai_add_data|`key`,`value`|向数据库中写入一条数据\(追加模式\)|
 |read_skills|`skills`|读取已注册的技能指导文件，引导 AI 执行特定任务|
 |write_skills|`skills`、`summary`、`content`|创建或覆写一个技能文件并注册到技能索引中|
-|modify_skills|`skills`、`summary`、`content`|修改已有技能文件并更新索引中的简介|
+|modify_skills|`skills`、`old_string`、`new_string`、`summary`（可选）|以**正则替换**方式修改已有技能文件：`old_string` 为 Python 正则（对整份文件匹配），`new_string` 为替换文本，支持 `\1`、`\g<name>` 反向引用，所有匹配都会被替换。正则无法编译或匹配不到时，会退回按字面文本替换。传入 `summary` 会同时更新技能索引。|
 |delete_skills|`skills`|删除一个技能文件并从技能索引中移除|
 |read_custom_tools|无|读取当前自定义 `tools.py` 文件的内容|
-|modify_custom_tools|`tools`|用新代码替换整个自定义 `tools.py` 文件|
+|modify_custom_tools|`old_string`、`new_string`|以**正则替换**方式修改自定义 `tools.py` 文件（规则同 `modify_skills`）；改完请调用 `reload_plugin`。|
 |append_custom_tools|`tools`|向自定义 `tools.py` 文件末尾追加新工具代码|
 |setting_timer|`duration`|暂停执行指定秒数后再继续下一步操作|
 |reload_plugin|无|热重载插件以应用配置、技能和自定义工具的更改，不会丢失聊天记录。详见[热重载](#热重载)|
@@ -426,6 +527,8 @@ GamesAI插件提供了很多内置的工具，见下表。如果你想要更多�
 
 > [!NOTE]
 > 自 0.6.4 起，`perm` 高于请求玩家权限等级的工具不会提供给 AI。写入/删除数据、管理技能、管理自定义工具或启停 Bot 的工具需要达到配置的 `permission` 权限等级。
+>
+> 自 0.7.1 起，与工具调用相关的、发给模型的内容全部为英文：工具 schema（名称、说明、参数）与工具返回值（含错误与权限提示）。发给玩家的进度提示仍保持本地化。
 
 </details>
 
@@ -448,7 +551,7 @@ def my_custom_tool(source: CommandSource, ai_prefix: str):
 > 代码中的`from games_ai.games_ai_tool import register_tool`和函数定义前的`@register_tool`必须存在。
 
 > [!TIP]
-> 在 0.5.7+ 版本中，AI 可以**自主读取、修改和追加**自定义工具文件。只需让 AI 帮你添加新工具——它会先读取当前文件，编写新代码，然后通过 [热重载](#热重载) 使修改生效。
+> 在 0.5.7+ 版本中，AI 可以**自主读取、编辑和追加**自定义工具文件。只需让 AI 帮你添加新工具——它会先读取当前文件，用 `old_string` → `new_string` 做精确替换，然后通过 [热重载](#热重载) 使修改生效。
 
 `description` 是必填项，告诉 AI 此工具的用途。`parameters` 字典（可选）定义了 AI 应传入的参数，遵循 [OpenAI function calling 格式](https://platform.openai.com/docs/guides/function-calling)。函数签名必须包含 `source: CommandSource` 和 `ai_prefix: str` 作为前两个参数，其后跟随 `parameters` 中定义的参数。
 
@@ -522,7 +625,7 @@ GamesAI 内置了以下技能文件，AI 在执行相关操作前会自动读取
 | 技能文件 | 描述 |
 |---|---|
 | `skills_management.md` | 指导 AI 如何正确读取、写入、修改和删除技能文件。 |
-| `custom_tools_management.md` | 指导 AI 如何安全地读取、修改和追加自定义工具代码。 |
+| `custom_tools_management.md` | 指导 AI 如何安全地读取、编辑和追加自定义工具代码 —— 其中包含一条强制步骤：在**动手写代码之前**先向用户确认需求、参数、权限等级与期望的返回值。 |
 | `mineflayer_bot_guide.md` | 指导 AI 如何操控 Mineflayer 机器人（仅在 Bot 运行时可用）。 |
 
 > [!TIP]
@@ -600,7 +703,7 @@ GamesAI 提供了完善的热重载机制，让你在不重启服务器的情况
 
 执行热重载时，插件会依次执行以下操作：
 
-1. **重新读取配置文件** (`config/games_ai/config.json`) — 应用 `prefix`、`permission`、`max_history`、`all_ai`、`default_ai` 等全部配置变更。
+1. **重新读取配置文件** (`config/games_ai/config.json`) — 应用 `prefix`、`permission`、`all_ai`、`default_ai` 等全部配置变更(含单模型 `context_window`)。
 2. **全量重建工具注册（0.6.4+）** — 彻底清空工具注册表，然后从所有来源重建：内置工具通过注册重放恢复、自定义 `tools.py` 重新导入、注册过工具的插件被重载以重新执行注册代码（见第 4、6 步）。
 3. **重新加载 Skills** (`config/games_ai/skills/skills.json`) — 刷新技能索引，AI 系统提示中的可用技能列表同步更新。
 4. **重新加载自定义工具** (`config/games_ai/tools/tools.py`) — 热加载自定义工具代码，无需重启 MCDR。
@@ -726,12 +829,75 @@ def on_gamesai_reload(server: PluginServerInterface):
 
 ## 本次更新
 
+### Version 0.7.1
+
+#### 🎯 核心亮点
+
+- **🧮 上下文自动管理** — 固定的 `max_history` 配置已移除。插件会自动解析各模型的上下文窗口、从服务商返回的 `usage` 获取真实用量，并且只在上下文确实过大时才压缩对话。
+- **🔀 `!!ask switch` 的摘要转接** — [#20](https://github.com/PengZixuan30/Games_AI/issues/20) 社区投票选出**方案 B1**：切换时立即清空原历史，由**旧模型**在你下次提问前把它压缩成一段中性事实摘要（与自动上下文压缩同一时机）—— 切换不再阻塞，新模型拿到事实而不沾旧风格。
+- **🛑 `!!ask stop`** — 一次停止你名下所有正在进行的内容：运行中的对话轮（含工具调用）、正在进行的 `!!ask -n` 提问、以及委派给 Bot 的任务。未完成的一步会从历史中删除，不会留下写了一半的对话。
+- **🪶 无状态的 `!!ask -n`** — 单次提问不再创建（然后丢弃）一个完整的对话对象：`NonHistoryChatParam` 不保留历史、队列与上下文记账，并按端点复用同一个 HTTP 客户端。
+- **📊 请求用量感知** — `response_chat` 现在会返回服务商的 `usage`，插件因此能掌握每次请求的真实输入量，并按 `base_url|model` 校准本地估算。
+- **🧩 新增 `context_window` 选项** — `all_ai` 中每个 AI 可选填写的窗口覆盖值，对于窗口极大的模型可作为成本控制开关。
+
+#### 1. 上下文自动管理
+
+每次请求都会与模型自身的上下文窗口比对，只有确实需要时才压缩对话。完整说明见[上下文自动管理](#上下文自动管理)。
+
+- **窗口来源**：单模型 `context_window` → 远程表 [`data/context_windows.json`](https://github.com/PengZixuan30/Games_AI/blob/main/data/context_windows.json)（GitHub Raw，jsDelivr 备用，缓存 24 小时）→ 版本内置表 → 保守默认值（`32768`）。
+- **触发条件**（每次请求**前后**都会检查）：当前上下文达到窗口 **80%**，或单次请求达到窗口 **20%** —— 后者用于捕捉"一次读取大日志"这类突发增长。
+- **压缩方式**：最近 **10 轮**始终原样保留；更早的轮次替换为一条中性事实摘要（由当前模型生成，不带工具）。若仍不足，则截断超长消息并丢弃最旧轮次，保证下一次请求一定能装下。
+- **校准**：本地 token 估算会按 `base_url|model` 与真实 `usage` 对齐，几轮内收敛。
+
+#### 2. 切换模型时的摘要转接
+
+`!!ask switch <model>` 现在实现 [#20](https://github.com/PengZixuan30/Games_AI/issues/20) 投票选出的**方案 B1**（投票已结束）：
+
+- 摘要请求被**延后**，与自动上下文压缩完全一致：指令只负责清空历史并保存快照，由**旧模型**在你**下次请求之前**写出中性事实摘要（讨论主题、已确认结论、未完成事项、用户明确要求 —— 不带工具、60 秒超时）。因此切换会立即返回，不再被摘要请求阻塞；
+- 原历史在切换时即被清空，旧模型的回复不再影响新模型的语气与人设；
+- 摘要作为新会话的第一条 system 消息注入，并附带"请以自己的设定与风格继续"的提示；
+- 延后的摘要失败时本轮仍会正常回答，并告知玩家上一段对话已被丢弃；
+- 切换到当前已在使用的模型不会改动任何东西；没有历史时也不会多发请求；
+- 切换前会等待运行中的轮次结束，并重置工具计数、强制请求队列与用量计数。
+
+详见[切换模型时的摘要转接](#切换模型时的摘要转接)。
+
+#### 3. `!!ask -n` 的无状态路径
+
+单次提问过去会创建一个完整的 `ChatParam`（历史、队列、生命周期事件、校准状态、上下文管理），回答完就丢弃。现在改由 `NonHistoryChatParam` 处理 —— 一个自包含、什么都不保留的类：
+
+- **不保留任何状态** —— 整轮只活在 `response_ai` 内部，返回即释放；不会注册进 `all_chat_param`，没有历史、队列、`is_stopped` 事件与工具计数；
+- **不做上下文管理** —— 不做 token 估算、不做用量校准、不压缩历史，因此也不会产生额外的摘要请求；
+- **回答完全一致** —— 与常规路径相同的 system 消息、相同的按权限过滤工具、相同的回复格式与错误上报；工具调用同样在同一轮内执行并回注；
+- **单轮超窗保险** —— 若整个请求超过模型窗口的 80%，则把最新一条消息截断到剩余空间（有历史的路径仍然使用完整的上下文管理）；
+- **共享 HTTP 客户端** —— 客户端按 `base_url` + API Key 缓存，连续 `-n` 不必每次都重建连接池并重做 TLS 握手。
+
+细节见[无历史路径](#无历史路径ask--n)。
+
+#### 4. 配置与行为变更
+
+- **`max_history` 已移除** —— 旧配置文件仍可正常使用，该键会被直接忽略。
+- **新增 `context_window`**（可选，位于每个 AI 条目内）—— 见 [3.all_ai](#3all_ai)。
+- **新增远程表** —— `data/context_windows.json` 在本仓库维护（**249 条**，覆盖 19 家厂商与各托管平台，核验日期 2026-09-11；来源与口径见 [`data/context_windows.sources.md`](https://github.com/PengZixuan30/Games_AI/blob/main/data/context_windows.sources.md)）。插件在启动时与 24 小时更新检查时获取，并缓存到 `config/games_ai/cache/context_windows.json`；`!!gamesai check` 会无视 24 小时 TTL 强制刷新。维护者可编辑该 JSON 后执行 `python tools/build_context_table.py` 重新同步内置表并校验。
+- **刷新链路合并为一条** —— 窗口表刷新与启动 / 24 小时更新检查共用同一条线程，不再单独再起一个线程；并发刷新也不会重复下载两次表。
+
+#### 5. 其他改进
+
+- `response_chat` 新增单次请求 `timeout`，并返回 `(message, usage)`；
+- 新增 `context_table` 模块：表匹配、校验、缓存与静默离线兜底；版本内置表改放在生成式模块 `games_ai/context_table_data.py`（每条一行），不再内联在逻辑模块里；
+- **内置工具的文本已全部英文化** —— 26 个内置工具的 `description` 与参数说明，**以及回传给模型的工具返回值**（执行结果、错误与权限提示）均为英文，函数调用提示词不再混用中英；只有发给玩家的提示仍保持本地化；
+- **`modify_skills` 与 `modify_custom_tools` 改为编辑而非整体重写** —— 两者都接收 `old_string`（Python 正则）与 `new_string`（支持 `\1` 等反向引用），替换所有匹配而不是覆写整个文件。正则无法编译或匹配不到时退回字面文本替换；完全匹配不到则不写入任何内容并明确告知模型。`modify_skills` 仍保留可选参数 `summary`，用于同步技能索引；
+- `!!gamesai debug` 会输出窗口、用量、校准系数与每一次压缩过程；
+- **新增 `!!ask stop` 指令** —— 在下一个检查点中止该玩家运行中的对话轮（进行中的请求无法真正中断），从历史中删除未完成的一步，丢弃 `!!ask -f` 排队消息，同时也会停止正在进行的 `!!ask -n` 提问与委派给自治 Bot 的任务。详见[停止正在进行的对话](#停止正在进行的对话)；
+- 未映射的 HTTP 错误码兜底文案改为翻译键（`games_ai.error_code_map.error_unknown`），与其它错误码一样跟随玩家语言；
+- `custom_tools_management` 技能新增强制的"Step 0"：AI 必须**在编写任何工具代码之前**先向用户确认需求、参数、权限等级与期望返回值，并对有风险或不可逆的行为再次确认。
+
 ### Version 0.7.0
 
 #### 🎯 核心亮点
 
 - **🧠 每玩家 ChatParam 架构** — 每个玩家的对话现在由一个专属 `ChatParam` 对象管理:它拥有对话历史、系统消息、强制请求队列与轮次生命周期事件。历史处理、模型切换、强制提问都经由该对象。
-- **🔀 模型切换:`!!ask switch <model>`** — 随时切换当前对话使用的 AI 模型。0.7.0 暂时**完全保留历史**;处理策略正由社区投票决定,见 [#20](https://github.com/PengZixuan30/Games_AI/issues/20),将在 0.7.1 落地。
+- **🔀 模型切换:`!!ask switch <model>`** — 随时切换当前对话使用的 AI 模型。0.7.0 暂时**完全保留历史**;处理策略已由 [#20](https://github.com/PengZixuan30/Games_AI/issues/20) 社区投票决定(方案 B1,摘要转接),并在 0.7.1 实现。
 - **⚡ 强制提问:`!!ask -f <content>`** — 在轮次仍在运行时插入问题:消息会被合并进运行中的轮次(或由自动补轮回答),无需等待上一个回复结束。
 - **🗑️ 移除的命令** — `!!ask -m <model> <content>`、`!!ask --model ...` 及其 `-n` / `--no-history` 组合已被移除;请改用 `!!ask switch <model>` + `!!ask -n <content>`。
 - **📋 调试日志** — `!!gamesai debug` 现在可以让完整的 AI 请求流程在 MCDR 控制台可见(模型切换、强制请求入队/合并、轮次生命周期、工具调用)。
@@ -744,7 +910,7 @@ def on_gamesai_reload(server: PluginServerInterface):
 - `system_message` — 每轮重建(当前时间、prompt、技能列表、公共数据);
 - `response_queue` — 等待合并的 `!!ask -f` 消息;
 - `is_stopped` — 轮次生命周期事件,用于串行化每个玩家的轮次;
-- `trim_response_list()` — 有界历史(`max_history × 2 + tool_count × 2`);
+- `trim_response_list()` — 有界历史(`max_history × 2 + tool_count × 2`,已在 0.7.1 由上下文自动管理取代);
 - `reload_ai_info()` — `!!gamesai reload` 后刷新 AI 配置与客户端。
 
 所有玩家对象保存在 `all_chat_param` 中;`!!gamesai clear` / `!!gamesai clearall` 会删除它们。
