@@ -243,6 +243,22 @@ def resolve_max_output(model: str) -> int:
     return DEFAULT_MAX_OUTPUT
 
 
+def window_source(model: str, override=None) -> str:
+    """
+    Which of the three layers decides the window: ``"config"``, ``"table"`` or ``"default"``.
+
+    Reported by ``!!ask context``: an override that silently beats the table is the usual
+    reason why a displayed window looks wrong, and the three cases are indistinguishable
+    from the number alone. The classification mirrors :func:`resolve_context_window`.
+    """
+    if _clamp_window(override) is not None:
+        return "config"
+    entry = _pick_model_entry(get_table().get("models", {}), str(model or ""))
+    if entry and _clamp_window(entry.get("context_window")) is not None:
+        return "table"
+    return "default"
+
+
 # ── remote refresh ──────────────────────────────────────────────────────────
 
 def _download_table(url: str) -> dict | None:

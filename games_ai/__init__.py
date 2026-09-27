@@ -1,18 +1,19 @@
 from mcdreforged.api.all import *
 
 from .openai_api import setup_openai_logging
-from .games_ai_tool import register_tool, get_plugin_config_perm, reset_all_tools, TOOL_PLUGIN_IDS
+from .games_ai_tool import register_tool, register_bot_tool, get_plugin_config_perm, reset_all_tools, TOOL_PLUGIN_IDS
 from .database import PublicDatabase
 from .config import plugin_config
 from .tools_interpreter import load_external_tools
-from .mineflayer import write_default_init, write_package_json, run_node, start_mineflayer_client, stop_mineflayer_client, stop_mineflayer_process, get_default_init_hash, is_node_running, MineflayerWSClient
-from .mineflayer_ai import AutonomousBotController, set_bot_controller, get_bot_controller
+from .mineflayer import write_default_init, write_package_json, run_node, start_mineflayer_client, stop_mineflayer_client, stop_mineflayer_process, detach_mineflayer_process, get_default_init_hash, is_node_running, MineflayerWSClient
+from .mineflayer_ai import (AutonomousBotController, set_bot_controller, get_bot_controller,
+                            force_abort_thread, CONTROLLER_THREAD_NAMES)
 from .external_skills_loader import EXTERNAL_SKILLS_LIST
 from .register_extra_plugin import REGISTER_PLUGIN_LIST
 from .chat_param import ChatParam, NonHistoryChatParam, register_no_history, unregister_no_history, stop_no_history
 from . import context_table
 
-import time,os,requests,lzma,json,threading,datetime,logging
+import time,os,requests,lzma,json,threading,logging,math
 
 import shutil
 import subprocess
@@ -21,7 +22,7 @@ import re
 
 PLUGIN_METADATA = {
     "id": "games_ai",
-    "version": "0.7.1",
+    "version": "0.7.2",
     "name": "GamesAI",
     "description": {
         "zh_cn": "此插件可以让你在游戏中使用AI",
@@ -40,12 +41,136 @@ all_chat_param: dict[str, ChatParam] = {}
 unload_status_code = 0
 debug_mode = False
 websocket_connections: dict[str, MineflayerWSClient] = {}
+# Log prefix; ``_apply_config`` overwrites it with the configured value on load. Defined here
+# so that diagnostics raised outside a full plugin lifetime (a teardown on a detached thread,
+# a started-but-never-loaded instance) never turn into a NameError.
+prefix = '[GamesAI]'
+
+# Threads this plugin can own; used by on_unload to report leftovers instead of claiming
+# a clean shutdown (Python cannot kill a thread, so a busy one is reported, not hidden).
+# Every name is prefixed with ``games_ai@``; the unprefixed entries are legacy names kept
+# so a thread started by an older plugin version is still recognised.
+_PLUGIN_THREAD_NAMES = frozenset({
+    *CONTROLLER_THREAD_NAMES,                   # games_ai@autonomous_bot (+ legacy)
+    "games_ai@mineflayer_log", "MineflayerBotLog",
+    "games_ai@ws_client",
+    "games_ai@update_loop", "games_ai@update_timer", "games_ai@mineflayer_wait_server",
+    "games_ai@ask_ai", "games_ai@switch_model", "games_ai@update", "games_ai@reloader",
+    "games_ai@speed_test", "games_ai@leftover_watch", "games_ai@debug_threads",
+    "games_ai@bot_teardown",
+    "games_ai@data_write", "games_ai@data_add", "games_ai@data_del",
+    "games_ai@data_read", "games_ai@data_list", "games_ai@data_keys",
+})
+
+# How many entries `!!gamesai debug thread` prints per group before summarising the rest.
+_THREAD_LIST_LIMIT = 12
 _autonomous_controller: AutonomousBotController | None = None
 _aibot_lock = threading.Lock()
+# Grace period for the cooperative controller stop during unload/reload. An idle loop
+# leaves immediately (interruptible wait), so anything longer than this means the thread is
+# inside a blocking call — where waiting more rarely helps, and the forced abort follows.
+_BOT_STOP_GRACE = 1.5
+# How long `!!gamesai reload` may wait for the previous teardown (the detached thread of a
+# preceding unload) before it checks whether the WebSocket port has been released.
+_BOT_TEARDOWN_WAIT = 5.0
+# How long on_unload may wait for the teardown thread before it gives up and returns. One
+# synchronously killed node process costs about a second, so the ordinary case stays inside
+# this window and MCDR really is unloaded with a dead bot; anything slower is left to the
+# detached thread instead of blocking the reload/unload for it.
+_BOT_UNLOAD_GRACE = 1.5
 # Set when the plugin is unloaded, so a pending "wait for server start" bot
 # launch aborts cleanly (see _wait_server_then_launch)
 _mineflayer_pending_abort = threading.Event()
 _mineflayer_wait_thread: threading.Thread | None = None
+
+# ── reload / teardown serialization ─────────────────────────────────────────
+# `!!gamesai reload` reaches the same global bot state as on_unload, and a second reload
+# started while the first one is still tearing the bot down used to be able to disable the
+# bot entirely (the launcher saw the port of the dying node process still in use, treated it
+# as a foreign program and wrote enabled=false). `_reload_lock` makes the command
+# single-flight, `_teardown_event` tells a later launch when the previous teardown is done.
+_reload_lock = threading.Lock()
+_bot_teardown_lock = threading.Lock()
+_bot_teardown_event = threading.Event()
+_bot_teardown_event.set()           # nothing to wait for before the first teardown
+
+
+def _watch_thread_exit(thread: threading.Thread, server: PluginServerInterface, name: str,
+                       timeout: float = 60.0) -> None:
+    """Log when an aborted leftover thread finally dies (it may still be inside a blocking call)."""
+    thread.join(timeout)
+    if thread.is_alive():
+        server.logger.warning(f"{prefix} Leftover {name} thread is still alive after {timeout:.0f}s")
+    else:
+        server.logger.info(f"{prefix} Leftover {name} thread has finished")
+
+
+def _abort_leftover_bot_threads(server: PluginServerInterface) -> None:
+    """
+    Kill bot-controller threads left over from a previous plugin instance.
+
+    Python cannot kill a thread, so if an unload could not stop the controller (it was
+    inside a blocking call), that old thread may still be looping. Running it again would
+    mean two controllers acting on the same bot, so any controller thread that is alive
+    *before* this instance starts its own is aborted here — including one named with the
+    legacy ``AutonomousBotAI`` name from an older plugin version.
+
+    An older plugin version has no handler for the injected abort, so its thread ends with
+    an exception; :func:`_install_thread_excepthook` turns that into a single log line
+    instead of a traceback.
+    """
+    for thread in threading.enumerate():
+        if thread.name not in CONTROLLER_THREAD_NAMES or not thread.is_alive():
+            continue
+        server.logger.warning(
+            f"{prefix} Leftover bot controller thread from a previous plugin instance found, aborting it"
+        )
+        if not force_abort_thread(thread, server.logger):
+            server.logger.warning(
+                f"{prefix} Leftover controller thread is still inside a blocking call "
+                f"(HTTP request, socket read or its idle wait); the abort takes effect the moment "
+                f"that call returns"
+            )
+            threading.Thread(target=_watch_thread_exit, args=(thread, server, "controller"),
+                             daemon=True, name="games_ai@leftover_watch").start()
+
+
+_previous_thread_excepthook = None
+
+
+def _install_thread_excepthook(server: PluginServerInterface) -> None:
+    """
+    Keep the injected abort out of MCDR's console as a traceback.
+
+    A leftover controller thread from an *older* plugin version has no handler for
+    ``_ControllerAbort``, so ``threading`` would print a full traceback for a thread that is
+    already gone. The hook is chained (everything else keeps its original behaviour) and is
+    matched by class name, because the exception object comes from the old, already
+    unloaded module instance.
+    """
+    global _previous_thread_excepthook
+    if _previous_thread_excepthook is not None:
+        return
+    _previous_thread_excepthook = threading.excepthook
+
+    def hook(args: threading.ExceptHookArgs) -> None:
+        exc = args.exc_value
+        if type(exc).__name__ == "_ControllerAbort" and (type(exc).__module__ or "").startswith("games_ai"):
+            server.logger.info(f"{prefix} Leftover bot controller thread aborted")
+            return
+        _previous_thread_excepthook(args)
+
+    threading.excepthook = hook
+
+
+def _restore_thread_excepthook() -> None:
+    """Give the process its original thread exception hook back."""
+    global _previous_thread_excepthook
+    if _previous_thread_excepthook is None:
+        return
+    threading.excepthook = _previous_thread_excepthook
+    _previous_thread_excepthook = None
+
 
 def on_load(server: PluginServerInterface, old):
     global prefix,allow_permission,mcdr_lang,_timer,ai_dict,default_ai,name_to_id,data_path,skills
@@ -71,7 +196,10 @@ def on_load(server: PluginServerInterface, old):
             "websocket": {
                 "url": "ws://127.0.0.1:8080",
                 "reconnect_interval": 10,
-                "timeout": 60
+                "timeout": 60,
+                # Retry gap used only until the first successful connection, so the bot does
+                # not wait a whole reconnect_interval just because node is still booting.
+                "first_connect_interval": 0.5
             },
             "bot": {
                 "username": "<Your Minecraft Bot Username>",
@@ -92,6 +220,13 @@ def on_load(server: PluginServerInterface, old):
 
     _apply_config(server, config)
     setup_openai_logging(server.logger, level=logging.INFO)
+
+    # Must run after the config is applied (this logs with `prefix`, which _apply_config
+    # sets) and before any new bot controller starts, so a thread left over from a previous
+    # plugin instance can never act alongside the new one. The exception hook goes first so
+    # an abort landing in the old instance's thread is logged, not printed as a traceback.
+    _install_thread_excepthook(server)
+    _abort_leftover_bot_threads(server)
 
     server.register_help_message(prefix="!!data",message=server.rtr("games_ai.mcdr_help_message.data"),permission=allow_permission)
 
@@ -138,7 +273,6 @@ def my_custom_tool(source: CommandSource, ai_prefix: str):
     mineflayer_package_json_path = os.path.join(server.get_data_folder(), "mineflayer", "package.json")
     if not os.path.exists(mineflayer_dir):
         os.makedirs(mineflayer_dir, exist_ok=True)
-    _write_mineflayer_config(server, config)
     if not os.path.exists(mineflayer_path) or hashlib.md5(open(mineflayer_path, "rb").read()).hexdigest() != get_default_init_hash():
         write_default_init(mineflayer_path)
     if not os.path.exists(mineflayer_package_json_path):
@@ -151,6 +285,10 @@ def my_custom_tool(source: CommandSource, ai_prefix: str):
     plugin_config.mineflayer_init_js_path = mineflayer_path
     plugin_config.skills_description = skills
 
+    # Written only after the paths above are applied: it derives its target directory from
+    # plugin_config.mineflayer_init_js_path, whose class default is a relative path.
+    _write_mineflayer_config(server, config)
+
     load_external_tools(log=server.logger.info)
 
     mineflayer_cfg = config.get("mineflayer_bot", {})
@@ -161,7 +299,8 @@ def my_custom_tool(source: CommandSource, ai_prefix: str):
 
     # Startup + 24h loop: checks plugin updates and refreshes the remote
     # context-window table (non-blocking, silently falls back to the bundled one).
-    threading.Thread(target=cyclic_check_updates, daemon=True, args=(server,)).start()
+    threading.Thread(target=cyclic_check_updates, daemon=True, args=(server,),
+                     name="games_ai@update_loop").start()
 
 
 def register_commands(server: PluginServerInterface, config: dict):
@@ -179,6 +318,7 @@ def register_commands(server: PluginServerInterface, config: dict):
     builder.command('!!gamesai check', check_update)
 
     builder.command('!!gamesai debug', debug)
+    builder.command('!!gamesai debug thread', debug_threads)
 
     builder.command('!!gamesai reload', reloader)
 
@@ -192,19 +332,13 @@ def register_commands(server: PluginServerInterface, config: dict):
     builder.command('!!gamesai config set <key>', helper.config_help)
     builder.command('!!gamesai config set <key> <value>', config_manager.set_config)
 
-    builder.command('!!ask', helper.ask_help)
-    builder.command('!!ask <content>', ask_ai)
-
-    builder.command('!!ask --no-history <content>', lambda source, context: ask_ai(source, context, no_history=True))
-    builder.command('!!ask -n <content>', lambda source, context: ask_ai(source, context, no_history=True))
-
-    builder.command('!!ask -forced <content>', lambda source, context: ask_ai(source, context, forced=True))
-    builder.command('!!ask -f <content>', lambda source, context: ask_ai(source, context, forced=True))
-
-    builder.command('!!ask switch', helper.switch_help)
-    builder.command('!!ask switch <model>', switch_model)
-
-    builder.command('!!ask stop', ask_stop)
+    server.register_command(
+        Literal("!!ask")
+            .then(GreedyText("content")
+                .suggests(lambda: ["-n", "-f", "switch", "stop", "compact", "context"])
+                .runs(ask_ai_dispatcher))
+        .runs(helper.ask_help)
+    )
 
     builder.command('!!data', helper.data_help)
 
@@ -284,6 +418,7 @@ def _write_mineflayer_config(server: PluginServerInterface, config: dict):
     cfg.setdefault("bot", {})
     cfg["bot"]["server_host"] = host
     cfg["bot"]["server_port"] = port
+    os.makedirs(mineflayer_dir, exist_ok=True)      # never depend on the caller's cwd
     with open(mineflayer_config_path, mode='w', encoding='utf-8') as f:
         json.dump(cfg, f, indent=4, ensure_ascii=False)
 
@@ -307,6 +442,7 @@ def run_mineflayer_bot(source: CommandSource, ai_prefix: str):
     description="Stop the Mineflayer bot so that it leaves the Minecraft server.",
     perm=get_plugin_config_perm,
 )
+@register_bot_tool()
 def stop_mineflayer_bot(source: CommandSource, ai_prefix: str):
     server = source.get_server()
     if source.get_permission_level() < plugin_config.allow_permission:
@@ -343,6 +479,20 @@ def _wait_server_then_launch(server: ServerInterface, bot_config: dict, mineflay
     _launch_mineflayer_bot(server, bot_config, mineflayer_init_js_path)
 
 
+def _wait_for_bot_teardown(timeout: float = _BOT_TEARDOWN_WAIT) -> bool:
+    """
+    Wait until the previous bot teardown has released its resources.
+
+    The unload path finishes the node shutdown on a detached thread, so a launch that starts
+    right afterwards (a reload immediately after an unload, or two reloads in a row) may still
+    find the old process holding the WebSocket port. Waiting here is what keeps that from
+    being misread as a foreign program.
+
+    :return: True when no teardown is running any more.
+    """
+    return _bot_teardown_event.wait(timeout)
+
+
 def _launch_mineflayer_bot(server: ServerInterface, bot_config: dict, mineflayer_init_js_path: str):
     node_path = shutil.which("node")
     if not node_path:
@@ -356,6 +506,13 @@ def _launch_mineflayer_bot(server: ServerInterface, bot_config: dict, mineflayer
             m = re.match(r'^ws://([^/:]+)(?::(\d+))?', ws_url)
             host = m.group(1) if m else "127.0.0.1"
             port = int(m.group(2)) if m and m.group(2) else 8080
+            # A previous teardown may still be stopping the old node process; its port is not
+            # a foreign program's, so wait for it before deciding anything.
+            if not _wait_for_bot_teardown():
+                server.logger.warning(
+                    f"{prefix} The previous bot teardown is still running after "
+                    f"{_BOT_TEARDOWN_WAIT:.1f}s, checking the WebSocket port anyway"
+                )
             with _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM) as s:
                 s.settimeout(1)
                 s.bind((host, port))
@@ -386,8 +543,10 @@ def _launch_mineflayer_bot(server: ServerInterface, bot_config: dict, mineflayer
                 server.logger.info(f"{prefix} Mineflayer JS bot launched (Node.js v{version_output})")
                 ws_reconnect = ws_cfg.get("reconnect_interval", 10)
                 ws_timeout = ws_cfg.get("timeout", 60)
+                ws_first = ws_cfg.get("first_connect_interval", 0.5)
                 try:
-                    client = start_mineflayer_client(ws_url, server.logger, ws_reconnect, ws_timeout)
+                    client = start_mineflayer_client(ws_url, server.logger, ws_reconnect, ws_timeout,
+                                                     first_connect_interval=ws_first)
                     websocket_connections["mineflayer"] = client
                     server.logger.info(f"{prefix} Mineflayer WS client started (Node.js v{version_output}), connecting to {ws_url}")
 
@@ -479,26 +638,142 @@ def _apply_config(server: PluginServerInterface, config: dict):
     bot_cfg = config.get("mineflayer_bot", {}).get("bot", {})
     plugin_config.bot_username = bot_cfg.get("username", "Bot")
 
+def _stop_bot_stack(server: PluginServerInterface, logger=None) -> list[str]:
+    """
+    Stop the autonomous bot controller, the WebSocket client and the Node process.
+
+    Used by both plugin unload and ``!!gamesai reload``. Every step is isolated on
+    purpose: a stuck or failing controller must never keep the WebSocket client, the Node
+    process (the bot in the game and its WebSocket port) alive. The controller reference is
+    dropped *before* it is stopped, so a failing stop cannot leave a stale controller
+    registered for the next round either.
+
+    The steps are ordered by what the bot still needs, and every wait is bounded:
+
+    1. the controller goes first (it is the only step that talks to the WebSocket server),
+    2. then the client is closed, so no in-flight command outlives the socket,
+    3. the Node process is detached from :mod:`games_ai.mineflayer` and hard-killed. It may
+       not be *closed* gracefully: the Python side cannot know that node is idle, and the
+       process is a service process that is about to be replaced.
+
+    The whole thing is a plain-Python (`threading`/`subprocess`) function so it stays safe to
+    run on a detached thread after the plugin has been unloaded — that is how
+    :func:`on_unload` uses it.
+
+    :param logger: optional logger override; used because the detached unload thread may no
+                   longer read the module global (which a new plugin instance overwrites).
+    :return: names of the steps that failed (empty on a clean stop).
+    """
+    global _autonomous_controller
+
+    log = logger if logger is not None else (server.logger if server is not None else None)
+    failed: list[str] = []
+
+    def step(name: str, action):
+        try:
+            action()
+        except Exception as e:
+            failed.append(name)
+            if log is not None:
+                log.exception(f"{prefix} Cleanup step '{name}' failed: {e}")
+
+    controller = _autonomous_controller
+    _autonomous_controller = None
+    # force=True + a short grace: an idle loop leaves at once, and a busy one gets an abort
+    # injected instead of blocking the unload for the whole cooperative timeout
+    step("stop the autonomous bot controller",
+         lambda: controller.stop(timeout=_BOT_STOP_GRACE, force=True) if controller is not None else None)
+    step("clear the bot controller registry", lambda: set_bot_controller(None))
+    step("stop the websocket client", stop_mineflayer_client)
+    step("clear the websocket registry", websocket_connections.clear)
+    # Detach first (the module global must be free for a replacement instance), then kill the
+    # detached object: nothing here reaches back into this module's state.
+    step("kill the mineflayer process",
+         lambda: stop_mineflayer_process(detach_mineflayer_process()))
+    return failed
+
+
+def _run_bot_teardown(server: PluginServerInterface | None, logger) -> list[str]:
+    """
+    Run :func:`_stop_bot_stack` and publish the result on :data:`_bot_teardown_event`.
+
+    ``server``/``logger`` are passed as arguments on purpose (not read from the module
+    globals): this may run after the plugin was unloaded, and by then a replacement plugin
+    instance owns those global names. ``_bot_teardown_lock`` serializes teardowns, so a
+    reload that arrives while a detached unload is still stopping the bot waits for it (and
+    then finds nothing left to do) instead of racing it.
+    """
+    with _bot_teardown_lock:
+        try:
+            failed = _stop_bot_stack(server, logger=logger)
+        finally:
+            _bot_teardown_event.set()
+    return failed
+
+
+def _teardown_bot_async(server: PluginServerInterface) -> threading.Thread:
+    """
+    Run the bot teardown on a detached thread (unload path).
+
+    The thread only uses plain Python: the controller object, the WebSocket client, a
+    ``Popen`` and the logger object — all captured before the plugin was unloaded, and bound
+    as arguments so nothing has to be read from this module's globals afterwards.
+    """
+    _bot_teardown_event.clear()
+    thread = threading.Thread(
+        target=_run_bot_teardown,
+        args=(server, getattr(server, "logger", None)),
+        daemon=True,
+        name="games_ai@bot_teardown",
+    )
+    thread.start()
+    return thread
+
+
 def on_unload(server: PluginServerInterface):
-    global _autonomous_controller, _mineflayer_wait_thread
-    _mineflayer_pending_abort.set()
+    """
+    Tear the plugin down without waiting for the slow half of the bot shutdown.
+
+    The synchronous part is only what the next plugin instance would race with, plus a short
+    grace on the teardown itself: one hard-killed node process costs about a second, so the
+    ordinary case really is finished before MCDR considers the plugin unloaded. A slower
+    shutdown (a busy controller, a hanging ``terminate``) is left to the detached thread
+    instead of blocking the reload/unload for it; that thread only touches plain Python
+    objects captured here, never this module's globals, because a new plugin instance may
+    already be running by then.
+
+    Every cleanup is its own guarded step (see :func:`_stop_bot_stack`), and the surviving
+    threads are reported honestly instead of claiming a clean shutdown.
+    """
+    global _mineflayer_wait_thread
+
+    _mineflayer_pending_abort.set()             # cancels the pending "wait for server" thread
     _mineflayer_wait_thread = None
+    _restore_thread_excepthook()
     if _timer is not None:
-        _timer.cancel()
-    try:
-        if _autonomous_controller is not None:
-            _autonomous_controller.stop()
-            _autonomous_controller = None
-        set_bot_controller(None)
-        stop_mineflayer_client()
-        websocket_connections.clear()
-        stop_mineflayer_process()
-    except Exception as e:
-        server.logger.exception(f"{prefix} Unload failed: {e}")
+        try:
+            _timer.cancel()
+        except Exception as e:
+            server.logger.exception(f"{prefix} Failed to cancel the 24h update timer: {e}")
+
+    teardown = _teardown_bot_async(server)
+    if not _bot_teardown_event.wait(_BOT_UNLOAD_GRACE):
+        server.logger.info(
+            f"{prefix} Bot teardown is still running in the background "
+            f"(waited {_BOT_UNLOAD_GRACE:.1f}s); it will finish on its own"
+        )
+
+    still_alive = sorted(t.name for t in threading.enumerate() if t.name in _PLUGIN_THREAD_NAMES)
+    if still_alive:
+        server.logger.warning(
+            f"{prefix} Threads still alive after unload: {', '.join(still_alive)} "
+            f"(daemon threads; an in-flight round finishes its current API call first, then exits)"
+        )
+    if teardown.is_alive():
+        server.logger.info(f"{prefix} Mineflayer bot stop is delegated to the background teardown thread")
     else:
         server.logger.info(f"{prefix} Mineflayer bot stopped successfully!")
-    finally:
-        server.logger.info(f"{prefix} Mineflayer bot process has been terminated successfully!")
+    server.logger.info(f"{prefix} Mineflayer bot process has been terminated successfully!")
     server.logger.info(f"{prefix}{server.rtr("games_ai.unload_message.server_info")}")
     for plugin_id in list(REGISTER_PLUGIN_LIST.keys()):
         try:
@@ -526,6 +801,9 @@ class gamesai_help:
         send_help(source, prefix, command="!!ask -n <content>", command_help_key="games_ai.gamesai_help_message.ask_no_history_help")
         send_help(source, prefix, command="!!ask -f <content>", command_help_key="games_ai.gamesai_help_message.ask_force_help")
         send_help(source, prefix, command="!!ask switch <model>", command_help_key="games_ai.gamesai_help_message.switch_help")
+        send_help(source, prefix, command="!!ask compact", command_help_key="games_ai.gamesai_help_message.ask_compact_help")
+        send_help(source, prefix, command="!!ask context <player>", command_help_key="games_ai.gamesai_help_message.ask_context_help")
+        send_help(source, prefix, command="!!ask context --all", command_help_key="games_ai.gamesai_help_message.ask_context_all_help")
         send_help(source, prefix, command="!!ask stop", command_help_key="games_ai.gamesai_help_message.ask_stop_help")
         send_help(source, prefix, message=server.rtr("games_ai.gamesai_help_message.all_ai_model") + str(list(ai_dict.keys())))
 
@@ -647,6 +925,183 @@ def _chat_log(server: ServerInterface, msg: str) -> None:
         server.logger.info(f"[GamesAI]{msg}")
     else:
         server.logger.debug(f"[GamesAI]{msg}")
+
+
+def ask_ai_dispatcher(source: CommandSource, context: dict):
+    content: str = context.get("content", "").strip()
+    if content.startswith("-n ") or content.startswith("--no-history "):
+        ask_ai(source, {"content": content.split(" ", 1)[1]}, no_history=True)
+    elif content.startswith("-f ") or content.startswith("--forced "):
+        ask_ai(source, {"content": content.split(" ", 1)[1]}, forced=True)
+    elif content == "switch":
+        gamesai_help.switch_help(source)
+    elif content.startswith("switch ") and len(content.split()) == 2:
+        switch_model(source, {"model": content.split(None, 1)[1]})
+    elif content == "stop":
+        ask_stop(source, {})
+    elif content == "compact":
+        username = get_username(source)
+        user_chat_param = all_chat_param.get(username)
+        if user_chat_param is None:
+            source.reply(f"{prefix}{source.get_server().rtr('games_ai.user_message.compact_no_history')}")
+            return
+        # deferred like the model-switch hand-off: the summarizing request is sent by the
+        # next round, so this command returns at once instead of blocking the server thread
+        result = user_chat_param.compact_history()
+        key = {
+            "scheduled": "games_ai.user_message.compact_success",
+            "empty": "games_ai.user_message.compact_no_history",
+            "running": "games_ai.user_message.compact_failed_running",
+        }.get(result, "games_ai.user_message.compact_failed_running")
+        source.reply(f"{prefix}{source.get_server().rtr(key)}")
+    elif content == "context --all":
+        ask_context_server(source)
+    elif content != "" and content.split(None, 1)[0] == "context":
+        # exactly the word "context", optionally followed by one player name; anything else
+        # (e.g. "contextual") is an ordinary question and belongs to the AI
+        rest = content.split(None, 1)[1:]
+        ask_context(source, rest[0] if rest else None)
+    else:
+        ask_ai(source, context)
+
+
+def ask_context(source: CommandSource, player: str | None = None):
+    """
+    ``!!ask context [player]`` — show how full one conversation is (own by default).
+
+    Read-only: nothing is created and no round is started, so asking about a player who has
+    never chatted simply reports that there is nothing to show. The card is a handful of chat
+    lines with the details on hover (:meth:`ChatParam.context_view`), because the numbers
+    alone (window, usage, distance to the next compression) do not fit next to them.
+    """
+    server = source.get_server()
+    username = get_username(source)
+    target = player or username
+    user_chat_param = all_chat_param.get(target)
+    if user_chat_param is None:
+        source.reply(f"{prefix}{server.rtr('games_ai.context_view.missing', player=target)}")
+        return
+    lines = user_chat_param.context_view()
+    source.reply(RTextList(prefix, RText(
+        server.rtr("games_ai.context_view.header", player=target), RColor.gold)))
+    for index, (line, hover) in enumerate(lines):
+        source.reply(RText(f"{prefix}{line}", RColor.white if index == 0 else RColor.gray).h(hover))
+    source.reply(f"{prefix}{server.rtr('games_ai.context_view.hover_hint')}")
+
+
+def aggregate_context_usage() -> tuple[list[dict], dict, list[str]]:
+    """
+    Sum the context usage of every chatted player, grouped by the model they are on.
+
+    Reads :meth:`ChatParam.context_usage` for every entry of ``all_chat_param`` and adds the
+    plain numbers up, so nothing here can block on a running round. Two groups of numbers are
+    kept apart on purpose:
+
+    * ``estimate`` / ``round_*`` — what is *currently* held or was spent in the last round.
+      They shrink when a history is compressed or ``!!ask clear`` drops an object.
+    * ``total_*`` — spent since the plugin was loaded, accumulated inside ``ChatParam`` and
+      never reset, so a compression does not erase the record of what it summarized away.
+
+    :return: ``(models, totals, broken)`` — one dict per model that has any non-zero usage,
+             sorted by the currently held context (then by lifetime spend); one dict with the
+             sums over all models; and the names whose usage could not be read.
+    """
+    groups: dict[str, dict] = {}
+    broken: list[str] = []
+    totals = {
+        "players": 0, "active_players": 0, "estimate": 0, "round_prompt": 0,
+        "round_max_total": 0, "total_prompt": 0, "total_completion": 0,
+        "total_cached": 0, "total_reasoning": 0, "models": 0,
+    }
+    for username, chat_param in list(all_chat_param.items()):
+        if chat_param is None:
+            continue
+        try:
+            usage = chat_param.context_usage()
+        except Exception:
+            # one broken conversation (e.g. an AI config removed by a reload) must not hide
+            # the whole server-wide view
+            broken.append(username)
+            continue
+        key = usage.get("model") or usage.get("label") or "?"
+        group = groups.get(key)
+        if group is None:
+            group = groups[key] = {
+                "model": key, "label": usage.get("label") or key, "window": 0, "players": 0,
+                "estimate": 0, "round_prompt": 0, "round_max_total": 0,
+                "total_prompt": 0, "total_completion": 0, "total_cached": 0,
+                "total_reasoning": 0,
+            }
+        group["players"] += 1
+        # the smallest window of the group is the honest denominator: two players on the same
+        # model id may still have different windows (per-AI config override)
+        window = int(usage.get("window") or 0)
+        if window and (not group["window"] or window < group["window"]):
+            group["window"] = window
+        for field in ("estimate", "round_prompt", "round_max_total",
+                      "total_prompt", "total_completion", "total_cached", "total_reasoning"):
+            group[field] += int(usage.get(field) or 0)
+            totals[field] += int(usage.get(field) or 0)
+        totals["players"] += 1
+        # "active" = holds context or has spent something; every other tracked object is a
+        # player who merely typed !!ask once and whose history was compressed/cleared away
+        if any(int(usage.get(f) or 0) for f in
+               ("estimate", "total_prompt", "total_completion")):
+            totals["active_players"] += 1
+            group["active"] = group.get("active", 0) + 1
+
+    for group in groups.values():
+        group.setdefault("active", 0)
+
+    models = [g for g in groups.values() if any(
+        g[f] for f in ("estimate", "round_prompt", "round_max_total",
+                       "total_prompt", "total_completion")
+    )]
+    models.sort(key=lambda g: (-g["estimate"], -g["total_prompt"], g["label"]))
+    totals["models"] = len(models)
+    return models, totals, broken
+
+
+def ask_context_server(source: CommandSource):
+    """
+    ``!!ask context --all`` — the context usage of the whole server, grouped by model.
+
+    Numbers only (no player names): the point is the server-wide picture — which model is
+    carrying how much context, how much of it is billed, and how much was served from cache.
+    Hidden are the models nobody is currently using, i.e. every counter is zero.
+    """
+    server = source.get_server()
+    models, totals, broken = aggregate_context_usage()
+    if not models:
+        source.reply(f"{prefix}{server.rtr('games_ai.context_all.empty')}")
+        return
+    source.reply(RTextList(prefix, RText(
+        server.rtr("games_ai.context_all.header", players=totals["active_players"],
+                   models=totals["models"]), RColor.gold)))
+    for group in models:
+        window = max(int(group["window"] or 0), 1)
+        share = round(100 * group["estimate"] / window)
+        cached_rate = (f"{math.floor(1000 * min(group['total_cached'], group['total_prompt'])
+                                  / group['total_prompt']) / 10:.1f}%"
+                       if group["total_prompt"] else "—")
+        line = str(server.rtr(
+            "games_ai.context_all.line",
+            model=group["label"], players=group["players"], window=f"{window:,}",
+            estimate=f"{group['estimate']:,}", share=share,
+            round_prompt=f"{group['round_prompt']:,}",
+            round_max=f"{group['round_max_total']:,}",
+        ))
+        hover = str(server.rtr(
+            "games_ai.context_all.hover",
+            prompt=f"{group['total_prompt']:,}", completion=f"{group['total_completion']:,}",
+            total=f"{group['total_prompt'] + group['total_completion']:,}",
+            cached=f"{group['total_cached']:,}", cached_percent=cached_rate,
+            reasoning=f"{group['total_reasoning']:,}",
+        ))
+        source.reply(RText(f"{prefix}{line}", RColor.gray).h(hover))
+    held = f"{totals['estimate']:,}"
+    source.reply(f"{prefix}{server.rtr('games_ai.context_all.total', estimate=held)}")
+    source.reply(f"{prefix}{server.rtr('games_ai.context_all.hover_hint')}")
 
 
 @new_thread("games_ai@switch_model")
@@ -850,7 +1305,7 @@ class DataManager:
         else:
             self.db = PublicDatabase(db_path + "/public_database.db")
 
-    @new_thread("data_manager@write")
+    @new_thread("games_ai@data_write")
     def write_data(self, source: CommandSource, context: dict):
         server = source.get_server()
         if source.get_permission_level() < allow_permission:
@@ -861,7 +1316,7 @@ class DataManager:
             self.db.write_data(key, value)
             return source.reply(f'{prefix}{server.rtr("games_ai.data.write_message.success",key=key,value=value)}')
         
-    @new_thread("data_manager@add")
+    @new_thread("games_ai@data_add")
     def add_data(self, source: CommandSource, context: dict):
         server = source.get_server()
         if source.get_permission_level() < allow_permission:
@@ -877,7 +1332,7 @@ class DataManager:
             self.db.write_data(key, new_value)
             return source.reply(f'{prefix}{server.rtr("games_ai.data.add_message.success", key=key, value=new_value)}')
 
-    @new_thread("data_manager@del")
+    @new_thread("games_ai@data_del")
     def del_data(self, source: CommandSource, context: dict):
         server = source.get_server()
         if source.get_permission_level() < allow_permission:
@@ -887,7 +1342,7 @@ class DataManager:
             self.db.delete_data(key)
             return source.reply(f'{prefix}{server.rtr("games_ai.data.del_message.success",key=key)}')
 
-    @new_thread("data_manager@read")
+    @new_thread("games_ai@data_read")
     def read_data(self, source: CommandSource, context: dict):
         server = source.get_server()
         if source.get_permission_level() < allow_permission:
@@ -908,7 +1363,7 @@ class DataManager:
                 )
                 return source.reply(message_part)
 
-    @new_thread("data_manager@list")
+    @new_thread("games_ai@data_list")
     def read_data_list(self, source: CommandSource, context: dict):
         server = source.get_server()
         if source.get_permission_level() < allow_permission:
@@ -917,7 +1372,7 @@ class DataManager:
             value = self.db.data_list()
             return source.reply(f'{prefix}{server.rtr("games_ai.data.read_list_message")}\n{value}')
 
-    @new_thread("data_manager@keys")
+    @new_thread("games_ai@data_keys")
     def read_all_keys(self, source: CommandSource, context: dict):
         server = source.get_server()
         if source.get_permission_level() < allow_permission:
@@ -1055,6 +1510,7 @@ def cyclic_check_updates(server: PluginServerInterface):
         server.logger.warning(f"{prefix}{server.rtr("games_ai.update.no_metadata")}")
     finally:
         _timer = threading.Timer(86400, cyclic_check_updates, args=(server,))
+        _timer.name = "games_ai@update_timer"
         _timer.daemon = True
         _timer.start()
 
@@ -1122,8 +1578,64 @@ def debug(source: CommandSource, context: dict):
         server.logger.info(f"{prefix}{server.rtr("games_ai.debug.enable")}")
         return
 
+@new_thread("games_ai@debug_threads")
+def debug_threads(source: CommandSource, context: dict):
+    """
+    ``!!gamesai debug thread`` — list the threads GamesAI holds, with their ids.
+
+    Only the plugin's own threads are listed (everything matching
+    :data:`_PLUGIN_THREAD_NAMES`), because that is where a leftover controller from an
+    older plugin instance shows up — its name is then the legacy one, not ``games_ai@...``.
+    ``#id`` is the id Python uses internally (the one a forced abort targets); ``native=``
+    is the operating system's thread id; ``(current)`` marks the thread running the command.
+    """
+    server = source.get_server()
+    own = sorted((t for t in threading.enumerate() if t.name in _PLUGIN_THREAD_NAMES),
+                 key=lambda t: t.ident or 0)
+
+    source.reply(f"{prefix}{server.rtr('games_ai.debug.threads_header', count=len(own))}")
+    for thread in own[:_THREAD_LIST_LIMIT]:
+        source.reply(f"{prefix}  {_format_thread(thread)}")
+    if len(own) > _THREAD_LIST_LIMIT:
+        source.reply(f"{prefix}  ... +{len(own) - _THREAD_LIST_LIMIT}")
+
+
+def _format_thread(thread: threading.Thread) -> str:
+    """One ``#id name [daemon] native=…`` line for the ``!!gamesai debug thread`` listing."""
+    marks: list[str] = []
+    if thread is threading.current_thread():
+        marks.append("current")
+    if not thread.is_alive():
+        marks.append("dead")
+    suffix = f"  ({', '.join(marks)})" if marks else ""
+    state = "daemon" if thread.daemon else "non-daemon"
+    return f"#{thread.ident}  {thread.name}  [{state}]  native={thread.native_id}{suffix}"
+
+
 @new_thread("games_ai@reloader")
 def reloader(source: CommandSource, context: dict):
+    """
+    ``!!gamesai reload`` — reload the config, the tools and the Mineflayer bot.
+
+    Single-flight: two reloads running at the same time used to fight over the same global
+    bot state (the launcher of the second one saw the WebSocket port of the first one's dying
+    node process still in use and disabled the bot entirely). A reload is never queued,
+    because reloading a config twice has no meaning; the later command is rejected instead.
+    """
+    global skills, _autonomous_controller
+    server = source.get_server()
+
+    if not _reload_lock.acquire(blocking=False):
+        source.reply(f'{prefix}{server.rtr("games_ai.user_message.reload_in_progress")}')
+        _chat_log(server, "[reload] rejected: another reload is still running")
+        return
+    try:
+        _reload_body(source, context)
+    finally:
+        _reload_lock.release()
+
+
+def _reload_body(source: CommandSource, context: dict):
     global skills, _autonomous_controller
     server = source.get_server()
 
@@ -1182,21 +1694,12 @@ def reloader(source: CommandSource, context: dict):
             elif default_ai_info is None:
                 server.logger.warning(f"{prefix} No default AI configured, AutonomousBot controller config skipped")
         else:
-            try:
-                if _autonomous_controller is not None:
-                    _autonomous_controller.stop()
-                    _autonomous_controller = None
-                set_bot_controller(None)
-                stop_mineflayer_client()
-                websocket_connections.clear()
-                stop_mineflayer_process()
-            except Exception as e:
-                server.logger.warning(f"{prefix} Failed to stop existing Mineflayer bot!")
-                server.logger.exception(e)
+            failed = _stop_bot_stack(server)
+            if failed:
+                server.logger.warning(f"{prefix} Failed to stop existing Mineflayer bot! ({', '.join(failed)})")
             else:
                 server.logger.info(f"{prefix} Mineflayer bot stopped successfully!")
-            finally:
-                server.logger.info(f"{prefix} Mineflayer bot process has been terminated successfully!")
+            server.logger.info(f"{prefix} Mineflayer bot process has been terminated successfully!")
 
             if new_enabled:
                 try:

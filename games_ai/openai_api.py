@@ -50,7 +50,7 @@ def setup_openai_logging(mcdr_logger: logging.Logger, level=logging.INFO):
 def response_chat(
     client: OpenAI,
     model: str,
-    response_list,
+    response_list: list,
     *,
     tools = None,
     extra_body = None,

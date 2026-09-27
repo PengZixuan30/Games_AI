@@ -1,9 +1,10 @@
 from abc import ABC, abstractmethod
 from openai import OpenAI
-import json, datetime, re, threading
+import json, datetime, math, re, threading
 
 from .openai_api import response_chat
 from .config import plugin_config
+from . import context_table
 from .context_table import resolve_context_window, resolve_max_output
 from .games_ai_tool import get_tool_handler, get_tool_schemas_for_perm
 from .external_skills_loader import EXTERNAL_SKILLS_LIST
@@ -83,6 +84,24 @@ def _shrink_text(text: str, cap_tokens: int) -> str:
         else:
             high = mid - 1
     return text[:low]
+
+
+def _int_at(usage: dict, section: str, key: str) -> int:
+    """One nested usage counter (``prompt_tokens_details.cached_tokens`` etc.), or 0."""
+    try:
+        value = (usage.get(section) or {}).get(key)
+        return int(value or 0)
+    except (AttributeError, TypeError, ValueError):
+        return 0
+
+
+def _role_counts(messages) -> dict[str, int]:
+    """How many messages of each role the history holds (for ``!!ask context``)."""
+    counts: dict[str, int] = {}
+    for msg in messages:
+        role = _msg_role(msg) or "?"
+        counts[role] = counts.get(role, 0) + 1
+    return counts
 
 
 def _msg_role(msg) -> str | None:
@@ -175,6 +194,25 @@ class BasicChatParam(ABC):
         self._round_max_total_tokens: int = 0    # max total_tokens of this round
         self._last_base_estimate: int = 0        # uncalibrated estimate of the last request
         self._last_estimate: int = 0             # calibrated estimate of the last request
+        self._last_usage: dict | None = None     # raw usage of the last answered request
+        self._last_compress: dict | None = None  # what the last compression did, and when
+        self._round_prompt_tokens: int = 0       # prompt tokens charged in this round
+        self._round_cached_tokens: int = 0       # of which served from the provider's cache
+        self._round_reasoning_tokens: int = 0    # of which reasoning tokens
+
+        # Lifetime accumulators: they are never reset, unlike `_round_*` (cleared for every
+        # round) and `_last_*` (overwritten by every request). Compression rewrites the
+        # history but these keep counting, which is what `!!ask context --all` reports as
+        # "spent since the plugin was loaded".
+        self._total_prompt_tokens: int = 0
+        self._total_completion_tokens: int = 0
+        self._total_cached_tokens: int = 0
+        self._total_reasoning_tokens: int = 0
+
+        # Guards `response_list`/`response_queue` and the state above, so that a command can
+        # take a consistent snapshot while a round is running. Re-entrant because the helpers
+        # it wraps (e.g. _split_rounds) are called from methods that already hold it.
+        self._ctx_lock = threading.RLock()
 
         # `!!ask stop` support: a running round compares its epoch snapshot with this
         # counter, so a stop request is never lost even if another round starts later.
@@ -184,6 +222,11 @@ class BasicChatParam(ABC):
 
         # pending model-switch hand-off (see change_model / _apply_pending_hand_off)
         self._pending_hand_off: dict | None = None
+
+        # pending manual compaction (see compact_history / _apply_pending_compaction).
+        # Set when a player asks for one, executed by the next preflight, so the command
+        # itself never waits for the summarizing request.
+        self._pending_compaction: bool = False
 
     def _apply_pending_hand_off(self, source: CommandSource | None = None) -> None:
         """
@@ -429,12 +472,96 @@ class BasicChatParam(ABC):
         """Effective context window: config override -> table -> conservative default."""
         return self._window_for(self.ai_info)
 
+    def context_window_source(self) -> str:
+        """Where the effective window comes from: ``config``, ``table`` or ``default``."""
+        return context_table.window_source(
+            str(self.ai_info.get("ai_model", "")),
+            self.ai_info.get("context_window"),
+        )
+
     def _window_for(self, ai_info: dict) -> int:
         """Same resolution for an arbitrary AI entry (the switch hand-off uses the old one)."""
         return resolve_context_window(
             str(ai_info.get("ai_model", "")),
             ai_info.get("context_window"),
         )
+
+    def context_snapshot(self) -> dict:
+        """
+        Read-only snapshot of everything ``!!ask context`` shows.
+
+        Taken under :attr:`_ctx_lock` so it can never observe a half-rewritten history (the
+        round thread appends messages and replaces the whole list when it compresses), and
+        assembled only from plain values: the caller may format it however it likes without
+        touching this object again.
+
+        The per-round sizes are estimated with the same formula the window management uses,
+        so the numbers here and in the debug log agree.
+        """
+        with self._ctx_lock:
+            preamble, rounds = self._split_rounds()
+            usage = dict(self._last_usage) if self._last_usage else None
+            snapshot = {
+                "model": str(self.ai_info.get("ai_model", "")),
+                "model_label": str(self.ai_info.get("ai_name") or self.model_id or ""),
+                "running": not self.is_stopped.is_set(),
+                "window": self.context_window(),
+                "window_source": self.context_window_source(),
+                "max_output": resolve_max_output(str(self.ai_info.get("ai_model", ""))),
+                "estimate": self._last_estimate,
+                "base_estimate": self._last_base_estimate,
+                "calibration": round(self._calibration_factor(), 3),
+                "last_prompt": self._last_prompt_tokens,
+                "round_max_total": self._round_max_total_tokens,
+                "round_prompt": self._round_prompt_tokens,
+                "round_cached": self._round_cached_tokens,
+                "round_reasoning": self._round_reasoning_tokens,
+                "last_usage": usage,
+                "rounds": len(rounds),
+                "messages": len(self.response_list),
+                "roles": _role_counts(self.response_list),
+                "summaries": sum(
+                    1 for m in (preamble + [m for r in rounds for m in r])
+                    if _msg_role(m) == "system"
+                ),
+                "hand_off": self._has_switch_summary(),
+                "queued": len(self.response_queue),
+                "last_compress": dict(self._last_compress) if self._last_compress else None,
+                "round_tokens": [sum(
+                    estimate_text_tokens(_msg_text(m)) + _MESSAGE_OVERHEAD for m in group
+                ) for group in rounds],
+            }
+        return snapshot
+
+    def context_usage(self) -> dict:
+        """
+        The handful of numbers ``!!ask context --all`` sums up per model.
+
+        Separate from :meth:`context_snapshot` because the server-wide view only needs a few
+        values per player and must stay cheap: it reads them for every object in
+        ``all_chat_param``, and it must not pay for the per-round estimates that only the
+        single-player card shows.
+
+        :return: ``window`` (the effective window of the player's model, for the share in the
+                 server-wide view), ``estimate`` (the context the player is currently holding;
+                 it drops when the history is compressed), and the round/lifetime counters
+                 (which keep growing across compressions, so the spent total is never lost).
+        """
+        with self._ctx_lock:
+            return {
+                "model": str(self.ai_info.get("ai_model", "")),
+                "label": str(self.ai_info.get("ai_name") or self.model_id or ""),
+                "window": int(self.context_window()),
+                "estimate": int(self._last_estimate),
+                "messages": len(self.response_list),
+                "rounds": len(self._split_rounds_locked()[1]),
+                "round_prompt": int(self._round_prompt_tokens),
+                "round_max_total": int(self._round_max_total_tokens),
+                "total_prompt": int(self._total_prompt_tokens),
+                "total_completion": int(self._total_completion_tokens),
+                "total_cached": int(self._total_cached_tokens),
+                "total_reasoning": int(self._total_reasoning_tokens),
+            }
 
     def context_stats(self) -> dict:
         preamble, rounds = self._split_rounds()
@@ -471,19 +598,40 @@ class BasicChatParam(ABC):
         )
 
     def _record_usage(self, usage: dict | None) -> None:
+        """
+        Remember what the provider charged for one request.
+
+        The raw dict is kept as well (not just the three ints), because it carries the cache
+        and reasoning counters that ``!!ask context`` shows, and because a provider that
+        answers without usage must not leave the previous request's numbers on display.
+        """
         if not usage:
+            self._last_usage = None
             return
         try:
             prompt = int(usage.get("prompt_tokens") or 0)
             completion = int(usage.get("completion_tokens") or 0)
             total = int(usage.get("total_tokens") or (prompt + completion))
         except (TypeError, ValueError):
+            self._last_usage = None
             return
-        if prompt > 0:
-            self._last_prompt_tokens = prompt
-            self._update_calibration(self._last_base_estimate, prompt)
-        if total > self._round_max_total_tokens:
-            self._round_max_total_tokens = total
+        with self._ctx_lock:
+            self._last_usage = dict(usage)
+            if prompt > 0:
+                self._last_prompt_tokens = prompt
+                cached = _int_at(usage, "prompt_tokens_details", "cached_tokens")
+                reasoning = _int_at(usage, "completion_tokens_details", "reasoning_tokens")
+                self._round_prompt_tokens += prompt
+                self._round_cached_tokens += cached
+                self._round_reasoning_tokens += reasoning
+                # lifetime totals: survive every round boundary and every compression
+                self._total_prompt_tokens += prompt
+                self._total_completion_tokens += completion
+                self._total_cached_tokens += cached
+                self._total_reasoning_tokens += reasoning
+                self._update_calibration(self._last_base_estimate, prompt)
+            if total > self._round_max_total_tokens:
+                self._round_max_total_tokens = total
         self._log(
             f"usage: prompt={prompt}, completion={completion}, total={total}, "
             f"round_max_total={self._round_max_total_tokens}, window={self.context_window()}, "
@@ -508,7 +656,14 @@ class BasicChatParam(ABC):
         """
         Split the history into rounds (one user message plus its assistant/tool follow-ups)
         and a preamble of leading system messages.
+
+        Runs under :attr:`_ctx_lock`: a command thread takes its snapshot through this, while
+        the round thread may be appending to or replacing the very same list.
         """
+        with self._ctx_lock:
+            return self._split_rounds_locked()
+
+    def _split_rounds_locked(self) -> tuple[list, list[list]]:
         pending: list = []
         rounds: list[list] = []
         for msg in self.response_list:
@@ -538,7 +693,12 @@ class BasicChatParam(ABC):
         return preamble, rounds
 
     def _drop_oldest_round(self) -> bool:
-        preamble, rounds = self._split_rounds()
+        """Drop the oldest round (split + edit + replace must be atomic against a snapshot)."""
+        with self._ctx_lock:
+            return self._drop_oldest_round_locked()
+
+    def _drop_oldest_round_locked(self) -> bool:
+        preamble, rounds = self._split_rounds_locked()
         if len(rounds) <= 1:
             return False
         removed = rounds[0]
@@ -550,6 +710,11 @@ class BasicChatParam(ABC):
         return True
 
     def _truncate_long_messages(self, cap_tokens: int) -> bool:
+        """Shrink oversized messages (split + edit + replace, atomic against a snapshot)."""
+        with self._ctx_lock:
+            return self._truncate_long_messages_locked(cap_tokens)
+
+    def _truncate_long_messages_locked(self, cap_tokens: int) -> bool:
         changed = False
         new_list: list = []
         for msg in self.response_list:
@@ -668,14 +833,32 @@ class BasicChatParam(ABC):
             kept[-1] = _shrink_text(kept[-1], cap) + "\n..."
         return kept
 
-    def _compress_old_rounds(self) -> bool:
-        """Replace all but the newest KEEP_ROUNDS rounds with one summary system message."""
-        preamble, rounds = self._split_rounds()
-        if len(rounds) <= KEEP_ROUNDS:
+    def _compress_old_rounds(self, *, force: bool = False) -> bool:
+        """
+        Summarize the old rounds and replace them with the summary (see the locked twin).
+
+        The lock is held across the whole operation, summarizing request included: the round
+        thread must not append to or rewrite the history while the replacement is built, and
+        a command thread taking a snapshot waits for it instead of seeing a half-built list.
+        """
+        with self._ctx_lock:
+            return self._compress_old_rounds_locked(force=force)
+
+    def _compress_old_rounds_locked(self, *, force: bool = False) -> bool:
+        """
+        Replace all but the newest KEEP_ROUNDS rounds with one summary system message.
+
+        :param force: compress even when the history holds no more than KEEP_ROUNDS rounds
+                      (the manual ``!!ask compact`` uses this; the automatic path never
+                      does, because it must not spend a summarizing request on a history
+                      that is not allowed to shrink).
+        """
+        preamble, rounds = self._split_rounds_locked()
+        if not force and len(rounds) <= KEEP_ROUNDS:
             self._log(f"compress skipped: {len(rounds)} round(s) <= KEEP_ROUNDS({KEEP_ROUNDS})")
             return False
-        old_rounds = rounds[:-KEEP_ROUNDS]
-        keep_rounds = rounds[-KEEP_ROUNDS:]
+        old_rounds = rounds if force else rounds[:-KEEP_ROUNDS]
+        keep_rounds = [] if force else rounds[-KEEP_ROUNDS:]
         existing_summaries = [m for group in old_rounds for m in group if _msg_role(m) == "system"]
         summary = self._summarize(old_rounds, existing_summaries)
 
@@ -688,6 +871,14 @@ class BasicChatParam(ABC):
 
         before, after = len(self.response_list), len(new_list)
         self.response_list = new_list
+        self._last_compress = {
+            "time": datetime.datetime.now().strftime("%H:%M:%S"),
+            "rounds": len(old_rounds),
+            "before": before,
+            "after": after,
+            "ok": bool(summary),
+            "forced": bool(force),
+        }
         self._log(
             f"compressed {len(old_rounds)} old round(s): messages {before} -> {after}, "
             f"summary={'ok' if summary else 'failed(dropped)'}, est={self._last_estimate}, "
@@ -765,6 +956,7 @@ class BasicChatParam(ABC):
         try:
             if preflight:
                 self._apply_pending_hand_off(source)
+                self._apply_pending_compaction()
             window = self.context_window()
             if window <= 0:
                 return
@@ -809,10 +1001,216 @@ class BasicChatParam(ABC):
         except Exception:
             pass
 
+    def context_view(self) -> list[tuple[str, str]]:
+        """
+        Render :meth:`context_snapshot` as ``(line, hover)`` pairs for ``!!ask context``.
+
+        Kept next to the state it describes (and not in the command layer) so the thresholds
+        shown here are the very constants the window management uses; the text comes from
+        ``self.server.rtr``, like everywhere else in this class.
+
+        The produced text is deliberately short — the chat box only gets a few lines — while
+        the hover carries the details that would not fit, such as the per-round sizes.
+        """
+        snap = self.context_snapshot()
+        window = max(int(snap.get("window") or 0), 1)
+
+        def fmt(value) -> str:
+            try:
+                return f"{int(value):,}"
+            except (TypeError, ValueError):
+                return str(value)
+
+        def cache_rate(cached, total) -> str:
+            """
+            Cache hit share as a percentage with 0.1% resolution.
+
+            Truncated rather than rounded, so the displayed rate is never higher than the real
+            one. The share is capped at 100%: some providers report a cached count that also
+            counts tokens of an earlier attempt, and a rate above 100% would only be noise.
+            """
+            if not total or total <= 0:
+                return "—"
+            return f"{math.floor(1000 * min(cached, total) / total) / 10:.1f}%"
+
+        def ratio_line(used: int, key: str) -> str:
+            return str(self.server.rtr(key, used=fmt(used), window=fmt(snap["window"]),
+                                       percent=round(100 * used / window)))
+
+        source = str(self.server.rtr(f"games_ai.context_view.source_{snap.get('window_source', 'default')}"))
+        title = str(self.server.rtr("games_ai.context_view.card_title",
+                                    model=snap.get("model_label") or snap.get("model"),
+                                    window=fmt(snap["window"]), source=source))
+
+        estimated = bool(snap.get("estimate"))
+        if estimated:
+            usage_line = ratio_line(int(snap["estimate"]), "games_ai.context_view.card_usage_est")
+        else:
+            usage_line = str(self.server.rtr("games_ai.context_view.card_usage_none"))
+        # the last request's cache hit share rides along on the header line: it is the number
+        # people actually want to see at a glance, and it needs no hover to read
+        last = snap.get("last_usage") or {}
+        if last:
+            usage_line = f"{usage_line}  {self.server.rtr('games_ai.context_view.card_cache')} " \
+                         f"{cache_rate(_int_at(last, 'prompt_tokens_details', 'cached_tokens'), last.get('prompt_tokens') or 0)}"
+        if snap.get("running"):
+            usage_line = f"{usage_line}  {self.server.rtr('games_ai.context_view.card_running')}"
+
+        output_note = str(self.server.rtr("games_ai.context_view.output_note"))
+        emergency_line = int(EMERGENCY_RATIO * window)
+        history_line = int(TRIGGER_HISTORY_RATIO * window)
+        burst_line = int(TRIGGER_REQUEST_RATIO * window)
+        used_real = int(snap.get("last_prompt") or 0)
+        used_burst = int(snap.get("round_max_total") or 0)
+
+        if estimated and int(snap["estimate"]) >= emergency_line:
+            remaining = str(self.server.rtr("games_ai.context_view.card_at_emergency", limit=fmt(emergency_line)))
+        elif used_burst >= burst_line:
+            remaining = str(self.server.rtr(
+                "games_ai.context_view.card_remaining",
+                remaining=fmt(max(0, burst_line - used_burst)),
+                trigger=str(self.server.rtr("games_ai.context_view.trigger_burst",
+                                            used=fmt(used_burst), threshold=fmt(burst_line))),
+                output_note=output_note))
+        elif used_real >= history_line:
+            remaining = str(self.server.rtr(
+                "games_ai.context_view.card_remaining",
+                remaining=fmt(max(0, history_line - used_real)),
+                trigger=str(self.server.rtr("games_ai.context_view.trigger_history",
+                                            used=fmt(used_real), threshold=fmt(history_line))),
+                output_note=output_note))
+        elif used_real or estimated:
+            used = max(used_real, int(snap.get("estimate") or 0))
+            remaining = str(self.server.rtr(
+                "games_ai.context_view.card_remaining",
+                remaining=fmt(max(0, history_line - used)), trigger="",
+                output_note=output_note))
+        else:
+            remaining = str(self.server.rtr(
+                "games_ai.context_view.card_no_request",
+                threshold=fmt(history_line), output_note=output_note))
+
+        scale = str(self.server.rtr(
+            "games_ai.context_view.card_scale", rounds=snap.get("rounds", 0),
+            messages=snap.get("messages", 0), summaries=snap.get("summaries", 0),
+            hand_off=str(self.server.rtr("games_ai.context_view.yes" if snap.get("hand_off")
+                                         else "games_ai.context_view.no"))))
+        if snap.get("queued"):
+            scale = f"{scale}  {self.server.rtr('games_ai.context_view.card_queue', queued=snap['queued'])}"
+
+        # hover: thresholds, per-round sizes, last-request usage, last compression
+        hover_trigger = str(self.server.rtr(
+            "games_ai.context_view.hover_trigger",
+            history=fmt(history_line), burst=fmt(burst_line), emergency=fmt(emergency_line)))
+        round_tokens = list(snap.get("round_tokens") or [])
+        rounds_text: list[str] = []
+        if round_tokens:
+            shown = round_tokens[-10:]
+            for offset, size in enumerate(shown):
+                rounds_text.append(f"#{len(round_tokens) - len(shown) + offset + 1}  {fmt(size)}"
+                                   f"  ({round(100 * size / window)}%)")
+            if len(round_tokens) > len(shown):
+                rounds_text.insert(0, f"... +{len(round_tokens) - len(shown)}")
+        hover_rounds = str(self.server.rtr(
+            "games_ai.context_view.hover_rounds", rounds="\n".join(rounds_text) or "-"))
+        usage = snap.get("last_usage") or {}
+        if usage:
+            hover_usage = str(self.server.rtr(
+                "games_ai.context_view.hover_usage",
+                prompt=fmt(usage.get("prompt_tokens") or 0),
+                completion=fmt(usage.get("completion_tokens") or 0),
+                total=fmt(usage.get("total_tokens") or 0),
+                cached=fmt(_int_at(usage, "prompt_tokens_details", "cached_tokens")),
+                cached_percent=cache_rate(_int_at(usage, "prompt_tokens_details", "cached_tokens"),
+                                          usage.get("prompt_tokens") or 0),
+                reasoning=fmt(_int_at(usage, "completion_tokens_details", "reasoning_tokens")),
+                round_prompt=fmt(snap.get("round_prompt") or 0),
+                round_cached=fmt(snap.get("round_cached") or 0),
+                round_cached_percent=cache_rate(snap.get("round_cached") or 0,
+                                                snap.get("round_prompt") or 0),
+                round_reasoning=fmt(snap.get("round_reasoning") or 0),
+            ))
+        else:
+            hover_usage = str(self.server.rtr("games_ai.context_view.hover_usage_none"))
+        compress = snap.get("last_compress")
+        if compress:
+            hover_compress = str(self.server.rtr(
+                "games_ai.context_view.hover_compress", time=compress.get("time", "?"),
+                rounds=compress.get("rounds", 0), before=compress.get("before", 0),
+                after=compress.get("after", 0),
+                status=str(self.server.rtr("games_ai.context_view.hover_compress_ok" if compress.get("ok")
+                              else "games_ai.context_view.hover_compress_fail")),
+            ))
+        else:
+            hover_compress = str(self.server.rtr("games_ai.context_view.hover_compress_none"))
+        hover_scale = "\n".join([hover_trigger, hover_rounds, hover_usage, hover_compress])
+
+        return [
+            (title, f"{snap.get('model')}\n{snap.get('messages', 0)} message(s)"),
+            (usage_line, hover_usage),
+            (str(self.server.rtr(
+                "games_ai.context_view.card_window", window=fmt(snap["window"]),
+                max_output=fmt(snap.get("max_output") or 0))), hover_trigger),
+            (remaining, hover_trigger),
+            (scale, hover_scale),
+        ]
+
     def reload_ai_info(self) -> None:
         self.ai_info: dict = plugin_config.all_ai.get(self.model_id, {})
         self.build_openai_client()
         self.build_system_message()
+
+    # ── manual compaction (``!!ask compact``) ───────────────────────────
+
+    def is_running(self) -> bool:
+        """True while a round of this conversation is in flight."""
+        return not self.is_stopped.is_set()
+
+    def compact_history(self) -> str:
+        """
+        Summarize the older rounds and keep only the newest ``KEEP_ROUNDS`` verbatim.
+
+        This is the manual counterpart of the automatic compression in
+        :meth:`manage_context`, and it uses the very same summarizing request and
+        replacement rule — the only difference is that it ignores the window triggers and
+        the ``len(rounds) <= KEEP_ROUNDS`` early return, so a player can decide to compact
+        now instead of waiting for the 80% line.
+
+        Like the model-switch hand-off, the summarizing request is **deferred** to the next
+        preflight: sending it here would block the command thread (and therefore the server
+        thread) for up to :data:`SUMMARY_TIMEOUT` seconds, while the round that needs the
+        smaller context is the one that should pay for it. That is also why the caller is
+        told ``"scheduled"`` rather than ``"done"``.
+
+        :return: ``"scheduled"`` (deferred, applied before the next request),
+                 ``"empty"`` (no round to compact yet), or ``"running"`` (a round is in
+                 flight; retry, or ``!!ask stop`` first)
+        """
+        if self.is_running():
+            self._log("compact rejected: a round is in flight")
+            return "running"
+        if not self._split_rounds()[1]:
+            self._log("compact rejected: the history holds no round yet")
+            return "empty"
+        self._pending_compaction = True
+        self._log(
+            f"compact scheduled by the player: {len(self.response_list)} message(s) now, "
+            f"applied right before the next request"
+        )
+        return "scheduled"
+
+    def _apply_pending_compaction(self) -> None:
+        """
+        Run a manual compaction that was requested earlier (deferred half of
+        :meth:`compact_history`). Called from the preflight, so the forced compression is
+        then handled by the ordinary flow of that same preflight.
+        """
+        if not self._pending_compaction:
+            return
+        self._pending_compaction = False
+        self._log("applying the deferred manual compaction")
+        # force=True: the player asked for it, so the KEEP_ROUNDS early return does not apply
+        self._compress_old_rounds(force=True)
 
 
 class ChatParam(BasicChatParam):

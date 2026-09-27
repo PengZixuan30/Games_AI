@@ -55,6 +55,60 @@ def get_bot_controller() -> "AutonomousBotController | None":
 
 _MAX_CONVERSATION_MESSAGES = 30
 
+# Every thread this plugin creates is named ``games_ai@...``. The controller thread also
+# accepts its legacy name so an instance started by an older version is still recognised.
+CONTROLLER_THREAD_NAME = "games_ai@autonomous_bot"
+CONTROLLER_THREAD_NAMES = (CONTROLLER_THREAD_NAME, "AutonomousBotAI")
+
+
+class _ControllerAbort(BaseException):
+    """
+    Injected into a bot-controller thread by :func:`force_abort_thread` (last resort).
+
+    Derived from ``BaseException`` on purpose: the loop's own ``except Exception`` must not
+    swallow it, so the thread really dies at its next bytecode boundary.
+    """
+
+
+def force_abort_thread(thread: threading.Thread, logger: logging.Logger | None = None,
+                       timeout: float = 1.0) -> bool:
+    """
+    Kill a stuck thread the hard way: raise :class:`_ControllerAbort` inside it.
+
+    Python cannot kill a thread, so this is the escape hatch used only after the
+    cooperative stop timed out (plugin unload / reload, or a leftover thread from a
+    previous plugin instance). It cannot interrupt a blocking C call — a socket read or an
+    HTTP request keeps running — but the exception fires the moment that call returns, so
+    the thread dies then instead of finishing its cycle.
+
+    The controller writes no files and no database rows, so the worst case is one bot
+    action left half-issued (the Node process is killed as well during unload).
+
+    :return: True when the thread is gone.
+    """
+    log = logger or logging.getLogger(__name__)
+    if thread is None or not thread.is_alive() or thread.ident is None:
+        return True
+    try:
+        import ctypes
+        affected = ctypes.pythonapi.PyThreadState_SetAsyncExc(
+            ctypes.c_ulong(thread.ident), ctypes.py_object(_ControllerAbort)
+        )
+    except Exception as e:                                  # pragma: no cover - defensive
+        log.error("[AutonomousBot] async abort failed for %s: %s", thread.name, e)
+        return not thread.is_alive()
+    if affected > 1:                                        # never leave more than one hit
+        try:
+            ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_ulong(thread.ident), None)
+        except Exception:
+            pass
+        log.error("[AutonomousBot] async abort touched %d threads, rolled back", affected)
+        return not thread.is_alive()
+    log.warning("[AutonomousBot] forced abort sent to thread '%s' (it exits as soon as its "
+                "current blocking call returns)", thread.name)
+    thread.join(timeout=timeout)
+    return not thread.is_alive()
+
 
 _LK = "games_ai.autonomous_bot"
 
@@ -113,6 +167,7 @@ class AutonomousBotController:
         server: 'ServerInterface' = None,
         logger: logging.Logger | None = None,
         tr: Callable[[str, ...], str] | None = None,
+        ai_timeout: float = 120.0,
     ):
         global _REAL_SERVER
         if server is not None:
@@ -138,6 +193,12 @@ class AutonomousBotController:
         self._running = False
         self._paused = threading.Event()
         self._paused.set()
+        # Set by stop(): interrupts the idle wait between cycles immediately, so a quiet
+        # controller ends right away instead of after one full cycle_interval.
+        self._stop_event = threading.Event()
+        # Upper bound for one AI request of the controller: without it a stuck request
+        # could hold the thread for the full SDK default (up to 10 minutes) after unload.
+        self._ai_timeout: float = ai_timeout
         self._thread: threading.Thread | None = None
 
         self._conversation: list[dict] = []
@@ -195,17 +256,54 @@ class AutonomousBotController:
         if self._running:
             return
         self._running = True
+        self._stop_event.clear()
         self._paused.set()
-        self._thread = threading.Thread(target=self._run_loop, daemon=True, name="AutonomousBotAI")
+        self._thread = threading.Thread(target=self._run_loop, daemon=True, name=CONTROLLER_THREAD_NAME)
         self._thread.start()
         self._log.info("[AutonomousBot] Controller started")
 
-    def stop(self):
+    def stop(self, timeout: float = 10.0, force: bool = False) -> bool:
+        """
+        Stop the loop: cooperatively first, then (with ``force``) immediately.
+
+        Never raises, so plugin unload cannot be blocked by a busy controller.
+
+        1. ``_stop_event`` wakes the idle wait between cycles, and ``_cycle_abort`` makes a
+           running cycle wind down at its next checkpoint (before the next AI call, or
+           between two tool calls);
+        2. if the thread is still alive after ``timeout`` and ``force`` is set, an abort is
+           injected into it (:func:`force_abort_thread`) so it dies at its next bytecode
+           boundary instead of finishing the cycle. That is what unload / reload use.
+
+        :return: True when the thread has really finished. False only when it is still
+                 blocked inside a C call (socket read / HTTP request); it dies right after
+                 that call returns, or together with the MCDR process.
+        """
         self._running = False
         self._paused.set()
-        if self._thread is not None and self._thread.is_alive():
-            self._thread.join(timeout=10)
-        self._log.info("[AutonomousBot] Controller stopped")
+        self._stop_event.set()
+        self._cycle_abort.set()
+
+        thread = self._thread
+        if thread is not None and thread.is_alive():
+            try:
+                thread.join(timeout=timeout)
+            except Exception as e:
+                self._log.warning("[AutonomousBot] join failed while stopping: %s", e)
+
+        if thread is not None and thread.is_alive() and force:
+            self._log.warning("[AutonomousBot] cooperative stop timed out, forcing the thread to exit")
+            force_abort_thread(thread, self._log)
+
+        still_alive = thread is not None and thread.is_alive()
+        if still_alive:
+            self._log.warning(
+                "[AutonomousBot] Controller thread is still running (blocked in a socket/HTTP call); "
+                "it exits as soon as that call returns"
+            )
+        else:
+            self._log.info("[AutonomousBot] Controller stopped")
+        return not still_alive
 
     def send_user_message(self, username: str, content: str):
         self._queue.put({"username": username, "content": content, "timestamp": time.time()})
@@ -260,17 +358,33 @@ class AutonomousBotController:
     # ── internal loop ───────────────────────────────────────
 
     def _run_loop(self):
-        while self._running:
-            self._paused.wait()
+        """
+        Controller loop. Wrapped as a whole so an injected forced abort (see
+        :func:`force_abort_thread`) is reported as a log line instead of an ugly traceback
+        printed by ``threading``.
+        """
+        try:
+            while self._running:
+                self._paused.wait()
+                if self._stop_event.is_set():
+                    break
 
-            try:
-                self._one_cycle()
-            except Exception:
-                self._error_count += 1
-                self._log.exception("[AutonomousBot] Cycle error")
-                time.sleep(self._cycle_interval)
-            else:
-                time.sleep(self._cycle_interval)
+                try:
+                    self._one_cycle()
+                except _ControllerAbort:
+                    raise
+                except Exception:
+                    self._error_count += 1
+                    self._log.exception("[AutonomousBot] Cycle error")
+
+                # interruptible wait: stop() ends a quiet controller immediately instead of
+                # after one full cycle_interval
+                if self._stop_event.wait(self._cycle_interval):
+                    break
+        except _ControllerAbort:
+            self._log.warning("[AutonomousBot] controller thread aborted")
+        finally:
+            self._log.info("[AutonomousBot] loop left, controller thread is finishing")
 
     def _one_cycle(self):
         user_msgs = self._drain_queue()
@@ -387,7 +501,7 @@ class AutonomousBotController:
         assistant_reply = None
 
         for _ in range(max_loops):
-            if self._cycle_stopped():
+            if self._cycle_stopped() or self._stop_event.is_set():
                 self._log.info("[AutonomousBot] aborted before the next AI call")
                 break
             try:
@@ -397,6 +511,7 @@ class AutonomousBotController:
                     response_list=messages,
                     tools=get_bot_tool_schemas(),
                     extra_body=self._extra_body,
+                    timeout=self._ai_timeout,
                 )
             except Exception:
                 self._log.exception("[AutonomousBot] AI call failed")

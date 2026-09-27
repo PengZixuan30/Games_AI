@@ -29,6 +29,9 @@ games_ai:
     ask_no_history_help: "以向 AI 提問（不使用歷史記錄）"
 
     switch_help: "以切換你使用的 AI 模型"
+    ask_compact_help: "以立即壓縮較早的歷史對話（最近的 10 輪保留原文，壓縮在你下次提問前完成）"
+    ask_context_help: "以查看上下文佔用（可指定玩家，不填則查看自己）"
+    ask_context_all_help: "以查看全服所有玩家的上下文用量（按模型彙總）"
     ask_stop_help: "立即停止目前對話（含正在執行的工具呼叫），並刪除未完成的一步"
 
     ask_force_help: "以向 AI 提問（強制模式，立即插入目前對話）"
@@ -97,6 +100,10 @@ games_ai:
     stop_no_history: "已停止正在進行的無歷史提問。"
     stop_round: "已停止目前對話，並刪除未完成的一步。"
     stop_none: "目前沒有進行中的對話。"
+    reload_in_progress: "已有一次重載正在進行，請等它結束後再試。"
+    compact_success: "已安排歷史壓縮：較早的對話將在你下次提問前壓縮為摘要，最近的 10 輪對話會原樣保留。"
+    compact_no_history: "目前沒有可壓縮的歷史記錄。"
+    compact_failed_running: "目前有對話正在進行，暫時無法壓縮歷史；請等它結束，或先用 !!ask stop 停止。"
 
     data_list: "公共資料列表："
     thinking: "§7正在思考⋯⋯§r"
@@ -110,6 +117,46 @@ games_ai:
     summary_prefix: "【歷史對話摘要（較早的對話已被壓縮）】"
     switch_summary_prefix: "【切換模型轉接的對話摘要（由上一個模型產生，原對話已清空）：請以你自己的設定與風格繼續這段對話，不要模仿先前模型的語氣與風格。】"
     truncated: "（內容過長已截斷：原 {orig} 字元，保留 {kept} 字元）"
+
+  context_view:
+    missing: "沒有玩家 {player} 的上下文記錄（該玩家尚未在本插件提問過；!!ask -n 不保留任何上下文，回答送出後即被丟棄）。"
+    header: "玩家 {player} 的上下文："
+    card_title: "上下文 · 模型 {model}（視窗 {window} tokens，來源：{source}）"
+    source_config: "設定覆寫"
+    source_table: "模型表"
+    source_default: "預設值"
+    card_window: "視窗 {window} / 輸出 {max_output} tokens"
+    card_usage_est: "上下文佔用 ≈{used} / {window} tokens（{percent}%，估算值）"
+    card_usage_none: "上下文佔用暫無資料（本工作階段尚未發出請求）"
+    card_cache: "快取命中"
+    card_running: "（輪次進行中）"
+    card_remaining: "距離壓縮觸發還有 {remaining} tokens{trigger}{output_note}"
+    card_at_emergency: "已超過緊急線 {limit} tokens，下一個請求前會先裁剪"
+    card_no_request: "尚未發出請求；歷史壓縮線為 {threshold} tokens{output_note}"
+    trigger_burst: "（單次 {used} ≥ 突發線 {threshold}）"
+    trigger_history: "（歷史 {used} ≥ 歷史線 {threshold}）"
+    card_scale: "輪次 {rounds} / 訊息 {messages}；摘要 {summaries} 段，轉接摘要：{hand_off}"
+    card_queue: "另有 {queued} 條強制訊息待併入"
+    "yes": "有"
+    "no": "無"
+    output_note: "，此處餘量未扣除輸出額度"
+    hover_trigger: "壓縮觸發線：歷史 {history} / 突發 {burst} / 緊急 {emergency}"
+    hover_rounds: "逐輪規模（估算，由上到下為由舊到新，括號內為佔視窗比例）：\n{rounds}"
+    hover_usage: "上次請求：輸入 {prompt}，輸出 {completion}，合計 {total}\n快取命中 {cached}（{cached_percent}），推理 {reasoning}\n本輪累計：輸入 {round_prompt}，命中 {round_cached}（{round_cached_percent}），推理 {round_reasoning}"
+    hover_usage_none: "最近用量：本工作階段尚未收到用量資料"
+    hover_compress: "最近壓縮：{time}，{rounds} 輪 → {before} 則訊息 → {after} 則（摘要{status}）"
+    hover_compress_none: "最近壓縮：本工作階段尚未觸發"
+    hover_compress_ok: "成功"
+    hover_compress_fail: "失敗（舊輪次已直接丟棄）"
+    hover_hint: "懸停任意一行可查看觸發線、逐輪規模、用量與壓縮歷史。"
+
+  context_all:
+    header: "全服上下文用量（{players} 位玩家，{models} 個模型）："
+    empty: "目前沒有任何玩家持有上下文（!!ask -n 不保留上下文，因此不計入）。"
+    line: "{model} · {players} 人 · 上下文佔用 {estimate} / {window}（{share}%）· 本輪輸入 {round_prompt} · 本輪峰值 {round_max}"
+    hover: "自插件載入以來累計：輸入 {prompt}，輸出 {completion}，合計 {total}\n快取命中 {cached}（{cached_percent}），推理 {reasoning}"
+    total: "合計上下文佔用 {estimate} tokens"
+    hover_hint: "懸停任意一行可查看該模型自插件載入以來的累計用量；壓縮歷史不會減少累計值。"
 
   tools:
     execution_error: "函式 {func_name} 執行出錯！原因：{ex}"
@@ -211,6 +258,7 @@ games_ai:
   debug:
     enable: "已啟用除錯模式"
     disable: "已停用除錯模式"
+    threads_header: "GamesAI 持有的執行緒 {count} 個："
 
   speed_test:
     testing: "正在測試與 {url} 的連線速度..."

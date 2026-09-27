@@ -31,6 +31,16 @@ _deps_repair_count = 0
 _deps_repair_last = 0.0
 
 
+# The node process is a *service* process owned by the launcher, while this Python side is
+# a small websocket client of it; a replacement instance may therefore handle it with a
+# hard kill. The timeout is short on purpose: the only thing it buys is a clean socket
+# teardown before the process dies (a hanging terminate call must not delay an unload).
+_NODE_KILL_TIMEOUT = 2.0
+# On Windows ``terminate()`` is ``TerminateProcess``/SIGTERM, which is already immediate;
+# on POSIX SIGTERM stays catchable, so SIGKILL follows after the wait above.
+_NODE_FORCE_KILL_TIMEOUT = 3.0
+
+
 def is_node_running() -> bool:
     return _process is not None and _process.poll() is None
 
@@ -39,12 +49,14 @@ def get_mineflayer_client() -> "MineflayerWSClient | None":
     return _active_client
 
 
-def start_mineflayer_client(url: str, logger = None, reconnect_interval: float = 10, timeout: float = 60) -> "MineflayerWSClient":
+def start_mineflayer_client(url: str, logger = None, reconnect_interval: float = 10, timeout: float = 60,
+                            first_connect_interval: float | None = None) -> "MineflayerWSClient":
     global _active_client
     with _client_lock:
         if _active_client is not None:
             _active_client.stop()
-        _active_client = MineflayerWSClient(url, logger, reconnect_interval, timeout)
+        _active_client = MineflayerWSClient(url, logger, reconnect_interval, timeout,
+                                            first_connect_interval=first_connect_interval)
         _active_client.start()
         return _active_client
 
@@ -59,10 +71,17 @@ def stop_mineflayer_client():
 
 class MineflayerWSClient:
 
-    def __init__(self, url: str, logger: logging.Logger | None = None, reconnect_interval: float = 10, timeout: float = 60):
+    def __init__(self, url: str, logger: logging.Logger | None = None, reconnect_interval: float = 10,
+                 timeout: float = 60, first_connect_interval: float | None = None):
         self.url = url
         self._log = logger or logging.getLogger(__name__)
         self.reconnect_interval = reconnect_interval
+        # Retry delay used only until the first successful connection. It exists because the
+        # node service needs a moment to open its port, and sleeping for the full reconnect
+        # interval before retrying would delay the bot's first login by that much.
+        self.first_connect_interval = (
+            reconnect_interval if first_connect_interval is None else max(0.0, first_connect_interval)
+        )
         self.timeout = timeout
         self._ws: websockets.ClientConnection | None = None
         self._running = False
@@ -83,7 +102,7 @@ class MineflayerWSClient:
         if self._running:
             return
         self._running = True
-        self._thread = threading.Thread(target=self._run_loop, daemon=True)
+        self._thread = threading.Thread(target=self._run_loop, daemon=True, name="games_ai@ws_client")
         self._thread.start()
 
     def stop(self):
@@ -146,7 +165,9 @@ class MineflayerWSClient:
                 self._connected.clear()
                 self._ws = None
                 if self._running:
-                    await asyncio.sleep(self.reconnect_interval)
+                    # Fast retries while the node service is still coming up; the configured
+                    # interval only applies once we have been connected at least once.
+                    await asyncio.sleep(self.first_connect_interval if self._first_connect else self.reconnect_interval)
 
     async def _message_loop(self, ws: websockets.ClientConnection):
         async for raw in ws:
@@ -1842,7 +1863,7 @@ def _launch_node(init_js_path: str, logger=None) -> subprocess.Popen:
             target=_stream_process_output,
             args=(_process, logger, abs_init_js),
             daemon=True,
-            name="MineflayerBotLog",
+            name="games_ai@mineflayer_log",
         ).start()
 
     return _process
@@ -1950,37 +1971,81 @@ def _stream_process_output(proc: subprocess.Popen, logger, init_js_path: str | N
             pass
 
 
-def stop_mineflayer_process():
-    global _process
-    _kill_mineflayer_process()
+def stop_mineflayer_process(proc: subprocess.Popen | None = None, timeout: float = _NODE_KILL_TIMEOUT):
+    """
+    Kill the running node process (this module's one unless ``proc`` is passed).
 
-
-def _kill_mineflayer_process():
+    The reference is detached before it is killed, so nothing in this module can touch a
+    dying process; a caller that already detached it (``detach_mineflayer_process()``) can
+    hand the object back in.
+    """
     global _process
-    if _process is None:
+    target = proc
+    if target is None:
+        target = _process
+        _process = None
+    if target is None:
         return
-    pid = _process.pid
+    _kill_mineflayer_process(target, timeout)
+
+
+def detach_mineflayer_process() -> subprocess.Popen | None:
+    """
+    Take the node process out of this module's state and return it (no kill).
+
+    Used by the unload path, which finishes the job on a separate thread: after the plugin
+    is gone, only a plain ``Popen`` object may be touched, and the next plugin instance must
+    see a clean slate instead of a process that is still shutting down.
+    """
+    global _process
+    proc = _process
+    _process = None
+    return proc
+
+
+def _kill_mineflayer_process(proc: subprocess.Popen, timeout: float = _NODE_KILL_TIMEOUT):
+    """
+    Make sure one node process is gone, and keep the waits bounded.
+
+    Python can never reap a process that ignores both signals, so the escalation ladder has
+    hard limits: SIGTERM/terminate -> (POSIX only) SIGKILL -> (Windows only) taskkill /T /F,
+    which also collects the child processes node may have spawned. Every wait is short,
+    because the process is a service process that is being replaced or unloaded — waiting
+    longer only delays the reload and the bot never disconnects more cleanly for it.
+    """
+    if proc is None:
+        return
+    pid = proc.pid
     if pid is None:
         return
 
-    _process.terminate()
-    try:
-        _process.wait(timeout=3)
-    except subprocess.TimeoutExpired:
-        _process.kill()
+    if proc.poll() is None:
         try:
-            _process.wait(timeout=3)
+            proc.terminate()
+        except OSError:
+            pass
+        try:
+            proc.wait(timeout=timeout)
         except subprocess.TimeoutExpired:
+            # SIGTERM was not enough. On Windows TerminateProcess is already unconditional,
+            # so this is usually a process stuck in the kernel; taskkill /T /F collects the
+            # tree. On POSIX SIGKILL is the last resort.
             if sys.platform == "win32":
-                subprocess.run(["taskkill", "/T", "/F", "/PID", str(pid)],
-                               capture_output=True, timeout=10)
+                try:
+                    subprocess.run(["taskkill", "/T", "/F", "/PID", str(pid)],
+                                   capture_output=True, timeout=10)
+                except (OSError, subprocess.SubprocessError):
+                    pass
             else:
                 try:
-                    os.killpg(os.getpgid(pid), signal.SIGKILL)
+                    os.kill(pid, signal.SIGKILL)
                 except (ProcessLookupError, OSError):
                     pass
             try:
-                _process.wait(timeout=5)
+                proc.wait(timeout=_NODE_FORCE_KILL_TIMEOUT)
             except subprocess.TimeoutExpired:
                 pass
-    _process = None
+    try:
+        proc.stdout.close()
+    except (AttributeError, ValueError, OSError):
+        pass

@@ -29,6 +29,9 @@ games_ai:
     ask_no_history_help: " to ask AI a question (without history)"
 
     switch_help: " to switch the AI model"
+    ask_compact_help: " to compress the older conversation now (the newest 10 rounds are kept as they are; the compression is applied right before your next question)"
+    ask_context_help: " to view how full a context is (optionally for another player; defaults to yourself)"
+    ask_context_all_help: " to view the context usage of every player on the server (summed up per model)"
     ask_stop_help: "Immediately stop the current conversation (running tool calls included) and delete the unfinished step"
 
     ask_force_help: " to ask AI a question (forced, inject into the current round immediately)"
@@ -97,6 +100,10 @@ games_ai:
     stop_no_history: "Stopped the running no-history request."
     stop_round: "Stopped the current conversation and deleted the unfinished step."
     stop_none: "There is no conversation in progress."
+    reload_in_progress: "A reload is already running; please wait for it to finish and try again."
+    compact_success: "History compaction scheduled: the older conversation will be compressed into a summary right before your next question, and the newest 10 rounds are kept as they are."
+    compact_no_history: "There is no history to compact."
+    compact_failed_running: "A round is still in progress, so the history cannot be compacted right now; wait for it to finish, or stop it with !!ask stop first."
 
     data_list: "Public data list:"
     thinking: "§7Thinking...§r"
@@ -110,6 +117,46 @@ games_ai:
     summary_prefix: "[Summary of earlier conversation (older turns were compressed)]"
     switch_summary_prefix: "[Conversation summary handed over on a model switch (produced by the previous model; the raw conversation has been cleared): continue this conversation with your own instructions and style, and do not imitate the previous model's tone or style.]"
     truncated: "(truncated: {orig} chars -> {kept} chars kept)"
+
+  context_view:
+    missing: "No context recorded for {player} (this player has never asked in this session; !!ask -n keeps no context at all, it is dropped as soon as the answer is sent)."
+    header: "Context of {player}:"
+    card_title: "Context · model {model} (window {window} tokens, source: {source})"
+    source_config: "config override"
+    source_table: "model table"
+    source_default: "default"
+    card_window: "Window {window} / output {max_output} tokens"
+    card_usage_est: "Context in use ~{used} / {window} tokens ({percent}%, estimated)"
+    card_usage_none: "Context size not available yet (no request sent in this session)"
+    card_cache: "cache hit"
+    card_running: "(round in progress)"
+    card_remaining: "{remaining} tokens left before compression triggers{trigger}{output_note}"
+    card_at_emergency: "Past the emergency line of {limit} tokens; the next request trims first"
+    card_no_request: "No request sent yet; the history compression line is {threshold} tokens{output_note}"
+    trigger_burst: " (single request {used} >= burst line {threshold})"
+    trigger_history: " (history {used} >= history line {threshold})"
+    card_scale: "Rounds {rounds} / messages {messages}; summaries {summaries}, hand-off summary: {hand_off}"
+    card_queue: "plus {queued} forced message(s) waiting to be merged"
+    "yes": "yes"
+    "no": "no"
+    output_note: "; this headroom does not deduct the output allowance"
+    hover_trigger: "Compression lines: history {history} / burst {burst} / emergency {emergency}"
+    hover_rounds: "Per-round size (estimated, oldest first, share of the window in brackets):\n{rounds}"
+    hover_usage: "Last request: prompt {prompt}, completion {completion}, total {total}\nCached {cached} ({cached_percent}), reasoning {reasoning}\nThis round: prompt {round_prompt}, cached {round_cached} ({round_cached_percent}), reasoning {round_reasoning}"
+    hover_usage_none: "Last usage: no usage data received in this session"
+    hover_compress: "Last compression: {time}, {rounds} round(s) -> {before} messages -> {after} (summary {status})"
+    hover_compress_none: "Last compression: not triggered in this session"
+    hover_compress_ok: "ok"
+    hover_compress_fail: "failed (old rounds were dropped)"
+    hover_hint: "Hover any line for the compression lines, the per-round sizes, the usage and the compression history."
+
+  context_all:
+    header: "Server-wide context usage ({players} player(s), {models} model(s)):"
+    empty: "No player is holding a context right now (!!ask -n keeps no context, so it is not counted)."
+    line: "{model} · {players} player(s) · context in use {estimate} / {window} ({share}%) · round prompt {round_prompt} · round peak {round_max}"
+    hover: "Total since the plugin was loaded: prompt {prompt}, completion {completion}, total {total}\nCached {cached} ({cached_percent}), reasoning {reasoning}"
+    total: "Total context in use: {estimate} tokens"
+    hover_hint: "Hover any line for the totals of that model since the plugin was loaded; compressing a history never lowers them."
 
   tools:
     execution_error: "Function {func_name} execution error! Reason: {ex}"
@@ -212,6 +259,7 @@ games_ai:
   debug:
     enable: "Debug mode enabled"
     disable: "Debug mode disabled"
+    threads_header: "Threads owned by GamesAI: {count}:"
 
   speed_test:
     testing: "Testing connection speed to {url}..."
