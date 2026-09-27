@@ -12,35 +12,36 @@ The default configuration file structure is as follows:
 
 ```json
 {
-  "prefix": "[GamesAI]",
-  "permission": 3,
-  "all_ai": {
-      "<Your AI ID>":{
-          "prompt": "You are a mature, reliable Minecraft bot tool named \"GamesAI\".",
-          "ai_name": "[GamesAI]",
-          "base_url": "<Your API Base URL>",
-          "ai_model": "<Your AI Model>",
-          "api_key": "<Your API Key>",
-          "extra_body": {},
-          "context_window": null
-      }
+    "prefix": "[GamesAI]",
+    "permission": 3,
+    "all_ai": {
+        "<Your AI ID>":{
+            "prompt": "You are a mature, reliable Minecraft bot tool named \"GamesAI\".",
+            "ai_name": "[GamesAI]",
+            "base_url": "<Your API Base URL>",
+            "ai_model": "<Your AI Model>",
+            "api_key": "<Your API Key>",
+            "extra_body": {},
+            "context_window": null
+        }
     },
-  "default_ai": "<Your AI ID>",
-  "mineflayer_bot": {
-      "enabled": false,
-      "cycle_interval": 15.0,
-      "websocket": {
-          "url": "ws://127.0.0.1:8080",
-          "reconnect_interval": 10,
-          "timeout": 60,
-          "first_connect_interval": 0.5
-      },
-      "bot": {
-          "username": "<Your Minecraft Bot Username>",
-          "password": "<Your Minecraft Bot Password>",
-          "auth": "microsoft"
-      }
-  }
+    "default_ai": "<Your AI ID>",
+    "mineflayer_bot": {
+            "enabled": false,
+            "cycle_interval": 15.0,
+            "websocket": {
+            "url": "ws://127.0.0.1:8080",
+            "reconnect_interval": 10,
+            "timeout": 60,
+            "first_connect_interval": 0.5
+        },
+        "bot": {
+            "username": "<Your Minecraft Bot Username>",
+            "password": "<Your Minecraft Bot Password>",
+            "auth": "microsoft"
+        }
+    }
+}
 ```
 
 ---
