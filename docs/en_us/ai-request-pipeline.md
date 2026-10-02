@@ -16,8 +16,9 @@ This section explains what happens between your `!!ask` and the AI's reply, and 
 2. The plugin resolves your username and builds the user message (labeled with `Username:` / `Message:` in your current language).
 3. Your per-user `ChatParam` object (see `games_ai/chat_param.py`) is created lazily and uses the model configured by `all_ai` / `default_ai`. `!!ask -n` uses a throwaway `NonHistoryChatParam` instead — see [The stateless path](#the-stateless-path-ask--n).
 4. Each round, `response_ai` assembles the request:
-   - system messages: current time, the model's prompt, the skills list (built-in + `skills.json` + registered by external plugins), and the public data list;
-   - conversation history (the stateless path keeps none);
+   - one system message: the model's prompt and the skills list (built-in + `skills.json` + registered by external plugins), joined together;
+   - the public data list as an `assistant` message, only when the database is not empty;
+   - the conversation history (the stateless path keeps none), with the current time written in front of the question as a `user` message;
    - tools filtered by your permission level.
 5. The round talks to the OpenAI-compatible API through `openai_api.response_chat`. A history object owns one client per AI config; the stateless path reuses a client per `base_url` + API key.
 6. If the AI calls a tool, the plugin executes it, injects the result, and **continues the same round** until the AI produces a final text reply.
@@ -34,7 +35,7 @@ flowchart TD
     ASK --> CP["ChatParam (per player)"]
     CP --> BUILD["response_ai — build request"]
     NOH --> BUILD
-    BUILD -->|"system: time / prompt / skills / data"| API
+    BUILD -->|"system: prompt / skills<br/>assistant: public data<br/>user: time + question"| API
     BUILD -->|"history: response_list<br/>(none in the stateless path)"| API
     BUILD -->|"tools: filtered by permission"| API
 
@@ -50,6 +51,21 @@ flowchart TD
     STOP -.->|"stop at the next checkpoint<br/>+ delete the interrupted step"| BUILD
 ```
 
+## What a request contains
+
+| Order | Role | Content | Notes |
+|---|---|---|---|
+| 1 | `system` | the model's prompt + the skills list | **exactly one** |
+| 2 | `assistant` | the public data list | only sent when the public database holds something |
+| 3… | any | the conversation history | with `user` time messages inserted where needed |
+| last | `user` | this round's question | — |
+
+- **One system message only** — some upstreams (the Qwen3.5/3.6/3.8 chat template, for one) accept a system message at index 0 only and reject a second one with `System message must be at the beginning`. The prompt and the skills list are therefore joined with a blank line; being static, they are also the stable prefix the provider cache hits.
+- **The public data travels as an `assistant` message** — it is reference material rather than an instruction, so it is not a second system message; when the database is empty the message is not sent at all (no empty "public data" line).
+- **The current time travels as a `user` message right in front of the question** — the time changes every round, and inside the system block it would invalidate the provider's prefix cache from that point on (the whole history re-billed every round). It is injected on the first round and then once every **20 rounds**, so two consecutive rounds share exactly the same prefix.
+- **Adjacent `user` messages are merged into one before sending** — time + question, the "read this skill first" note + question, several `!!ask -f` messages, a question retried after a failed round. Some upstreams require strict user/assistant alternation, and a model reading two user turns in a row tends to answer only the last one. The history keeps them apart; only the request merges them.
+- The exception: context-compression summaries and model-switch hand-off summaries are still injected as `system` messages (see below).
+
 ## The stateless path (`!!ask -n`)
 
 `!!ask -n <content>` answers one question and keeps nothing. It is served by `NonHistoryChatParam`, a self-contained class in `games_ai/chat_param.py` that shares no helper, attribute or lifecycle with the history objects.
@@ -58,7 +74,7 @@ flowchart TD
 
 **What still matches the normal path:**
 
-- the same system messages (time, prompt, skills list, public data) and the same tools for your permission level;
+- the same message layout (a single system message: prompt + skills; the public data as an `assistant` message when there is any; the time as a `user` message in front of the question) and the same tools for your permission level;
 - tool calls are still executed and fed back **inside the same round**, until the AI produces a final text reply;
 - the same reply format and the same error report (HTTP status mapping plus the provider's request ID).
 
@@ -98,7 +114,7 @@ Run `!!gamesai debug` to see the window, usage, calibration factor and every com
 - `all_chat_param` keeps one `ChatParam` per player in memory; `!!gamesai clear` / `!!gamesai clearall` removes them.
 - `ChatParam` owns:
   - `response_list` — the dialogue history;
-  - `system_message` — rebuilt every round (time, prompt, skills, data);
+  - `system_message` — rebuilt every round (the model's prompt + the skills list, as one system message);
   - `response_queue` — messages from `!!ask -f` waiting to be merged;
   - `is_stopped` — the round lifecycle event (used to serialize rounds per player).
 - **`!!ask -n` keeps no state at all**: it is served by `NonHistoryChatParam`, which is not registered in `all_chat_param` and is dropped when the answer has been sent — see [The stateless path](#the-stateless-path-ask--n).

@@ -8,6 +8,52 @@ English  |  [简体中文](../zh_cn/changelog.md)  |  [繁體中文](../zh_tw/ch
 
 </div>
 
+## Version 0.7.3
+
+### 🎯 Highlights
+
+- **🧱 A single system message** — the model's prompt and the skills list are merged into one system message, and the current time moved out of it. Some upstreams (the Qwen3.5/3.6/3.8 chat template, for one) accept a system message at index 0 only and answered `System message must be at the beginning`, which made those models unusable.
+- **⏱️ The current time travels as a `user` message** — written right in front of the question: injected on the first round and then once every 20 rounds. It is stored in the history, so two consecutive rounds share exactly the same prefix and the provider's prefix cache keeps hitting (before, the time sat in the first line of the system block and changed every round, which re-billed the whole history every round).
+- **🗄️ The public data travels as an `assistant` message** — it is reference material rather than an instruction, and the message is not sent at all when the database is empty.
+- **🧩 Adjacent `user` messages are merged into one before sending** — time + question, the skill note + question, several `!!ask -f` messages, a question retried after a failed round.
+
+### 1. The message layout of a request
+
+| Order | Role | Content |
+|---|---|---|
+| 1 | `system` | the model's prompt + the skills list (**exactly one**) |
+| 2 | `assistant` | the public data list (not sent when the database is empty) |
+| 3… | any | the conversation history (with a `user` time message right in front of the question) |
+| last | `user` | this round's question |
+
+- **The skill note changed role** — the "read this skill first" note injected by `!!ask /skill.md` is a `user` message now, not a `system` one;
+- **The stateless path matches** — `!!ask -n` sends a single system message, the data as `assistant` when there is any, and one merged `user` message;
+- **`response_ai(data=None)` is supported** — an empty public database no longer produces an empty "public data" message.
+
+### 2. Round splitting and caching
+
+- Consecutive `user` messages count as **one round** now: otherwise every injected time would be a round of its own, `KEEP_ROUNDS = 10` would keep only half of the real conversation, and compression boundaries would cut a turn's time away from its question;
+- The time counter is reset when `!!ask switch` clears the history (`!!ask clear` drops the object) but **not** by compression — a compressed conversation is still the same conversation;
+- Merging only shapes the **outgoing request**: the history keeps the messages apart, so the statistics and estimates behind `!!ask context` are unchanged.
+
+### 3. Fixes
+
+- **Both `_kill_mineflayer_process()` call sites** — the one in `run_node()` (cleanup before starting) and the one on the "unsupported server version → reinstall dependencies and restart the bot" path now pass the process argument; they used to raise `TypeError`, which the surrounding `try/except` swallowed into a single log line;
+- **Debug log field renamed** — the request header printed by `!!gamesai debug` is `preamble=` now instead of `system=` (that position can also hold an `assistant` message).
+
+### 4. Documentation
+
+- A new "What a request contains" section in all three languages, plus matching updates to the request chain, the `!!ask -n` consistency list and the `system_message` entry under per-user state.
+
+### ⚠️ Known issues
+
+- Context-compression summaries and model-switch hand-off summaries are **still injected as `system` messages** (unchanged in this release), so on upstreams that accept a single system message those two paths can still be rejected.
+
+### Upgrade notes
+
+- **No configuration change is required**;
+- The first request after the upgrade rebuilds the prompt prefix, so the old prefix cache misses once and then works normally.
+
 ## Version 0.7.2
 
 ### 🎯 Highlights

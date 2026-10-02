@@ -14,7 +14,7 @@ English  |  [简体中文](/README.zh-CN.md)  |  [繁體中文](/README.zh-TW.md
 > **GamesAI Plugin/Mod QQ Group: 849544707** — Join us to discuss issues, share feedback, and exchange prompt, skills, tools configurations!
 
 > [!NOTE]
-> Welcome to version 0.7.2! This release brings **context inspection**: `!!ask context` shows the window usage of a conversation, how many tokens are left before compression, the per-round sizes and the cache-hit rate; `!!ask context --all` sums every player's usage per model; `!!ask compact` compresses the older history on demand. It also fixes questions like `!!ask stop it.` being dropped by a command node, and concurrent reloads being able to switch the bot off; unload and hot reload are no longer held up by the bot shutting down. See [What's New](docs/en_us/changelog.md#whats-new) for details.
+> Welcome to version 0.7.3! This release reworks the **message layout of a request**: there is only one system message now (the model's prompt + the skills list), the current time travels as a `user` message in front of the question and is re-injected periodically, the public data travels as an `assistant` message, and adjacent `user` messages are merged into one before sending — so models that accept a single leading system message only (Qwen3.5 and friends) work again, and the provider's prefix cache keeps hitting in long conversations. See [What's New](docs/en_us/changelog.md#whats-new) for details.
 
 <details>
 <summary>Table of Contents (click to expand)</summary>

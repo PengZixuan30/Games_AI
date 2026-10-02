@@ -22,12 +22,12 @@ import re
 
 PLUGIN_METADATA = {
     "id": "games_ai",
-    "version": "0.7.2",
+    "version": "0.7.3",
     "name": "GamesAI",
     "description": {
         "zh_cn": "此插件可以让你在游戏中使用AI",
         "en_us": "This plugin allows you to use AI in the game"
-        },
+    },
     "author": "yello",
     "link": "https://github.com/PengZixuan30/Games_AI",
     "dependencies": {
@@ -1153,7 +1153,8 @@ def switch_model(source: CommandSource, context: dict):
 def ask_ai(source: CommandSource, context: dict, no_history: bool = False, forced: bool = False):
     server = source.get_server()
 
-    data = DataManager(data_path).ask_ai_read_data()
+    # None when the public database holds nothing: no data message is attached then
+    data = DataManager(data_path).ask_ai_read_data() or None
     username = get_username(source)
     content: str = context['content']
 
@@ -1216,7 +1217,7 @@ def ask_ai(source: CommandSource, context: dict, no_history: bool = False, force
 
     if forced and not user_chat_param.get_is_stopped:
         if skills_file:
-            user_chat_param.forced_add_to_response_list("system", str(server.rtr('games_ai.user_message.skill_injected', skill=skills_file)))
+            user_chat_param.forced_add_to_response_list("user", str(server.rtr('games_ai.user_message.skill_injected', skill=skills_file)))
 
         user_chat_param.forced_add_to_response_list("user", user_message)
         _chat_log(server, f"[ask -f] {username} message queued (running round active)")
@@ -1233,7 +1234,7 @@ def ask_ai(source: CommandSource, context: dict, no_history: bool = False, force
         user_chat_param.wait_until_stop()
         
         if skills_file:
-            user_chat_param.add_to_response_list("system", str(server.rtr('games_ai.user_message.skill_injected', skill=skills_file)))
+            user_chat_param.add_to_response_list("user", str(server.rtr('games_ai.user_message.skill_injected', skill=skills_file)))
 
         user_chat_param.add_to_response_list("user", user_message)
 

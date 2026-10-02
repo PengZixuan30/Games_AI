@@ -1879,7 +1879,7 @@ def run_node(init_js_path: str, logger=None) -> subprocess.Popen | None:
     """
     global _process
     with _deps_repair_lock:
-        _kill_mineflayer_process()
+        _kill_mineflayer_process(_process)
         script_dir = os.path.dirname(os.path.abspath(init_js_path))
 
         node_modules_dir = os.path.join(script_dir, "node_modules")
@@ -1944,7 +1944,7 @@ def _handle_version_unsupported(proc: subprocess.Popen, logger, init_js_path: st
             script_dir = os.path.dirname(os.path.abspath(init_js_path)) if init_js_path else None
             if script_dir:
                 _install_dependencies(script_dir, logger, refresh=True)
-            _kill_mineflayer_process()
+            _kill_mineflayer_process(_process)
             if init_js_path:
                 _launch_node(init_js_path, logger)
         except Exception as e:

@@ -16,8 +16,9 @@
 2. 插件解析你的用户名,构建带 `用户名:` / `消息:` 标签的用户消息(语言随当前语言环境)。
 3. 你的**单玩家 `ChatParam` 对象**(见 `games_ai/chat_param.py`)按需惰性创建,使用 `all_ai` / `default_ai` 配置的模型。`!!ask -n` 则改用一次性的 `NonHistoryChatParam`,见[无历史路径](#无历史路径ask--n)。
 4. 每一轮,`response_ai` 组装请求:
-   - system 消息:当前时间、该模型的 prompt、技能列表(内置 + `skills.json` + 外部插件注册)、公共数据列表;
-   - 对话历史(无历史路径不保留任何历史);
+   - system 消息:该模型的 prompt 与技能列表(内置 + `skills.json` + 外部插件注册),合并为**一条**;
+   - 公共数据列表:数据库非空时作为 `assistant` 消息附在其后;
+   - 对话历史(无历史路径不保留任何历史),当前时间以 `user` 消息写在提问正前方;
    - 按你的权限等级过滤后的工具列表。
 5. 通过 `openai_api.response_chat` 与 OpenAI 兼容 API 通讯:有历史的对象每个 AI 配置持有一个客户端,无历史路径则按 `base_url` + API Key 复用客户端。
 6. 若 AI 调用了工具,插件执行之、注入结果,并**在同一轮内继续**,直到 AI 给出最终文本回复。
@@ -34,7 +35,7 @@ flowchart TD
     ASK --> CP["ChatParam（每玩家一个）"]
     CP --> BUILD["response_ai — 组装请求"]
     NOH --> BUILD
-    BUILD -->|"system：时间 / prompt / 技能 / 数据"| API
+    BUILD -->|"system：prompt / 技能<br/>assistant：公共数据<br/>user：时间 + 提问"| API
     BUILD -->|"历史：response_list<br/>（无历史路径没有历史）"| API
     BUILD -->|"工具：按权限过滤"| API
 
@@ -50,6 +51,21 @@ flowchart TD
     STOP -.->|"在下一个检查点停止<br/>并删除未完成的一步"| BUILD
 ```
 
+## 请求里的消息结构
+
+| 顺序 | role | 内容 | 说明 |
+|---|---|---|---|
+| 1 | `system` | 该模型的 prompt + 技能列表 | **只有一条** |
+| 2 | `assistant` | 公共数据列表 | 仅当公共数据库里有内容时才发送 |
+| 3… | 任意 | 对话历史 | 期间按需插入 `user` 角色的时间消息 |
+| 末 | `user` | 本轮提问 | — |
+
+- **system 只有一条** —— 部分上游(Qwen3.5/3.6/3.8 的 chat template 等)只允许下标 0 是 system,再出现一条就会被拒绝(`System message must be at the beginning`)。因此 prompt 与技能列表用空行合并成一条;它们内容固定,也正是缓存命中的稳定前缀。
+- **公共数据用 `assistant`** —— 它是资料而不是命令,所以不做第二条 system;数据库为空时这条消息完全不发送,不会出现一条空的"公共数据列表:"。
+- **当前时间用 `user` 消息写在提问正前方** —— 时间每轮都变,放在 system 里会让服务商的前缀缓存从该处起失效(整段历史每轮重新计费)。现在第 1 轮注入一次,之后每 **20 轮**再注入一次,因此相邻两轮之间的提示词前缀完全一致。
+- **连续的 `user` 消息在发出前合并成一条** —— 时间 + 提问、技能提示 + 提问、`!!ask -f` 的多条补充、上一轮失败后的重问都会合并:部分上游要求 user/assistant 严格交替,而且模型会把它们当成两轮、只回答最后一条。历史里它们仍各自独立保存,只在请求里合并。
+- 例外:历史压缩摘要与切模型转接摘要仍以 `system` 消息注入历史(见下文)。
+
 ## 无历史路径(`!!ask -n`)
 
 `!!ask -n <content>` 回答一次提问,不留任何东西。它由 `NonHistoryChatParam` 处理 —— 这是 `games_ai/chat_param.py` 中一个自包含的类,与有历史的对象**不共享任何助手函数、属性或生命周期**。
@@ -58,7 +74,7 @@ flowchart TD
 
 **与常规路径仍然一致的部分:**
 
-- 相同的 system 消息(时间、prompt、技能列表、公共数据),以及按你权限等级过滤的同一套工具;
+- 相同的消息结构(单条 system:prompt + 技能列表;有数据时的 `assistant` 公共数据;写在提问前的 `user` 时间消息),以及按你权限等级过滤的同一套工具;
 - 工具调用仍会被执行并回注,**在同一轮内**继续,直到 AI 给出最终文本回复;
 - 相同的回复格式与相同的错误上报(HTTP 状态码映射 + 服务商 Request ID)。
 
@@ -98,7 +114,7 @@ GamesAI 不再使用固定的 `max_history` 配置。每次请求都会与模型
 - `all_chat_param` 为每个玩家在内存中保留一个 `ChatParam`;`!!gamesai clear` / `!!gamesai clearall` 会删除它们。
 - `ChatParam` 拥有:
   - `response_list` — 对话历史;
-  - `system_message` — 每轮重建(时间、prompt、技能、数据);
+  - `system_message` — 每轮重建(prompt + 技能列表,单条 system);
   - `response_queue` — `!!ask -f` 等待合并的消息队列;
   - `is_stopped` — 轮次生命周期事件(用于串行化每个玩家的轮次)。
 - **`!!ask -n` 不保留任何状态**:它由 `NonHistoryChatParam` 处理,不会注册进 `all_chat_param`,回答发出后即被丢弃 —— 见[无历史路径](#无历史路径ask--n)。

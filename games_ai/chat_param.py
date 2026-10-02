@@ -25,6 +25,7 @@ SUMMARY_INPUT_RATIO = 0.30       # summarization input budget (share of the wind
 SUMMARY_TIMEOUT = 60             # seconds
 TOOLS_FIXED_OVERHEAD = 200       # provider-side tool/chat-template scaffolding
 NON_HISTORY_WINDOW_RATIO = 0.80  # last-resort trim line for single-round (no-history) requests
+TIME_INJECT_INTERVAL = 20        # rounds between two time injections (the first round always gets one)
 CALIBRATION_ALPHA = 0.30
 CALIBRATION_MIN = 0.5
 CALIBRATION_MAX = 3.0
@@ -120,6 +121,72 @@ def _msg_tool_calls(msg):
 def _msg_content(msg) -> str:
     content = msg.get("content") if isinstance(msg, dict) else getattr(msg, "content", None)
     return str(content) if content else ""
+
+
+def _now_time_message(server: 'ServerInterface') -> dict:
+    """
+    The current time as a ``user`` message.
+
+    Injected at request time (never as a second system message, which strict chat templates
+    reject) so that the system block itself never changes and stays a cacheable prefix.
+    """
+    return {
+        "role": "user",
+        "content": str(server.rtr(
+            "games_ai.user_message.time",
+            time=datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        )),
+    }
+
+
+def _insert_before_last_user(messages: list, message: dict) -> bool:
+    """
+    Put ``message`` immediately in front of the newest ``user`` message — the question it
+    belongs to. Returns False when the list holds no user message at all.
+    """
+    for index in range(len(messages) - 1, -1, -1):
+        if _msg_role(messages[index]) == "user":
+            messages.insert(index, message)
+            return True
+    return False
+
+
+def _data_message(server: 'ServerInterface', data: list[tuple[str, str]]) -> dict:
+    """The public database dump as an ``assistant`` message (reference material, not an order)."""
+    return {
+        "role": "assistant",
+        "content": f'{str(server.rtr("games_ai.user_message.data_list"))}{data}',
+    }
+
+
+def _merge_adjacent_user_messages(messages: list) -> list:
+    """
+    Join directly adjacent ``user`` messages into one, for the outgoing request only.
+
+    Two user messages in a row are legal but unwelcome: some providers require strict
+    user/assistant alternation, and a model that receives "the player said A" and "the player
+    said B" as two separate turns may answer only the last one. The plugin produces such pairs
+    on purpose — the injected time, the injected "read this skill first" note, a question
+    retried after a failed round, ``!!ask -f`` — and they are one turn for the model, so they
+    leave as one message.
+
+    The stored history is left untouched: this only shapes what is sent, so the history, the
+    token estimates, ``_split_rounds`` and ``!!ask context`` keep describing exactly the
+    messages that exist. The merge is deterministic, so the next request still starts with the
+    same prefix and the provider cache keeps hitting.
+    """
+    merged: list = []
+    for msg in messages:
+        if merged and _msg_role(merged[-1]) == "user" and _msg_role(msg) == "user":
+            previous = merged[-1]
+            content = f"{_msg_content(previous)}\n\n{_msg_content(msg)}"
+            previous = dict(previous) if isinstance(previous, dict) else {"role": "user"}
+            previous["role"] = "user"
+            previous["content"] = content
+            merged[-1] = previous
+            continue
+        merged.append(msg)
+    return merged
 
 
 def _msg_text(msg) -> str:
@@ -228,6 +295,13 @@ class BasicChatParam(ABC):
         # itself never waits for the summarizing request.
         self._pending_compaction: bool = False
 
+        # Rounds counted for the periodic time injection (see _inject_time): the first round
+        # of a conversation always gets one, then every TIME_INJECT_INTERVAL rounds. It is
+        # reset whenever the history is dropped for good (`!!ask clear` destroys the object,
+        # `!!ask switch` clears the list); compression keeps counting, because the
+        # conversation continues.
+        self._rounds_since_time: int = 0
+
     def _apply_pending_hand_off(self, source: CommandSource | None = None) -> None:
         """
         Summarize a conversation that was switched away, before the next request.
@@ -275,14 +349,14 @@ class BasicChatParam(ABC):
             for m in self.response_list
         )
 
-    def _describe_history(self, system_count: int) -> str:
+    def _describe_history(self, preamble_count: int) -> str:
         """Compact description of the request that is about to be sent (debug logging)."""
         counts: dict[str, int] = {}
         for msg in self.response_list:
             role = _msg_role(msg) or "?"
             counts[role] = counts.get(role, 0) + 1
         return (
-            f"system={system_count}, history={len(self.response_list)} {counts}, "
+            f"preamble={preamble_count}, history={len(self.response_list)} {counts}, "
             f"hand-off summary={'yes' if self._has_switch_summary() else 'no'}"
         )
 
@@ -321,8 +395,8 @@ class BasicChatParam(ABC):
         * a trailing tool-call group (assistant message with ``tool_calls`` plus its tool
           results) is removed as a whole, so no orphan tool message is left behind;
         * otherwise everything the interrupted round appended is removed — the trailing
-          message, messages merged from ``!!ask -f`` and injected system notes — stopping
-          at the last completed assistant turn, so an interrupted ask never happened;
+          message, messages merged from ``!!ask -f`` and injected notes (time, skill) —
+          stopping at the last completed assistant turn, so an interrupted ask never happened;
         * when that round had already appended a final answer, that answer is removed too.
         """
         messages = self.response_list
@@ -388,13 +462,21 @@ class BasicChatParam(ABC):
 
     def build_system_message(self) -> list[dict]:
         """
-        Time + prompt + the list of skills the model may load.
+        Prompt + the list of skills the model may load, joined into **one** system message.
+
+        Two things are deliberate here:
+
+        * a single message, because backends whose chat template accepts only one leading
+          system message (Qwen3.5/3.6/3.8 and friends) reject a split block with
+          ``System message must be at the beginning``;
+        * the time is *not* part of it any more — it is injected at request time (see
+          :meth:`ChatParam._inject_time`), so this block is byte-identical from round to
+          round and stays a cacheable prefix for the provider.
 
         Stored in ``self.system_message`` and returned; every history-based parameter
-        object starts its request with exactly these messages.
+        object starts its request with exactly this message.
         """
         prompt = str(self.ai_info.get("prompt", ""))
-        now_time = str(self.server.rtr("games_ai.user_message.time", time=datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
 
         skills = plugin_config.skills_description
         default_skills = [
@@ -415,18 +497,11 @@ class BasicChatParam(ABC):
         else:
             skills_file_list = str(self.server.rtr("games_ai.user_message.skills", skills=[*skills, *default_skills]))
 
+        parts = [part for part in (prompt, skills_file_list) if part]
         self.system_message.clear()
         self.system_message.append({
             "role": "system",
-            "content": now_time,
-        })
-        self.system_message.append({
-            "role": "system",
-            "content": prompt,
-        })
-        self.system_message.append({
-            "role": "system",
-            "content": skills_file_list
+            "content": "\n\n".join(parts),
         })
 
         return self.system_message
@@ -453,9 +528,12 @@ class BasicChatParam(ABC):
         pass
 
     @abstractmethod
-    def response_ai(self, source: CommandSource, data: list[tuple[str, str]]) -> None:
+    def response_ai(self, source: CommandSource, data: list[tuple[str, str]] | None = None) -> None:
         """
         Response AI loop
+
+        ``data`` is the public database content to attach to the request; ``None`` (or an
+        empty list) means the database holds nothing and no data message is sent.
         """
         pass
 
@@ -672,8 +750,16 @@ class BasicChatParam(ABC):
                 pending.append(msg)
                 continue
             if role == "user":
-                rounds.append(pending + [msg])
-                pending = []
+                # Two consecutive user messages are one turn: the injected time message sits
+                # right in front of the question it belongs to (an unanswered question
+                # followed by a new one is one turn as well). Without this, every injected
+                # time would count as a round of its own and KEEP_ROUNDS would keep half of
+                # the real conversation.
+                if rounds and not pending and _msg_role(rounds[-1][-1]) == "user":
+                    rounds[-1].append(msg)
+                else:
+                    rounds.append(pending + [msg])
+                    pending = []
                 continue
             # assistant / tool / anything else
             if rounds:
@@ -1283,7 +1369,49 @@ class ChatParam(BasicChatParam):
             self.add_to_response_list("tool", result, args={"tool_call_id": tool_call.id})
             self._log(f"tool_call: {func_name} (tool_count={self.tool_count}, result_chars={len(result)})")
 
-    def response_ai(self, source: CommandSource, data: list[tuple[str, str]]) -> None:
+    def _inject_time(self) -> None:
+        """
+        Put the current time in front of this round's question, as a ``user`` message.
+
+        The message is **stored in the history** rather than added to the outgoing request
+        only: the next request must start with exactly the same prefix for the provider's
+        cache to hit, and a timestamp that existed for a single request would shift
+        everything behind it and invalidate the whole history.
+
+        Cadence: the first round of a conversation, then once every
+        :data:`TIME_INJECT_INTERVAL` rounds, so a conversation that runs for hours does not
+        keep answering with the timestamp of its first message. Compression does not reset
+        the counter (the conversation continues); ``!!ask switch`` does (the history is
+        gone).
+        """
+        self._rounds_since_time += 1
+        if self._rounds_since_time != 1 and (self._rounds_since_time - 1) % TIME_INJECT_INTERVAL:
+            return
+        message = _now_time_message(self.server)
+        with self._ctx_lock:
+            if not _insert_before_last_user(self.response_list, message):
+                self.response_list.append(message)
+        self._log(
+            f"time injected in front of the question "
+            f"(round {self._rounds_since_time} of this conversation)"
+        )
+
+    def _preamble(self, data: list[tuple[str, str]] | None) -> list[dict]:
+        """
+        The leading block of the request: the single system message, plus the public data
+        list when the database actually holds something.
+
+        The data is a separate ``assistant`` message on purpose (reference material rather
+        than an instruction) and it is skipped entirely when there is nothing to send — an
+        empty "public data" message would only spend tokens and confuse the model. ``data``
+        may therefore be ``None``.
+        """
+        preamble = list(self.build_system_message())
+        if data:
+            preamble.append(_data_message(self.server, data))
+        return preamble
+
+    def response_ai(self, source: CommandSource, data: list[tuple[str, str]] | None = None) -> None:
         self.is_stopped.clear()
         self.begin_round()
         self._round_max_total_tokens = 0
@@ -1294,8 +1422,9 @@ class ChatParam(BasicChatParam):
         if merged_leftover:
             self._log(f"response_ai start: merged {merged_leftover} leftover queued message(s) into history")
 
-        system = self.build_system_message()
-        system.append({"role": "system","content": f'{str(self.server.rtr("games_ai.user_message.data_list"))}{data}'})
+        # after the queue merge: the time belongs directly in front of this round's question
+        self._inject_time()
+        system = self._preamble(data)
 
         ai_model = self.ai_info.get("ai_model", "")
         ai_prefix = self.ai_info.get("ai_name", "")
@@ -1317,9 +1446,11 @@ class ChatParam(BasicChatParam):
                 ai_reply, usage = response_chat(
                     self.openai_client,
                     model=ai_model,
-                    response_list=system + self.response_list,
+                    # adjacent user messages (time + question, skill note + question, a retried
+                    # question, `!!ask -f` batches) leave as one message
+                    response_list=system + _merge_adjacent_user_messages(self.response_list),
                     tools=ai_tools,
-                    extra_body= extra_body
+                    extra_body=extra_body
                 )
                 # the round may have been stopped while this request was in flight:
                 # drop the step instead of using the answer
@@ -1428,6 +1559,7 @@ class ChatParam(BasicChatParam):
 
         self.response_list.clear()
         self.response_queue.clear()
+        self._rounds_since_time = 0     # new conversation: the next round injects the time again
         self.tool_count = 0
         self._last_prompt_tokens = 0
         self._round_max_total_tokens = 0
@@ -1561,11 +1693,14 @@ class NonHistoryChatParam:
 
     def build_system_message(self) -> list[dict]:
         """
-        System messages for this round, built here instead of borrowing the history
-        class' version; the output is identical to ``ChatParam.build_system_message()``.
+        The single system message of a one-shot request, built here instead of borrowing the
+        history class' version; the output matches ``ChatParam.build_system_message()``.
+
+        Same two rules as there: one message only, because strict chat templates reject a
+        second system message, and no time inside it, because the time is injected at
+        request time (see :meth:`response_ai`).
         """
         prompt = str(self.ai_info.get("prompt", ""))
-        now_time = str(self.server.rtr("games_ai.user_message.time", time=datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
 
         default_skills = [
             {"file": "skills_management.md", "description": str(self.server.rtr("games_ai.builtin_skills.skills_management"))},
@@ -1586,11 +1721,8 @@ class NonHistoryChatParam:
             skills=[*plugin_config.skills_description, *default_skills, *external_skills]
         ))
 
-        return [
-            {"role": "system", "content": now_time},
-            {"role": "system", "content": prompt},
-            {"role": "system", "content": skills_file_list},
-        ]
+        parts = [part for part in (prompt, skills_file_list) if part]
+        return [{"role": "system", "content": "\n\n".join(parts)}]
 
     def add_to_response_list(self, type: str, content: str, *, args: dict | None = None) -> None:
         """Stage one message for the next round."""
@@ -1676,16 +1808,27 @@ class NonHistoryChatParam:
             f"truncated newest message {len(original)} -> {len(trimmed)} chars"
         )
 
-    def response_ai(self, source: CommandSource, data: list[tuple[str, str]]) -> None:
+    def response_ai(self, source: CommandSource, data: list[tuple[str, str]] | None = None) -> None:
         """
         Answer once, following tool calls until the model stops requesting them.
+
+        ``data`` is the public database dump; it is attached as an ``assistant`` message and
+        skipped entirely when it is ``None`` or empty. The current time is always injected in
+        front of the question (every ``!!ask -n`` is the first round of its own
+        conversation), and never as a ``system`` message.
 
         No message is kept afterwards: the whole request is local to this call. A
         ``!!ask stop`` for this player makes the loop return without answering.
         """
         messages = self.build_system_message()
-        messages.append({"role": "system", "content": f'{str(self.server.rtr("games_ai.user_message.data_list"))}{data}'})
+        if data:
+            messages.append(_data_message(self.server, data))
         messages.extend(self.pending)
+        time_message = _now_time_message(self.server)
+        if not _insert_before_last_user(messages, time_message):
+            messages.append(time_message)
+        # same rule as the history path: adjacent user messages are one turn for the model
+        messages = _merge_adjacent_user_messages(messages)
         self.pending.clear()
 
         ai_model = self.ai_info.get("ai_model", "")
