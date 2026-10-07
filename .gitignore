@@ -3,3 +3,5 @@
 /.freebuff
 __pycache__/
 /.pytest_tmp
+/.pytest_cache/
+/config
