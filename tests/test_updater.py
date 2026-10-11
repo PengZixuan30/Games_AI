@@ -24,7 +24,7 @@ from pathlib import Path
 import pytest
 
 from _helpers.paths import PKG
-from games_ai import updater
+from games_ai.update import updater
 
 
 def make_archive(path, *, plugin_id="games_ai", version="9.9.9", extra=b"", truncate_member=False):
@@ -215,16 +215,16 @@ def test_where_is_our_own_mcdr(tmp_path, monkeypatch):
     fake_archive.parent.mkdir(parents=True, exist_ok=True)
     make_archive(fake_archive, version="8.8.8")
 
-    monkeypatch.setattr(updater, "__file__", str(fake_archive / "games_ai" / "updater.py"))
+    monkeypatch.setattr(updater, "__file__", str(fake_archive / "games_ai" / "update/updater.py"))
     assert updater.self_archive_path() == fake_archive, \
         f"a packed install finds its archive: {updater.self_archive_path()}"
 
-    monkeypatch.setattr(updater, "__file__", str(tmp_path / "plugins" / "games_ai" / "updater.py"))
+    monkeypatch.setattr(updater, "__file__", str(tmp_path / "plugins" / "games_ai" / "update/updater.py"))
     assert updater.self_archive_path() is None, \
         f"an unpacked install reports None (cannot self-replace): {updater.self_archive_path()}"
 
     monkeypatch.setattr(updater, "__file__",
-                        str(tmp_path / "plugins" / "gone.mcdr" / "games_ai" / "updater.py"))
+                        str(tmp_path / "plugins" / "gone.mcdr" / "games_ai" / "update/updater.py"))
     assert updater.self_archive_path() is None, \
         f"a .mcdr that is not a file is not used: {updater.self_archive_path()}"
 
@@ -518,7 +518,7 @@ def test_the_whole_update_runs(tmp_path, artifact, monkeypatch):
     folder.mkdir()
     live = folder / "GamesAI-v8.8.8.mcdr"
     make_archive(live, version="8.8.8")
-    monkeypatch.setattr(updater, "__file__", str(live / "games_ai" / "updater.py"))
+    monkeypatch.setattr(updater, "__file__", str(live / "games_ai" / "update/updater.py"))
     server = FakeServer(version_after_load="9.9.9")
     session = FakeSession([FakeResponse(artifact.body)])
 
@@ -562,5 +562,5 @@ def test_the_updater_never_hands_the_work_back_to_pim():
     assert offenders == [], f"no source calls a !!MCDR command (no PIM fallback): {offenders}"
     assert all(literal.startswith("!!gamesai") for _, literal in targets), \
         f"every execute_command target is a GamesAI command: {targets}"
-    assert "os.replace" in (Path(PKG) / "updater.py").read_text(encoding="utf-8"), \
+    assert "os.replace" in (Path(PKG) / "update/updater.py").read_text(encoding="utf-8"), \
         "updater.py is the only file that replaces the archive"

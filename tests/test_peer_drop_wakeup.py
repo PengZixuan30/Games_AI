@@ -12,8 +12,8 @@ import pytest
 
 import games_ai
 from _helpers.wait import wait_until
-from games_ai.websockets_client import APP_ID, CrossServerNode
-from games_ai.websockets_server import CrossServerHub
+from games_ai.cluster.websockets_client import APP_ID, CrossServerNode
+from games_ai.cluster.websockets_server import CrossServerHub
 
 from websockets.sync.client import connect as raw_connect
 

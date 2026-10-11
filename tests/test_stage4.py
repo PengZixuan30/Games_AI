@@ -16,9 +16,9 @@ README_NOTES = {
     "README.zh-TW.md": ("0.8.0", "docs/zh_tw/cross-server.md"),
 }
 STALE_VERSIONS = ("0.8.0", "0.8.0-SNAPSHOT-9", "0.7.3", "0.7.x", "0.7.0", "SNAPSHOT")
-EXPECTED_PAGES = {"ai-request-pipeline.md", "changelog.md", "configuration.md", "cross-server.md",
-                  "example.md", "hot-reload.md", "mineflayer-bot.md", "pim.md", "skills.md",
-                  "testing.md", "tools.md", "troubleshooting.md"}
+EXPECTED_PAGES = {"ai-request-pipeline.md", "architecture.md", "changelog.md", "configuration.md",
+                  "cross-server.md", "example.md", "hot-reload.md", "mineflayer-bot.md", "pim.md",
+                  "skills.md", "testing.md", "tools.md", "troubleshooting.md"}
 
 
 def _read(path, newline=""):
@@ -68,7 +68,7 @@ def module_sizes():
     They are facts about the current tree and must not drift away from it (they did once:
     "4060 lines" survived two changes).
     """
-    return {"help.py": len(_read(os.path.join(REPO_ROOT, "games_ai", "help.py")).splitlines()),
+    return {"ui/help.py": len(_read(os.path.join(REPO_ROOT, "games_ai", "ui/help.py")).splitlines()),
             "__init__.py": len(_read(os.path.join(REPO_ROOT, "games_ai", "__init__.py")).splitlines())}
 
 
@@ -130,7 +130,7 @@ def test_language_files_keep_consistent_line_endings(lang_files, lang):
 def test_cross_server_unavailable_key_exists(parsed_languages, lang):
     node = parsed_languages[lang].get("games_ai", {}).get("cross_server", {})
 
-    assert node.get("unavailable"), f"{lang}: games_ai.cross_server.unavailable exists: {node}"
+    assert node.get("unavailable"), f"{lang}: games_ai.cluster.cross_server.unavailable exists: {node}"
 
 
 @pytest.mark.parametrize("lang", LANGS)
@@ -199,7 +199,7 @@ def test_the_0_8_0_section_links_the_new_doc(changelogs, lang):
 def test_the_internal_structure_notes_quote_the_help_module(changelogs, module_sizes, lang):
     unit = "lines" if lang == "en_us" else "行"
     section = changelogs[lang].split("## Version 0.8.0", 1)[1]
-    quoted = f"{module_sizes['help.py']} {unit}"
+    quoted = f"{module_sizes['ui/help.py']} {unit}"
 
     assert quoted in section, f"{lang}: the internal-structure notes quote help.py as {quoted}"
 

@@ -8,7 +8,7 @@ from mcdreforged.command.command_source import (
 from mcdreforged.minecraft.rtext.click_event import RAction
 from mcdreforged.minecraft.rtext.style import RColor, RStyle
 
-from games_ai.ws_command import (
+from games_ai.cluster.ws_command import (
     REMOTE_CONSOLE_LEVEL,
     MAX_SESSIONS,
     SessionRegistry,

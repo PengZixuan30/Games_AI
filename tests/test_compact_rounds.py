@@ -17,7 +17,7 @@ import pytest
 from _helpers.paths import LANG_DIR
 from _helpers.pkg import module_text
 
-from games_ai.chat_param import KEEP_ROUNDS, ChatParam
+from games_ai.ai.chat_param import KEEP_ROUNDS, ChatParam
 
 
 class FakeServer:

@@ -8,7 +8,7 @@ were another instance's broadcast output. The class of the command decides now.
 import pytest
 
 import games_ai
-from games_ai.ws_command import (
+from games_ai.cluster.ws_command import (
     MAX_SESSIONS,
     ROUTE_CLUSTER,
     ROUTE_SERVER,

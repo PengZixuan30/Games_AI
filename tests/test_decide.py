@@ -8,8 +8,8 @@ import time
 import pytest
 from websockets.sync.server import serve as raw_serve
 
-from games_ai import cross_server as cs
-from games_ai.websockets_server import CrossServerHub, is_port_available
+from games_ai.cluster import cross_server as cs
+from games_ai.cluster.websockets_server import CrossServerHub, is_port_available
 
 from _helpers.wait import wait_until
 

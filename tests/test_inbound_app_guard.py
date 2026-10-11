@@ -17,8 +17,8 @@ from websockets.sync.client import connect as raw_connect
 
 from _helpers.wait import wait_until
 import games_ai
-from games_ai.websockets_client import APP_ID, APP_ID_BOT
-from games_ai.websockets_server import CrossServerHub
+from games_ai.cluster.websockets_client import APP_ID, APP_ID_BOT
+from games_ai.cluster.websockets_server import CrossServerHub
 
 log = logging.getLogger(__name__)
 

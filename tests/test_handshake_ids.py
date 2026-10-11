@@ -7,8 +7,8 @@ import pytest
 from websockets.exceptions import ConnectionClosed
 from websockets.sync.client import connect as raw_connect
 
-from games_ai.websockets_client import APP_ID, APP_ID_BOT, CrossServerNode
-from games_ai.websockets_server import CrossServerHub
+from games_ai.cluster.websockets_client import APP_ID, APP_ID_BOT, CrossServerNode
+from games_ai.cluster.websockets_server import CrossServerHub
 
 from _helpers.wait import wait_until
 

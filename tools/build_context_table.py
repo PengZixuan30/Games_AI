@@ -5,14 +5,14 @@ The repository keeps the table twice:
 
   * ``data/context_windows.json``      - source of truth, also the file the plugin
                                          fetches at runtime (GitHub Raw / jsDelivr)
-  * ``games_ai/context_table_data.py`` - generated Python module bundled into the
+  * ``games_ai/ai/context_table_data.py`` - generated Python module bundled into the
                                          release, used as the offline fallback
 
 Modes:
 
   python tools/build_context_table.py
       Maintenance mode (default): read data/context_windows.json, regenerate
-      games_ai/context_table_data.py from it and verify that both agree.
+      games_ai/ai/context_table_data.py from it and verify that both agree.
 
   python tools/build_context_table.py --merge
       Research mode: merge the .tmp_part_*.json research batches into
@@ -27,7 +27,7 @@ import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REPO_TABLE = os.path.join(ROOT, "data", "context_windows.json")
-DATA_MODULE = os.path.join(ROOT, "games_ai", "context_table_data.py")
+DATA_MODULE = os.path.join(ROOT, "games_ai", "ai", "context_table_data.py")
 
 # research staging files (only used with --merge)
 PARTS = [
@@ -48,7 +48,7 @@ remote table the plugin fetches at runtime. Regenerate after editing that file::
 
     python tools/build_context_table.py
 
-Loaded by ``games_ai/context_table.py`` as the offline fallback (priority 3).
+Loaded by ``games_ai/ai/context_table.py`` as the offline fallback (priority 3).
 """
 '''
 
@@ -126,8 +126,8 @@ def write_bundled(table: dict) -> bool:
 def verify() -> bool:
     sys.path.insert(0, ROOT)
     import importlib
-    import games_ai.context_table as ct
-    import games_ai.context_table_data as ctd
+    import games_ai.ai.context_table as ct
+    import games_ai.ai.context_table_data as ctd
     importlib.reload(ctd)
     importlib.reload(ct)
 
@@ -137,7 +137,8 @@ def verify() -> bool:
     def check(name, cond, detail=""):
         results.append((name, bool(cond), "" if cond else str(detail)))
 
-    ct_source = open(os.path.join(ROOT, "games_ai", "context_table.py"), encoding="utf-8").read()
+    ct_source = open(os.path.join(ROOT, "games_ai", "ai", "context_table.py"),
+                     encoding="utf-8").read()
     check("bundled == repo", ct.BUNDLED_TABLE["models"] == repo["models"])
     check("schema valid", ct.validate_table(repo) is not None)
     check("has * fallback", "*" in repo["models"])

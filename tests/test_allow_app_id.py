@@ -8,10 +8,10 @@ from websockets.exceptions import ConnectionClosed
 from websockets.sync.client import connect as raw_connect
 
 import games_ai
-from games_ai.config import plugin_config
-from games_ai.cross_server import CrossServerManager
-from games_ai.websockets_client import APP_ID, APP_ID_BOT
-from games_ai.websockets_server import CrossServerHub
+from games_ai.core.config import plugin_config
+from games_ai.cluster.cross_server import CrossServerManager
+from games_ai.cluster.websockets_client import APP_ID, APP_ID_BOT
+from games_ai.cluster.websockets_server import CrossServerHub
 
 from _helpers.wait import wait_until
 

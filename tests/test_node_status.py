@@ -15,9 +15,9 @@ import pytest
 import games_ai
 from _helpers.paths import LANG_DIR
 from _helpers.wait import wait_until
-from games_ai.config import plugin_config
-from games_ai.websockets_client import CrossServerNode, token_fingerprint
-from games_ai.websockets_server import CrossServerHub
+from games_ai.core.config import plugin_config
+from games_ai.cluster.websockets_client import CrossServerNode, token_fingerprint
+from games_ai.cluster.websockets_server import CrossServerHub
 
 log = logging.getLogger("gamesai-status-test")
 
@@ -141,7 +141,7 @@ def run_status(monkeypatch, server, manager, perm=4):
     monkeypatch.setattr(plugin_config, "websocket_identity_file", "")
     monkeypatch.setattr(plugin_config, "allow_permission", 3)
     source = FakeSource(server, perm=perm)
-    games_ai._node_status(source)
+    games_ai.commands.node.status(source)
     return source.replies
 
 

@@ -17,7 +17,7 @@ python tools/build_context_table.py            # rebuild the bundled table from 
 python tools/build_context_table.py --check     # verify only, write nothing
 ```
 
-The script embeds `data/context_windows.json` verbatim into `games_ai/context_table.py`
+The script embeds `data/context_windows.json` verbatim into `games_ai/ai/context_table_data.py`
 (the offline fallback), so the two can never drift apart.
 
 Matching rules: **exact id → longest wildcard → `*`**. Vendor-prefixed ids

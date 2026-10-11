@@ -10,8 +10,8 @@ import time
 import pytest
 from websockets.sync.client import connect as raw_connect
 
-from games_ai.websockets_client import APP_ID
-from games_ai.websockets_server import (
+from games_ai.cluster.websockets_client import APP_ID
+from games_ai.cluster.websockets_server import (
     ENROL_PENDING_TTL,
     ENROL_RATE_LIMIT,
     ENROL_RATE_WINDOW,

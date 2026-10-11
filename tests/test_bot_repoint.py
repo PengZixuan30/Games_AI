@@ -269,7 +269,7 @@ def test_a_role_change_re_points_the_bot(instances, free_port, tmp_path):
 
         b_token = manager_a.hub.issue("host-b")
         console_b = Source(b_base)
-        B._node_claim(console_b, Ctx(token=b_token))
+        B.node_commands.claim(console_b, Ctx(token=b_token))
         assert "Enrolled as host-b" in console_b.text(), f"the claim is accepted: {console_b.text()}"
         assert wait_until(lambda: b_state["ready"], timeout=20), \
             f"the re-point path ran: {b_state}"
@@ -306,7 +306,7 @@ def test_a_role_change_re_points_the_bot(instances, free_port, tmp_path):
         spy_bot_paths(C, c_state)
         c_token = manager_a.hub.issue("host-c")
         console_c = Source(c_base)
-        C._node_claim(console_c, Ctx(token=c_token))
+        C.node_commands.claim(console_c, Ctx(token=c_token))
         assert "Enrolled as host-c" in console_c.text(), f"the claim is accepted: {console_c.text()}"
         assert wait_until(lambda: c_state["ready"], timeout=20), \
             f"the re-point path ran: {c_state}"
@@ -325,7 +325,7 @@ def test_a_role_change_re_points_the_bot(instances, free_port, tmp_path):
         before_c = read_text(c_config_path)
         c_peer_before = C._cross_server.peer_uri
         console_c2 = Source(c_base)
-        C._node_claim(console_c2, Ctx(token=c_token))
+        C.node_commands.claim(console_c2, Ctx(token=c_token))
         assert "Enrolled as host-c" in console_c2.text(), \
             f"the claim is accepted again: {console_c2.text()}"
         assert wait_until(lambda: c_state["ready"], timeout=20), \

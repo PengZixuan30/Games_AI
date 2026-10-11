@@ -168,13 +168,20 @@ def invoke(callback, source, context):
     ScheduledCallback(callback, (source, context), lambda e: e).invoke(DirectCallbackInvoker())
 
 
-def load_instance(alias):
-    """Load the plugin package again under its own namespace of globals."""
+def load_instance(alias, scratch):
+    """Load the plugin package again under its own namespace of globals.
+
+    ``scratch`` is that copy's data folder: it keeps the copy's own ``plugin_config`` -- and every
+    path the plugin derives from it -- out of the checkout (see ``instances``).
+    """
     spec = importlib.util.spec_from_file_location(
         alias, os.path.join(PKG, "__init__.py"), submodule_search_locations=[PKG])
     module = importlib.util.module_from_spec(spec)
     sys.modules[alias] = module
     spec.loader.exec_module(module)
+    folder = os.path.join(str(scratch), "config", "games_ai")
+    module.plugin_config.skills_path = os.path.join(folder, "skills", "skills.json")
+    module.plugin_config.data_path = os.path.join(folder, "database", "public_database.db")
     return module
 
 
@@ -203,15 +210,22 @@ def lang():
 
 
 @pytest.fixture(scope="module")
-def instances():
+def instances(tmp_path_factory):
     """Three copies of the plugin: the hub, the node and a standalone instance.
 
     A full package import is the expensive part of this module, and every test builds its own
-    links and fake servers around these copies, so one set serves the whole module.
+    links and fake servers around these copies, so one set serves the whole module. Each copy gets
+    its own data folder under ``tmp_path_factory``: a copy carries its own ``plugin_config``, whose
+    paths default to ``config/games_ai/...`` *relative to the working directory* -- the checkout.
+    ``_start_cross_server`` arms a background update loop that refreshes the context-window table
+    through those paths, and that thread can outlive the test that started it, so the redirect has
+    to live as long as the instance does. (``conftest``'s session guard only covers the real
+    package, not these copies.)
     """
-    yield SimpleNamespace(a=load_instance("games_ai_claim_hub"),
-                          b=load_instance("games_ai_claim_node"),
-                          c=load_instance("games_ai_claim_local"))
+    scratch = tmp_path_factory.mktemp("claim-forward")
+    yield SimpleNamespace(a=load_instance("games_ai_claim_hub", scratch / "a"),
+                          b=load_instance("games_ai_claim_node", scratch / "b"),
+                          c=load_instance("games_ai_claim_local", scratch / "c"))
     for alias in ("games_ai_claim_hub", "games_ai_claim_node", "games_ai_claim_local"):
         unload_instance(alias)
 
@@ -264,7 +278,7 @@ def hub(instances, monkeypatch, tmp_path, free_port, lang):
 def hub_issued_token(hub, name="host-b"):
     """The token ``!!gamesai node token <name>`` printed, and the console source that saw it."""
     admin = Source(hub.base, who="console", console=True)
-    hub.instance._node_token(admin, Ctx(name=name))
+    hub.instance.node_commands.issue_token(admin, Ctx(name=name))
     printed = [chunk for chunk in admin.text().split() if len(chunk) == 43]
     return SimpleNamespace(printed=printed, token=printed[0] if printed else "", admin=admin)
 
@@ -302,7 +316,7 @@ def node(hub, instances, monkeypatch, tmp_path, lang):
     data_path = os.path.join(str(folder), "database", "public_database.db")
     monkeypatch.setattr(b, "data_path", data_path, raising=False)
     os.makedirs(os.path.dirname(data_path), exist_ok=True)
-    b.database.PublicDatabase(data_path).write_data("key1", "LOCAL-ONLY-VALUE")
+    b.core.database.PublicDatabase(data_path).write_data("key1", "LOCAL-ONLY-VALUE")
 
     yield SimpleNamespace(instance=b, plugin=plugin, base=BaseServer("node-base", lang),
                           folder=str(folder),
@@ -333,7 +347,7 @@ def enrolled(local_node, hub, issued):
     """The node after the operator claimed its token: a live client of the hub."""
     b = local_node.instance
     console = Source(local_node.base, who="console", console=True, command="!!gamesai node claim x")
-    b._node_claim(console, Ctx(token=issued.token))
+    b.node_commands.claim(console, Ctx(token=issued.token))
 
     assert wait_until(lambda: b._cross_server is not None and b._cross_server.is_client
                       and b._cross_server.connected, timeout=15), \
@@ -465,7 +479,7 @@ def test_ask_is_forwarded_too(enrolled, hub, monkeypatch):
     def no_provider(*args, **kwargs):
         raise RuntimeError("this test has no AI provider")
 
-    monkeypatch.setattr(b.chat_param, "response_chat", no_provider)
+    monkeypatch.setattr(b.ai.chat_param, "response_chat", no_provider)
 
     capture = Capture()
     b.register_commands(capture, {})
@@ -492,7 +506,7 @@ def test_ask_is_forwarded_too(enrolled, hub, monkeypatch):
 def test_node_status_reads_the_identity_through_the_base_source(enrolled):
     b = enrolled.instance
     status = Source(enrolled.base, who="console", console=True, command="!!gamesai node status")
-    b._node_status(status)
+    b.node_commands.status(status)
 
     assert "role: client" in status.text(), f"status reports the client role: {status.text()}"
     assert "enrolled: yes" in status.text(), \
@@ -508,7 +522,7 @@ def test_a_claim_that_cannot_work_leaves_the_instance_local(hub, token, local_in
     monkeypatch.setattr(c.plugin_config, "websocket_uri",
                         "ws://127.0.0.1:{}".format(free_port()), raising=False)
     unreachable = Source(local_instance.base, who="console", console=True)
-    c._node_claim(unreachable, Ctx(token=token))
+    c.node_commands.claim(unreachable, Ctx(token=token))
 
     assert "did not answer" in unreachable.text(), \
         f"an unreachable hub refuses the claim: {unreachable.text()}"
@@ -517,11 +531,11 @@ def test_a_claim_that_cannot_work_leaves_the_instance_local(hub, token, local_in
 
     monkeypatch.setattr(c.plugin_config, "websocket_uri", hub.uri, raising=False)
     rejected = Source(local_instance.base, who="console", console=True)
-    c._node_claim(rejected, Ctx(token="not-a-real-token"))
+    c.node_commands.claim(rejected, Ctx(token="not-a-real-token"))
 
     assert "does not know this token" in rejected.text(), \
         f"a token the hub does not know is refused: {rejected.text()}"
-    c._node_claim(rejected, Ctx(token=""))
+    c.node_commands.claim(rejected, Ctx(token=""))
     assert "Usage: !!gamesai node claim" in rejected.text(), \
         f"an empty token only prints the usage: {rejected.text()}"
     assert not os.path.isfile(local_identity), \

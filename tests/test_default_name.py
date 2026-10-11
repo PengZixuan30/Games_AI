@@ -13,7 +13,7 @@ import re
 import socket
 
 import games_ai
-from games_ai.websockets_server import CrossServerHub
+from games_ai.cluster.websockets_server import CrossServerHub
 
 from _helpers.paths import LANG_DIR
 from _helpers.pkg import module_text, package_text
@@ -279,7 +279,7 @@ def test_the_node_token_command_refuses_a_taken_name(tmp_path, free_port, monkey
 
     fingerprint = hub.fingerprint("beta")
     source = FakeSource(server)
-    games_ai._node_token(source, {"name": "beta"})
+    games_ai.commands.node.issue_token(source, {"name": "beta"})
     assert any("token_name_taken" in reply for reply in source.replies), \
         f"!!gamesai node token refuses a name that is taken: {source.replies}"
     assert not any("token_issued" in reply for reply in source.replies), \
@@ -290,12 +290,12 @@ def test_the_node_token_command_refuses_a_taken_name(tmp_path, free_port, monkey
 
     hub.enrol("epsilon", app="games_ai_mcdr", ip="10.0.0.8")
     issuing = FakeSource(server)
-    games_ai._node_token(issuing, {"name": "epsilon"})
+    games_ai.commands.node.issue_token(issuing, {"name": "epsilon"})
     assert any("token_issued" in reply for reply in issuing.replies), \
         f"a pending name still gets its token: {issuing.replies}"
 
     unknown = FakeSource(server)
-    games_ai._node_token(unknown, {"name": "zeta"})
+    games_ai.commands.node.issue_token(unknown, {"name": "zeta"})
     assert any("token_not_pending" in reply for reply in unknown.replies), \
         f"an unknown name still gets the not-pending line: {unknown.replies}"
 

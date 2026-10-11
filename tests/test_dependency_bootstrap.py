@@ -17,7 +17,7 @@ import time
 import pytest
 
 import games_ai
-from games_ai import deps
+from games_ai.core import deps
 
 from _helpers.paths import PKG, REPO_ROOT
 from _helpers.pkg import module_text
@@ -51,7 +51,7 @@ else:
                                "get_default_init_hash", "CONTROLLER_THREAD_NAMES",
                                "_deps_start_install", "_deps_install_thread", "on_load")
                    if hasattr(games_ai, n)]
-    out["unsatisfied"] = games_ai.deps.unsatisfied()
+    out["unsatisfied"] = games_ai.core.deps.unsatisfied()
     out["loaded"] = [n for n in BLOCKED if n in sys.modules]
 print(json.dumps(out))
 '''
@@ -233,21 +233,40 @@ def test_the_source_keeps_that_shape(entry_source, deps_source):
     assert _evaluated_annotation_hits(entry_source) == [], \
         f"nothing evaluated at import time names a gated symbol: " \
         f"{_evaluated_annotation_hits(entry_source)}"
-    assert entry_source.index("_deps_pending = bool(deps.unsatisfied())") \
-        < entry_source.index("    from .openai_api import"), "the gate is computed before the gated imports"
-    assert "\nfrom .openai_api import" not in entry_source \
-        and "    from .openai_api import setup_openai_logging" in entry_source, \
-        "openai_api is imported inside the gate only"
-    assert "\nfrom .mineflayer_ai import" not in entry_source, \
-        "mineflayer_ai is imported inside the gate only"
-    assert "\nfrom .chat_param import" not in entry_source, \
-        "chat_param is imported inside the gate only"
-    assert "\nfrom .cross_server import" not in entry_source, \
-        "cross_server is imported inside the gate only"
-    assert "\nfrom .websockets_client import" not in entry_source, \
-        "websockets_client is imported inside the gate only"
-    assert "\nfrom . import update_round" not in entry_source, \
-        "update_round is imported inside the gate only"
+    # The names that need a third-party package are imported inside `if not _deps_pending:` --
+    # and nowhere else. The entry imports from the packages' front doors, so the check is on the
+    # names it binds, not on the module paths they used to come from.
+    tree = ast.parse(entry_source)
+    gate_line = next(node.lineno for node in tree.body
+                     if isinstance(node, ast.Assign)
+                     and any(isinstance(target, ast.Name) and target.id == "_deps_pending"
+                             for target in node.targets))
+    top_level = [node for node in tree.body
+                 if (isinstance(node, ast.ImportFrom) and node.level == 1)
+                 or (isinstance(node, ast.Import) and any(alias.name.split(".")[0] == "games_ai"
+                                                          for alias in node.names))]
+    assert all(node.lineno < gate_line for node in top_level), \
+        "every package-level import sits above the dependency gate"
+    top_names = {alias.asname or alias.name
+                 for node in top_level if isinstance(node, ast.ImportFrom)
+                 for alias in node.names}
+    gated_names = {alias.asname or alias.name
+                   for node in ast.walk(tree)
+                   if isinstance(node, ast.ImportFrom) and node.level == 1
+                   and node.lineno > gate_line
+                   for alias in node.names}
+    needs_third_party = {
+        "ChatParam", "NonHistoryChatParam", "describe_http_status", "register_no_history",
+        "set_remote_tool_router", "setup_openai_logging", "stop_no_history",
+        "unregister_no_history", "AutonomousBotController", "CONTROLLER_THREAD_NAMES",
+        "force_abort_thread", "get_bot_controller", "set_bot_controller", "MODE_CLIENT",
+        "MODE_LOCAL", "MODE_SERVER", "CrossServerManager", "token_fingerprint", "update_round",
+        "node_commands",
+    }
+    assert not (top_names & needs_third_party), \
+        f"the gated names are not imported at module level: {sorted(top_names & needs_third_party)}"
+    assert needs_third_party <= gated_names, \
+        f"the gated names are imported inside the gate: {sorted(needs_third_party - gated_names)}"
     assert "\nimport requests\n" not in entry_source, \
         "requests is imported inside the gate only"
     assert "\nfrom openai import" not in entry_source, \
@@ -256,8 +275,14 @@ def test_the_source_keeps_that_shape(entry_source, deps_source):
         "the controller thread names have a safe value without them"
     assert "if not _deps_pending:\n    _install_tool_router()" in entry_source, \
         "the tool router is only installed with the packages present"
-    assert "def on_server_startup(server: PluginServerInterface):\n    if _deps_pending:\n        return" \
-        in entry_source, "on_server_startup steps aside while the packages are missing"
+    # The gate has to be the *first thing the function does*; a docstring and a trailing comment
+    # are allowed, an extra statement before it is not.
+    startup_body = _function_source(entry_source, "on_server_startup").split(":\n", 1)[1]
+    if startup_body.lstrip().startswith('"""'):
+        startup_body = startup_body.split('"""', 2)[2]
+    first_statements = [line.strip() for line in startup_body.splitlines() if line.strip()]
+    assert first_statements[0] == "if _deps_pending:" and first_statements[1].startswith("return"), \
+        "on_server_startup steps aside while the packages are missing"
     assert "_DEP_INSTALL_ABORT.set()" in entry_source \
         and "if _deps_pending:" in _function_source(entry_source, "on_unload"), \
         "on_unload aborts a running pip"

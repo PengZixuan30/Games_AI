@@ -1,4 +1,4 @@
-"""Verify the repo's games_ai/websockets_server.py against the tested node prototype."""
+"""Verify the repo's games_ai/cluster/websockets_server.py against the tested node prototype."""
 import importlib.util
 import json
 import os
@@ -29,7 +29,7 @@ def load_module(name, path):
 @pytest.fixture(scope="module")
 def repo_hub_module():
     """The repository's hub, loaded straight from its file; the prototype node is the peer."""
-    return load_module("repo_hub", os.path.join(PKG, "websockets_server.py"))
+    return load_module("repo_hub", os.path.join(PKG, "cluster/websockets_server.py"))
 
 
 @pytest.fixture

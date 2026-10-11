@@ -17,8 +17,8 @@ import os
 import pytest
 
 import games_ai
-from games_ai.config import plugin_config
-from games_ai.websockets_server import APP_ID, CrossServerHub
+from games_ai.core.config import plugin_config
+from games_ai.cluster.websockets_server import APP_ID, CrossServerHub
 
 
 class RecordingHandler(logging.Handler):
@@ -52,12 +52,12 @@ class FakeServer:
 def make_server(tmp_path, monkeypatch):
     """One load's worth of state: a fake server, its own data folder, a fresh migration cache.
 
-    ``games_ai.logger.attach`` wires the fake logger into the plugin's stdlib logger for the
+    ``games_ai.core.logger.attach`` wires the fake logger into the plugin's stdlib logger for the
     duration of the test only -- the plugin logger must not keep a handler of a server that no
     longer exists, or a later suite's records would be written into this test's recorder.
     """
-    original_log_server = games_ai.logger._server
-    plugin_logger = logging.getLogger(games_ai.logger.PLUGIN_LOGGER_NAME)
+    original_log_server = games_ai.core.logger._server
+    plugin_logger = logging.getLogger(games_ai.core.logger.PLUGIN_LOGGER_NAME)
     original_propagate, original_level = plugin_logger.propagate, plugin_logger.level
     attached = []
 
@@ -66,7 +66,7 @@ def make_server(tmp_path, monkeypatch):
         folder.mkdir(parents=True, exist_ok=True)
         server = FakeServer(str(folder))
         monkeypatch.setattr(games_ai, "_server_ref", server)          # what on_load stores
-        games_ai.logger.attach(server)
+        games_ai.core.logger.attach(server)
         monkeypatch.setattr(games_ai, "_state_files_seen", set(), raising=False)
         attached.append(server)
         return server
@@ -76,7 +76,7 @@ def make_server(tmp_path, monkeypatch):
     for server in attached:
         plugin_logger.removeHandler(server.handler)
     plugin_logger.propagate, plugin_logger.level = original_propagate, original_level
-    games_ai.logger._server = original_log_server
+    games_ai.core.logger._server = original_log_server
 
 
 def write_json(path, payload):

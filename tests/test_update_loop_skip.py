@@ -15,9 +15,9 @@ import pytest
 
 from _helpers.paths import PKG
 import games_ai
-from games_ai import update_round
-from games_ai.config import plugin_config
-from games_ai.cross_server import MODE_CLIENT, MODE_LOCAL, MODE_SERVER
+from games_ai.update import update_round
+from games_ai.core.config import plugin_config
+from games_ai.cluster.cross_server import MODE_CLIENT, MODE_LOCAL, MODE_SERVER
 
 # The real per-cycle guard, captured before any test replaces the module attribute.
 REAL_CYCLIC_CHECK_UPDATES = update_round.cyclic_check_updates
@@ -135,7 +135,7 @@ def test_a_non_client_cycle_still_runs_and_re_arms(server, stubbed, monkeypatch)
 
 def test_the_update_threads_keep_the_names_on_unload_reports():
     """Section 6: the update threads keep the names on_unload reports."""
-    source = (Path(PKG) / "update_round.py").read_text(encoding="utf-8")
+    source = (Path(PKG) / "update/update_round.py").read_text(encoding="utf-8")
 
     assert re.search(r"(?m)^\s*(import games_ai\b|from games_ai\b)", source) is None, \
         "the update path does not import the entry package"

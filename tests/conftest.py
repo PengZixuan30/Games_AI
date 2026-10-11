@@ -62,7 +62,7 @@ def keep_the_checkout_clean(tmp_path_factory):
 
     A suite that wants its own paths still patches them itself; this is only the default.
     """
-    from games_ai.config import plugin_config  # local: this file stays importable on its own
+    from games_ai.core.config import plugin_config  # local: this file stays importable on its own
 
     scratch = tmp_path_factory.mktemp("checkout") / "config" / "games_ai"
     with pytest.MonkeyPatch.context() as patch:

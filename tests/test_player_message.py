@@ -16,9 +16,9 @@ from types import SimpleNamespace
 import pytest
 
 import games_ai
-from games_ai.chat_param import ChatParam
-from games_ai.config import plugin_config
-from games_ai.games_ai_tool import (get_hub_tool_schemas_for_perm, get_local_tool_schemas_for_perm,
+from games_ai.ai.chat_param import ChatParam
+from games_ai.core.config import plugin_config
+from games_ai.ai.games_ai_tool import (get_hub_tool_schemas_for_perm, get_local_tool_schemas_for_perm,
                                     get_tool_handler)
 
 TOOL = "send_message_to_player_ai"
@@ -101,7 +101,7 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setattr(games_ai, "all_chat_param", {}, raising=False)
     monkeypatch.setattr(games_ai, "_history_frozen", True, raising=False)
     monkeypatch.setattr(games_ai, "_cross_server", None, raising=False)
-    monkeypatch.setattr(games_ai.logger, "_server", server, raising=False)
+    monkeypatch.setattr(games_ai.core.logger, "_server", server, raising=False)
     monkeypatch.setattr(plugin_config, "all_ai", {"main": model_entry()})
     monkeypatch.setattr(plugin_config, "skills_description", {})
     monkeypatch.setattr(plugin_config, "debug_mode", False)

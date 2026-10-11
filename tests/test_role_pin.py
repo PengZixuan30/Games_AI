@@ -8,8 +8,8 @@ a client, and the escape hatch is `!!gamesai node forget` (which drops the token
 """
 import logging
 
-from games_ai import cross_server as cs
-from games_ai.websockets_server import CrossServerHub
+from games_ai.cluster import cross_server as cs
+from games_ai.cluster.websockets_server import CrossServerHub
 
 log = logging.getLogger("gamesai_pin")
 HOST = "127.0.0.1"

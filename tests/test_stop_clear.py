@@ -23,9 +23,9 @@ from mcdreforged.command.builder.nodes.basic import ArgumentNode, Literal
 import games_ai
 from _helpers.paths import DOCS_DIR, LANG_DIR, REPO_ROOT
 from _helpers.pkg import module_text, package_text
-from games_ai.chat_param import ChatParam
-from games_ai.config import plugin_config
-from games_ai.database import ChatHistoryStore
+from games_ai.ai.chat_param import ChatParam
+from games_ai.core.config import plugin_config
+from games_ai.core.database import ChatHistoryStore
 
 
 class FakeServer:
@@ -72,7 +72,7 @@ def env(tmp_path, monkeypatch):
 
     monkeypatch.setattr(games_ai, "all_chat_param", {}, raising=False)
     monkeypatch.setattr(games_ai, "_history_frozen", False, raising=False)
-    monkeypatch.setattr(games_ai.logger, "_server", server, raising=False)
+    monkeypatch.setattr(games_ai.core.logger, "_server", server, raising=False)
     monkeypatch.setattr(plugin_config, "all_ai", {"main": model_entry()})
     monkeypatch.setattr(plugin_config, "skills_description", {})
     monkeypatch.setattr(plugin_config, "debug_mode", False)
@@ -208,7 +208,7 @@ def test_gamesai_clear_named(env):
         f"the conversation is stored first: {store(env).load_all()}"
 
     low = FakeSource("Alex", level=2, server=env.server)
-    games_ai.clear_history_named(low, {"name": "Steve"})
+    games_ai.commands.clear.clear_history_named(low, {"name": "Steve"})
 
     assert any("games_ai.no_permission" in line for line in low.shown), \
         f"a player below the configured level is refused: {low.shown}"
@@ -216,7 +216,7 @@ def test_gamesai_clear_named(env):
         f"...and nothing was cleared: {store(env).load_all()}"
 
     admin = FakeSource("Admin", level=3, server=env.server)
-    games_ai.clear_history_named(admin, {"name": "Steve"})
+    games_ai.commands.clear.clear_history_named(admin, {"name": "Steve"})
 
     assert "Steve" not in games_ai.all_chat_param, \
         f"the permitted source clears the conversation: {list(games_ai.all_chat_param)}"
@@ -232,7 +232,7 @@ def test_clearing_a_player_whose_round_is_still_running(env):
     games_ai.all_chat_param["Busy"] = busy
     games_ai._save_history("Busy", busy)
     admin2 = FakeSource("Admin", level=4, server=env.server)
-    games_ai.clear_history_named(admin2, {"name": "Busy"})
+    games_ai.commands.clear.clear_history_named(admin2, {"name": "Busy"})
 
     assert busy.stop_requested(), "the round was asked to stop"
     assert "Busy" not in games_ai.all_chat_param, "the conversation is gone from memory"
@@ -249,7 +249,7 @@ def test_clearing_a_player_whose_round_is_still_running(env):
 def test_names_with_nothing_to_clear(env):
     games_ai._save_history("Ghost", new_param(env))
     admin3 = FakeSource("Admin", level=4, server=env.server)
-    games_ai.clear_history_named(admin3, {"name": "Ghost"})
+    games_ai.commands.clear.clear_history_named(admin3, {"name": "Ghost"})
 
     assert any("games_ai.clear_history_message.no_history_other" in line
                for line in admin3.shown), f"an unknown name is reported honestly: {admin3.shown}"
@@ -259,7 +259,7 @@ def test_names_with_nothing_to_clear(env):
     store(env).save("Orphan", 99, "main", 1, 0, "{}")
     del games_ai.all_chat_param["Orphan"]
     admin4 = FakeSource("Admin", level=4, server=env.server)
-    games_ai.clear_history_named(admin4, {"name": "Orphan"})
+    games_ai.commands.clear.clear_history_named(admin4, {"name": "Orphan"})
 
     assert store(env).load_all() == [], \
         f"a row that could not be restored is still droppable: {store(env).load_all()}"
@@ -273,14 +273,14 @@ def test_the_bare_form_keeps_its_own_meaning(env):
     games_ai.all_chat_param["Owner"] = own
     games_ai._save_history("Owner", own)
     owner_source = FakeSource("Owner", level=0, server=env.server)
-    games_ai.clear_history(owner_source, {})
+    games_ai.commands.clear.clear_history(owner_source, {})
 
     assert any("games_ai.clear_history_message.success" in line for line in owner_source.shown), \
         f"a player may clear their own history without any level: {owner_source.shown}"
     assert store(env).load_all() == [], f"...and it is gone: {store(env).load_all()}"
 
     again = FakeSource("Owner", level=0, server=env.server)
-    games_ai.clear_history(again, {})
+    games_ai.commands.clear.clear_history(again, {})
 
     assert any("games_ai.clear_history_message.no_history" in line for line in again.shown), \
         f"clearing nothing says nothing was there: {again.shown}"

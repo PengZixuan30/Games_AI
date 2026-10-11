@@ -14,9 +14,9 @@ import pytest
 from openai.types.chat.chat_completion_message import ChatCompletionMessage
 
 import games_ai
-from games_ai.chat_param import ChatParam, json_to_message, message_to_json
-from games_ai.config import plugin_config
-from games_ai.database import ChatHistoryStore, PublicDatabase
+from games_ai.ai.chat_param import ChatParam, json_to_message, message_to_json
+from games_ai.core.config import plugin_config
+from games_ai.core.database import ChatHistoryStore, PublicDatabase
 
 
 class FakeServer:
@@ -66,7 +66,7 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setattr(games_ai, "all_chat_param", {}, raising=False)
     monkeypatch.setattr(games_ai, "_history_frozen", False, raising=False)
     monkeypatch.setattr(games_ai, "_cross_server", None, raising=False)
-    monkeypatch.setattr(games_ai.logger, "_server", server, raising=False)
+    monkeypatch.setattr(games_ai.core.logger, "_server", server, raising=False)
     monkeypatch.setattr(plugin_config, "all_ai", {"main": model_entry(), "other": model_entry()})
     monkeypatch.setattr(plugin_config, "skills_description", {})
     monkeypatch.setattr(plugin_config, "debug_mode", False)
@@ -171,6 +171,8 @@ def test_a_round_trip_through_the_database_keeps_everything(env):
     param._total_cached_tokens = 900
     param._total_reasoning_tokens = 12
     param._rounds_since_time = 7
+    param._last_time_read = 1_759_000_000.0
+    param._last_message_at = 1_758_999_700.0
     games_ai.all_chat_param["Steve"] = param
     games_ai._save_history("Steve", param)
 
@@ -202,8 +204,27 @@ def test_a_round_trip_through_the_database_keeps_everything(env):
         "...and with the lifetime counters: {}".format(
             (back._total_prompt_tokens, back._total_completion_tokens))
     assert back._rounds_since_time == 7, f"...and the round counter: {back._rounds_since_time}"
+    assert (back._last_time_read, back._last_message_at) == (1_759_000_000.0, 1_758_999_700.0), \
+        "...and the time reading's baselines: {} / {}".format(back._last_time_read,
+                                                              back._last_message_at)
     assert back.get_model_id == "main", f"...on the stored model: {back.get_model_id}"
     assert back.is_stopped.is_set(), "a restored conversation is idle"
+
+
+def test_a_record_from_before_the_time_baselines_restores_as_unknown(env):
+    """An older record carries no baselines, so the next reading says "unavailable" instead of
+    measuring against a conversation that was never timed."""
+    store(env).save("Old", 1, "main", 1, 0,
+                    json.dumps({"messages": [{"role": "user", "content": "hello"}]}))
+
+    games_ai.all_chat_param.clear()
+    games_ai._restore_all_histories(env.server)
+    back = games_ai.all_chat_param.get("Old")
+
+    assert back is not None, "the conversation came back"
+    assert (back._last_time_read, back._last_message_at) == (None, None), \
+        "no baselines in the record means none in memory: {} / {}".format(
+            back._last_time_read, back._last_message_at)
 
 
 def test_an_empty_conversation_has_no_row(env):
@@ -275,7 +296,8 @@ def test_the_usage_view_survives_the_restart_too(env):
 
     stored = json.loads([row for row in store(env).load_all()
                          if row["user"] == "Usage"][0]["payload"])
-    assert {"messages", "queue", "totals", "rounds_since_time"} <= set(stored), \
+    assert {"messages", "queue", "totals", "rounds_since_time", "last_time_read",
+            "last_message_at"} <= set(stored), \
         f"the record still carries the keys an older build reads: {sorted(stored)}"
     assert (stored["usage"]["last_prompt"] == 1234
             and stored["usage"]["round_max_total"] == 1290
@@ -399,7 +421,7 @@ def test_clear_and_clearall_reach_the_store(env):
     games_ai.all_chat_param["Writer"] = writer
     games_ai._save_history("Writer", writer)
 
-    games_ai.clear_history(FakeSource("Writer", server=env.server), {})
+    games_ai.commands.clear.clear_history(FakeSource("Writer", server=env.server), {})
 
     assert store(env).load_all() == [], f"clear removes the row: {store(env).load_all()}"
     assert "Writer" not in games_ai.all_chat_param, "...and the object"
@@ -408,14 +430,14 @@ def test_clear_and_clearall_reach_the_store(env):
     owner.add_to_response_list("user", "mine")
     games_ai.all_chat_param["Owner"] = owner
     games_ai._save_history("Owner", owner)
-    games_ai.clear_history_all(FakeSource("Admin", level=4, server=env.server), {})
+    games_ai.commands.clear.clear_history_all(FakeSource("Admin", level=4, server=env.server), {})
 
     assert store(env).load_all() == [], f"clearall removes every row: {store(env).load_all()}"
     assert games_ai.all_chat_param == {}, f"...and every object: {games_ai.all_chat_param}"
 
     new_param(env).add_to_response_list("user", "unrestorable")
     store(env).save("Owner2", 99, "main", 1, 0, "{}")
-    games_ai.clear_history(FakeSource("Owner2", server=env.server), {})
+    games_ai.commands.clear.clear_history(FakeSource("Owner2", server=env.server), {})
 
     assert all(row["user"] != "Owner2" for row in store(env).load_all()), \
         f"a row that could not be restored is still droppable: {store(env).load_all()}"

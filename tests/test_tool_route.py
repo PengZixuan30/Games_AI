@@ -201,8 +201,8 @@ def instances():
     a = load_instance("games_ai_route_a")          # becomes the hub, runs the AI
     b = load_instance("games_ai_route_b")          # becomes a client
     yield SimpleNamespace(a=a, b=b,
-                          tools_a=sys.modules["games_ai_route_a.games_ai_tool"],
-                          tools_b=sys.modules["games_ai_route_b.games_ai_tool"])
+                          tools_a=sys.modules["games_ai_route_a.ai.games_ai_tool"],
+                          tools_b=sys.modules["games_ai_route_b.ai.games_ai_tool"])
     unload_instance("games_ai_route_a")
     unload_instance("games_ai_route_b")
 
@@ -286,8 +286,8 @@ def new_param(cluster):
 def test_boot_two_instances(cluster):
     assert cluster.a is not cluster.b and cluster.tools_a is not cluster.tools_b, \
         f"two isolated namespaces: {(cluster.tools_a, cluster.tools_b)}"
-    assert (cluster.a.chat_param._remote_tool_router is not None
-            and cluster.b.chat_param._remote_tool_router is not None), \
+    assert (cluster.a.ai.chat_param._remote_tool_router is not None
+            and cluster.b.ai.chat_param._remote_tool_router is not None), \
         "the router hook is installed per instance"
 
 

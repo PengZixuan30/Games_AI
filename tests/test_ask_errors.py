@@ -22,10 +22,10 @@ from openai import (APIConnectionError, APIStatusError, AuthenticationError, Not
 from mcdreforged.command.builder.callback import DirectCallbackInvoker, ScheduledCallback
 
 import games_ai
-import games_ai.chat_param as chat_param
+import games_ai.ai.chat_param as chat_param
 from _helpers.paths import LANG_DIR
-from games_ai.chat_param import describe_http_status
-from games_ai.config import plugin_config
+from games_ai.ai.chat_param import describe_http_status
+from games_ai.core.config import plugin_config
 
 MODEL = "test-model"
 
@@ -161,7 +161,7 @@ def env(tmp_path, monkeypatch, english):
     server.logger.setLevel(logging.DEBUG)
     server.logger.propagate = False          # every record stays in `capture`, nothing on stderr
 
-    monkeypatch.setattr(games_ai.logger, "_server", server, raising=False)
+    monkeypatch.setattr(games_ai.core.logger, "_server", server, raising=False)
     monkeypatch.setattr(games_ai, "_server_ref", server, raising=False)
     monkeypatch.setattr(games_ai, "all_chat_param", {}, raising=False)
     monkeypatch.setattr(games_ai, "_history_frozen", False, raising=False)

@@ -19,9 +19,9 @@ from websockets.sync.client import connect as raw_connect
 import yaml
 
 import games_ai
-from games_ai.config import plugin_config
-from games_ai.cross_server import CrossServerManager
-from games_ai.websockets_client import (
+from games_ai.core.config import plugin_config
+from games_ai.cluster.cross_server import CrossServerManager
+from games_ai.cluster.websockets_client import (
     APP_ID,
     APP_ID_BOT,
     ENROLMENT_REQUIRED_HINT,
@@ -29,7 +29,7 @@ from games_ai.websockets_client import (
     CrossServerNode,
     token_fingerprint,
 )
-from games_ai.websockets_server import CrossServerHub
+from games_ai.cluster.websockets_server import CrossServerHub
 
 from _helpers.paths import LANG_DIR
 from _helpers.pkg import module_text, package_text
@@ -272,7 +272,7 @@ def update_round_state(monkeypatch):
     ``monkeypatch`` records today's values and puts them back even though the code under test
     changed them, so a later suite never inherits a link that is already stopped.
     """
-    module = games_ai.update_round
+    module = games_ai.update.update_round
     for name in ("_server_of", "_manager_of", "_link_thread_of", "_version"):
         monkeypatch.setattr(module, name, getattr(module, name, None), raising=False)
     return module
@@ -320,7 +320,7 @@ def wired(monkeypatch, fake_server, command_uri, plugin_logger_state, update_rou
     monkeypatch.setattr(games_ai, "_config_ref", {}, raising=False)
     monkeypatch.setattr(games_ai, "_cross_server", None, raising=False)
     monkeypatch.setattr(games_ai, "_cross_server_thread", None, raising=False)
-    monkeypatch.setattr(games_ai.logger, "_server", fake_server, raising=False)
+    monkeypatch.setattr(games_ai.core.logger, "_server", fake_server, raising=False)
     monkeypatch.setattr(plugin_config, "prefix", "[GamesAI]")
     monkeypatch.setattr(plugin_config, "allow_permission", 3)
     monkeypatch.setattr(plugin_config, "websocket_uri", command_uri)
@@ -426,7 +426,7 @@ def test_the_identity_file_and_the_node_side_commands(wired, command_hub, comman
         os.remove(identity_path)
 
     console = source("console", permission=4, console=True)
-    games_ai._node_status(console)
+    games_ai.commands.node.status(console)
     assert "enrolled: no" in console.text() and "not enrolled" in console.text(), \
         f"status reports this instance as not enrolled: {console.text()}"
     assert "fingerprint: -" in console.text(), \
@@ -436,23 +436,23 @@ def test_the_identity_file_and_the_node_side_commands(wired, command_hub, comman
     other_token = command_hub.issue("creative", app=APP_ID)
 
     stranger = source("Steve", permission=4, console=False)
-    games_ai._node_claim(stranger, Ctx(token=other_token))
+    games_ai.commands.node.claim(stranger, Ctx(token=other_token))
     assert "creative" in stranger.text() and "survival" in stranger.text(), \
         f"a token for another name is refused: {stranger.text()}"
     assert not os.path.isfile(identity_path), f"and nothing was written: {os.listdir(wired.folder)}"
 
-    games_ai._node_claim(stranger, Ctx(token="not-a-real-token"))
+    games_ai.commands.node.claim(stranger, Ctx(token="not-a-real-token"))
     assert "does not know" in stranger.text(), \
         f"a token the hub does not know is refused: {stranger.text()}"
     assert not os.path.isfile(identity_path), "still nothing written"
 
     with monkeypatch.context() as patch:
         patch.setattr(plugin_config, "websocket_uri", "ws://127.0.0.1:{}".format(free_port()))
-        games_ai._node_claim(stranger, Ctx(token=survival_token))
+        games_ai.commands.node.claim(stranger, Ctx(token=survival_token))
     assert "did not answer" in stranger.text(), \
         f"an unreachable hub refuses the claim: {stranger.text()}"
 
-    games_ai._node_claim(console, Ctx(token=survival_token))
+    games_ai.commands.node.claim(console, Ctx(token=survival_token))
     assert "Enrolled as survival" in console.text(), f"the claim is accepted: {console.text()}"
     assert os.path.isfile(identity_path), "the identity file exists"
     identity = json.load(open(identity_path, encoding="utf-8"))
@@ -472,7 +472,7 @@ def test_the_identity_file_and_the_node_side_commands(wired, command_hub, comman
     assert "survival" in command_hub.peers, f"the hub sees the claimed node: {command_hub.peers}"
 
     status = source("console", permission=4, console=True)
-    games_ai._node_status(status)
+    games_ai.commands.node.status(status)
     text = status.text()
     assert "enrolled: yes" in text, f"status now reports enrolled: {text}"
     assert token_fingerprint(survival_token) in text, \
@@ -481,13 +481,13 @@ def test_the_identity_file_and_the_node_side_commands(wired, command_hub, comman
     assert other_token not in text, f"status hides every plaintext token: {text}"
 
     forget = source("console", permission=4, console=True)
-    games_ai._node_forget(forget)
+    games_ai.commands.node.forget(forget)
     assert not os.path.isfile(identity_path), \
         f"forget deletes the identity file: {os.listdir(wired.folder)}"
     assert "Deleted the identity file" in forget.text(), f"forget says what it did: {forget.text()}"
     assert games_ai._cross_server is None and plugin_config.cross_server_mode == "local", \
         f"forget stops the link: {plugin_config.cross_server_mode}"
-    games_ai._node_forget(forget)
+    games_ai.commands.node.forget(forget)
     assert "no identity file" in forget.text(), f"forgetting twice is harmless: {forget.text()}"
 
 
@@ -498,27 +498,27 @@ def test_hub_side_commands_permission_strict_issuance_and_masking(wired, command
     command_hub.enrol("second", app=APP_ID, ip="10.0.0.8")
 
     low = source("Steve", permission=1, console=False)
-    games_ai._node_pending(low)
+    games_ai.commands.node.pending(low)
     assert "permission" in low.text().lower(), f"a low permission level is refused: {low.text()}"
-    games_ai._node_token(low, Ctx(name="newbie"))
+    games_ai.commands.node.issue_token(low, Ctx(name="newbie"))
     assert not command_hub.is_enrolled("newbie"), "and cannot issue a token"
     assert "Permission level 3" in low.text(), f"the refusal is the standard one: {low.text()}"
 
     admin = source("console", permission=4, console=True)
-    games_ai._node_pending(admin)
+    games_ai.commands.node.pending(admin)
     assert "newbie" in admin.text() and "second" in admin.text(), \
         f"pending lists the waiting names: {admin.text()}"
     assert "10.0.0.7" in admin.text() and APP_ID in admin.text(), \
         f"pending shows the source address and the app: {admin.text()}"
 
     admin.received.clear()
-    games_ai._node_token(admin, Ctx(name="ghost"))
+    games_ai.commands.node.issue_token(admin, Ctx(name="ghost"))
     assert "has not asked to enrol" in admin.text(), \
         f"issuing for a name nobody is waiting for is refused: {admin.text()}"
     assert not command_hub.is_enrolled("ghost"), "and no token was created"
 
     admin.received.clear()
-    games_ai._node_token(admin, Ctx(name="newbie"))
+    games_ai.commands.node.issue_token(admin, Ctx(name="newbie"))
     issued_text = admin.text()
     assert command_hub.is_enrolled("newbie"), f"the waiting name gets a token: {command_hub.nodes}"
     assert not command_hub.is_pending("newbie"), "the pending row is consumed"
@@ -536,7 +536,7 @@ def test_hub_side_commands_permission_strict_issuance_and_masking(wired, command
         f"issued_by records who asked: {command_hub.nodes['newbie']}"
 
     admin.received.clear()
-    games_ai._node_list(admin)
+    games_ai.commands.node.list_nodes(admin)
     listed = admin.text()
     assert "newbie" in listed, f"node list shows the enrolled node: {listed}"
     assert command_hub.fingerprint("newbie") in listed, f"node list shows a fingerprint: {listed}"
@@ -544,12 +544,12 @@ def test_hub_side_commands_permission_strict_issuance_and_masking(wired, command
     assert "unlimited" in listed, f"node list shows the ttl: {listed}"
 
     admin.received.clear()
-    games_ai._node_rotate(admin, Ctx(name="second"))
+    games_ai.commands.node.rotate(admin, Ctx(name="second"))
     assert "not enrolled" in admin.text(), \
         f"rotate refuses a name that is not enrolled yet: {admin.text()}"
     second_token = command_hub.issue("second", app=APP_ID)
     admin.received.clear()
-    games_ai._node_rotate(admin, Ctx(name="second"))
+    games_ai.commands.node.rotate(admin, Ctx(name="second"))
     assert command_hub.verify("second", APP_ID, second_token) == "unknown", \
         f"rotate prints a new token: {admin.text()}"
     rotated_printed = [chunk for chunk in admin.text().split() if len(chunk) == 43]
@@ -557,21 +557,21 @@ def test_hub_side_commands_permission_strict_issuance_and_masking(wired, command
         f"the new token works: {rotated_printed}"
 
     admin.received.clear()
-    games_ai._node_revoke(admin, Ctx(name="second"))
+    games_ai.commands.node.revoke(admin, Ctx(name="second"))
     assert not command_hub.is_enrolled("second"), "revoke drops the node"
     assert "4001" in admin.text(), f"revoke says what happens next: {admin.text()}"
     admin.received.clear()
-    games_ai._node_revoke(admin, Ctx(name="second"))
+    games_ai.commands.node.revoke(admin, Ctx(name="second"))
     assert "not enrolled" in admin.text(), f"revoking an unknown node says so: {admin.text()}"
 
     monkeypatch.setattr(games_ai, "_cross_server", FakeManager(command_hub, mode="client"),
                         raising=False)
     admin.received.clear()
-    games_ai._node_pending(admin)
+    games_ai.commands.node.pending(admin)
     assert "not the hub" in admin.text(), f"a client instance is not the hub: {admin.text()}"
     monkeypatch.setattr(games_ai, "_cross_server", None, raising=False)
     admin.received.clear()
-    games_ai._node_list(admin)
+    games_ai.commands.node.list_nodes(admin)
     assert "not the hub" in admin.text(), f"no link at all is not the hub either: {admin.text()}"
 
 
@@ -583,6 +583,18 @@ def test_every_node_command_is_a_class_registered_plainly_never_routed(source, m
         f"none of them goes through _route(): {node_lines}"
     assert "ROUTE_CLUSTER" not in "".join(node_lines) and "ROUTE_SERVER" not in "".join(node_lines), \
         f"none of them mentions a cluster route: {node_lines}"
+
+    # The handlers live in their own module (games_ai/commands/node.py): the entry module only
+    # points the command tree at them and defines none of them itself.
+    for gone in ("_node_pending", "_node_token", "_node_list", "_node_revoke", "_node_rotate",
+                 "_node_claim", "_node_status", "_node_forget"):
+        assert f"def {gone}(" not in node_source, f"{gone} left the entry module"
+    assert all("node_commands." in line for line in node_lines[1:]), \
+        f"each subcommand points at its handler in games_ai/commands/node.py: {node_lines[1:]}"
+    for handler in ("pending", "issue_token", "list_nodes", "revoke", "rotate", "claim", "status",
+                    "forget"):
+        assert callable(getattr(games_ai.commands.node, handler, None)), \
+            f"games_ai.commands.node.{handler} is the handler"
 
     monkeypatch.setattr(plugin_config, "data_path", str(tmp_path / "public_database.db"))
     capture = Capture()
@@ -662,7 +674,7 @@ def test_masking_in_config_get_and_the_stale_key_is_dropped_on_migration(wired, 
         json.dump({"prefix": "[GamesAI]",
                    "websocket": {"uri": "ws://127.0.0.1:8080", "token": "stale-shared-secret"}},
                   handle)
-    reader = games_ai.ConfigManager({"prefix": "[GamesAI]"})
+    reader = games_ai.commands.settings.ConfigManager({"prefix": "[GamesAI]"})
     admin = source("console", permission=4, console=True)
     admin.received.clear()
     reader.get_config(admin, Ctx(key="websocket"))
@@ -788,14 +800,14 @@ def test_the_bots_config_keeps_the_token_the_hub_issued(wired, command_hub, sour
     monkeypatch.setattr(games_ai, "_cross_server", FakeManager(command_hub), raising=False)
     admin = source("console", permission=4, console=True)
     admin.received.clear()
-    games_ai._node_token(admin, Ctx(name="Bot"))
+    games_ai.commands.node.issue_token(admin, Ctx(name="Bot"))
     bot_printed = [chunk for chunk in admin.text().split() if len(chunk) == 43]
     assert bool(bot_printed) \
         and json.load(open(bot_config_path, encoding="utf-8"))["websocket"]["token"] == bot_printed[0], \
         "issuing the local bot's token writes it into the bot config: {}".format(
             (bot_printed, json.load(open(bot_config_path, encoding="utf-8"))["websocket"]))
     admin.received.clear()
-    games_ai._node_rotate(admin, Ctx(name="Bot"))
+    games_ai.commands.node.rotate(admin, Ctx(name="Bot"))
     rotated_bot = [chunk for chunk in admin.text().split() if len(chunk) == 43]
     assert bool(rotated_bot) and rotated_bot[0] != bot_printed[0] \
         and json.load(open(bot_config_path, encoding="utf-8"))["websocket"]["token"] == rotated_bot[0], \

@@ -8,7 +8,7 @@ import re
 import pytest
 
 import games_ai
-from games_ai.config import plugin_config
+from games_ai.core.config import plugin_config
 
 from _helpers.paths import PKG, REPO_ROOT
 from _helpers.pkg import module_text, package_text
@@ -203,7 +203,7 @@ def test_the_update_path_lives_in_its_own_module():
     assert all(token in _update_src for token in
                ("_manager_of()", "_server_of()", "_link_thread_of()")), \
         "the module reads the live state through the getters"
-    assert hasattr(games_ai.update_round.check_update, "__wrapped__"), \
+    assert hasattr(games_ai.update.update_round.check_update, "__wrapped__"), \
         "check_update kept its @new_thread wrapper (the check fetches over the network)"
     assert not hasattr(games_ai.debug, "__wrapped__"), \
         "...and no decorator was left behind on the entry module's debug()"
@@ -218,12 +218,12 @@ def test_the_help_texts_live_in_their_own_module():
     assert re.search(r"(?m)^class gamesai_help\b", _init_src) is None \
         and re.search(r"(?m)^def send_help\(", _init_src) is None, \
         "the entry module defines neither any more"
-    assert "from .help import gamesai_help, send_help" in _init_src, \
-        "...but still re-exports them"
+    assert "from .ui import gamesai_help, send_help" in _init_src, \
+        "...but still re-exports them (through the ui package's front door)"
     assert re.search(r"(?m)^\s*(import games_ai\b|from games_ai\b|from \. import)", _help_src) is None, \
         "the help module does not import the entry package"
-    assert games_ai.gamesai_help is games_ai.help.gamesai_help \
-        and games_ai.send_help is games_ai.help.send_help, \
+    assert games_ai.gamesai_help is games_ai.ui.help.gamesai_help \
+        and games_ai.send_help is games_ai.ui.help.send_help, \
         "the package exposes them from help.py"
 
 
@@ -259,17 +259,17 @@ class _HelpSource:
 
 def test_the_help_answers_carry_the_version_and_the_localized_keys():
     _help_source = _HelpSource()
-    games_ai.help.gamesai_help.switch_help(_help_source)
+    games_ai.ui.help.gamesai_help.switch_help(_help_source)
     assert any("9.9.9-probe" in line for line in _help_source.shown), \
         f"the greeting prints the version MCDR reports: {_help_source.shown}"
-    assert games_ai.help.plugin_version(object()) == "?", \
-        f"a server that cannot answer falls back to ?: {games_ai.help.plugin_version(object())}"
+    assert games_ai.ui.help.plugin_version(object()) == "?", \
+        f"a server that cannot answer falls back to ?: {games_ai.ui.help.plugin_version(object())}"
     assert any("!!ask switch <model>" in line and "switch_help" in line
                for line in _help_source.shown), \
         f"a help line carries the command and its localized key: {_help_source.shown}"
 
     _help_source = _HelpSource(level=0)
-    games_ai.help.gamesai_help.data_help(_help_source)
+    games_ai.ui.help.gamesai_help.data_help(_help_source)
     assert any("no_permission" in line for line in _help_source.shown), \
         f"a gated help group answers with no_permission: {_help_source.shown}"
 
@@ -312,9 +312,11 @@ def test_the_dependency_gate_of_the_entry_module():
 
     assert "from __future__" not in entry_src, \
         "no 'from __future__ import annotations' in the entry module (forward refs are strings)"
-    assert "_deps_pending = bool(deps.unsatisfied())" in entry_src \
-        and "    from .openai_api import" in entry_src \
-        and "\nfrom .openai_api import" not in entry_src, \
+    before_gate, _, after_gate = entry_src.partition("if not _deps_pending:")
+    assert "_deps_pending = bool(deps.unsatisfied())" in before_gate \
+        and "    from .ai import (" in after_gate \
+        and "setup_openai_logging" in after_gate \
+        and "setup_openai_logging" not in before_gate and "ChatParam" not in before_gate, \
         "the third-party imports are gated behind _deps_pending"
     assert 'dict[str, "ChatParam"]' in _package_src \
         and '"CrossServerManager | None"' in _package_src \

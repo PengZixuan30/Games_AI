@@ -1,7 +1,7 @@
 """Run the real embedded bot JS against a real GamesAI hub, then through BotPeerClient.
 
 This is the stage-2 integration test: the JS text is taken verbatim from
-games_ai/mineflayer_service_files.py, the Minecraft-side dependencies are stubbed (the bot never
+games_ai/bot/mineflayer_service_files.py, the Minecraft-side dependencies are stubbed (the bot never
 has to log in), and the hub client socket is the real `ws` package.
 """
 import io
@@ -16,8 +16,8 @@ import pytest
 import games_ai
 from _helpers.paths import JS_DIR, PKG
 from _helpers.wait import wait_until
-from games_ai.cross_server import CrossServerManager
-from games_ai.mineflayer import clear_bot_peer, get_mineflayer_client, set_bot_peer
+from games_ai.cluster.cross_server import CrossServerManager
+from games_ai.bot.mineflayer import clear_bot_peer, get_mineflayer_client, set_bot_peer
 
 logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("test")
@@ -65,7 +65,7 @@ def bot_harness(tmp_path):
     if shutil.which("node") is None:
         pytest.skip("node is not on PATH: the JavaScript bot test cannot run")
 
-    source = io.open(os.path.join(PKG, "mineflayer_service_files.py"), encoding="utf-8").read()
+    source = io.open(os.path.join(PKG, "bot/mineflayer_service_files.py"), encoding="utf-8").read()
     marker = '_INIT_JS_CONTENT = r"""'
     start = source.index(marker) + len(marker)
     bot_js = source[start:source.index('"""', start)]

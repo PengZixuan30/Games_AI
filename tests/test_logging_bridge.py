@@ -16,7 +16,7 @@ import types
 
 import pytest
 
-from games_ai import openai_api
+from games_ai.ai import openai_api
 
 
 class Sink(logging.Handler):

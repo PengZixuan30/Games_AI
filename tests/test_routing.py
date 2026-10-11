@@ -161,8 +161,9 @@ def cluster(instances, monkeypatch, free_port):
 
 
 def test_boot_two_instances(cluster):
-    assert cluster.a is not cluster.b and cluster.a.cross_server is not cluster.b.cross_server, \
-        f"two isolated namespaces: {(cluster.a.cross_server, cluster.b.cross_server)}"
+    assert cluster.a is not cluster.b \
+        and cluster.a.cluster.cross_server is not cluster.b.cluster.cross_server, \
+        f"two isolated namespaces: {(cluster.a.cluster.cross_server, cluster.b.cluster.cross_server)}"
 
 
 def test_an_a_class_command_is_executed_on_the_hub(cluster):

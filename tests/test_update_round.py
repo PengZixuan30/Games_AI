@@ -21,10 +21,10 @@ import pytest
 
 from _helpers.wait import wait_until
 import games_ai
-from games_ai import updater
-from games_ai import update_round
-from games_ai import websockets_client as wsc
-from games_ai import websockets_server as wss
+from games_ai.update import updater
+from games_ai.update import update_round
+from games_ai.cluster import websockets_client as wsc
+from games_ai.cluster import websockets_server as wss
 
 log = logging.getLogger(__name__)
 

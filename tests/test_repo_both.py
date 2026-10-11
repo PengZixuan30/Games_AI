@@ -1,4 +1,4 @@
-"""Full end to end test of the repo files: games_ai/websockets_server.py + websockets_client.py."""
+"""Full end to end test of the repo files: games_ai/cluster/websockets_server.py + websockets_client.py."""
 import importlib.util
 import json
 import os
@@ -28,8 +28,8 @@ def load_module(name, path):
 def repo_modules():
     """Both halves of the cross-server link, loaded straight from their files."""
     return types.SimpleNamespace(
-        hub=load_module("repo_both_hub", os.path.join(PKG, "websockets_server.py")),
-        node=load_module("repo_both_node", os.path.join(PKG, "websockets_client.py")),
+        hub=load_module("repo_both_hub", os.path.join(PKG, "cluster/websockets_server.py")),
+        node=load_module("repo_both_node", os.path.join(PKG, "cluster/websockets_client.py")),
     )
 
 

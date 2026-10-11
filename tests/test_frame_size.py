@@ -10,8 +10,8 @@ import time
 import pytest
 
 from _helpers.wait import wait_until
-from games_ai.websockets_client import FRAME_MARGIN, MAX_MESSAGE_SIZE, CrossServerNode
-from games_ai.websockets_server import CrossServerHub
+from games_ai.cluster.websockets_client import FRAME_MARGIN, MAX_MESSAGE_SIZE, CrossServerNode
+from games_ai.cluster.websockets_server import CrossServerHub
 
 log = logging.getLogger(__name__)
 
