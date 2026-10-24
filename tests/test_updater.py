@@ -564,3 +564,32 @@ def test_the_updater_never_hands_the_work_back_to_pim():
         f"every execute_command target is a GamesAI command: {targets}"
     assert "os.replace" in (Path(PKG) / "update/updater.py").read_text(encoding="utf-8"), \
         "updater.py is the only file that replaces the archive"
+
+
+def test_a_rollback_that_cannot_verify_the_old_bytes_says_so(tmp_path, artifact, monkeypatch):
+    """A "restored" message is only allowed when the old archive is really back on disk."""
+    live, staged = fresh_plugin_dir(tmp_path / "swap_restore_unverified", artifact.path)
+    server = FakeServer(version_after_load="8.8.8")
+    logs = []
+
+    def failing_move(source, target):
+        raise updater.ReplaceError("cannot move: [WinError 5]")
+
+    def failing_replace(source, target):
+        raise OSError("the file is still locked")
+
+    monkeypatch.setattr(updater, "_replace_with_retries", failing_move)
+    monkeypatch.setattr(updater.os, "replace", failing_replace)
+
+    detail = ""
+    try:
+        updater.apply_archive(server, staged, live, artifact.release, log=logs.append)
+    except updater.ReplaceError as error:
+        detail = error.detail
+
+    assert "could not be restored" in detail, \
+        f"an unverified rollback must not claim a restore: {detail}"
+    assert (live.parent / (live.name + ".restore")).exists(), \
+        f"the old bytes are named for the operator: {sorted(os.listdir(live.parent))}"
+    assert any(".restore" in line for line in logs), \
+        f"the operator is told where the old archive is: {logs}"

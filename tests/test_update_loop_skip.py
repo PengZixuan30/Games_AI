@@ -50,7 +50,8 @@ def stubbed(monkeypatch):
     def fake_loop(server):
         started.append(server)
 
-    def fake_update(server, force_table=False):
+    def fake_update(server, force_table=False, **kwargs):
+        # ``announce=False`` is what the loop passes; tests/test_update_notice.py pins that.
         started.append(("update", server))
 
     monkeypatch.setattr(update_round, "cyclic_check_updates", fake_loop)

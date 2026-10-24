@@ -9,6 +9,10 @@ localized reply and a full traceback in the plugin's log, in both the history br
 Since 0.8.0 the reply also carries what the *status code itself* means (402 insufficient
 balance, 404 model not found, ...) and the operator's detail line is a WARNING, so it is
 readable without turning `!!gamesai debug` on first.
+
+In production ``ask_ai`` is wrapped in ``@new_thread`` (the round waits on the provider for
+minutes and must not hold MCDR's TaskExecutor), so these cases call the undecorated body through
+``ask_ai.original``: the failure has to happen on this thread for the assertions that follow it.
 """
 import logging
 import os
@@ -250,7 +254,7 @@ def run_case(env, monkeypatch, lang, key: str, label: str, error: BaseException,
     env.capture.records.clear()
     escaped = None
     try:
-        games_ai.ask_ai(source, {"content": "hi"}, no_history=no_history)
+        games_ai.ask_ai.original(source, {"content": "hi"}, no_history=no_history)
     except BaseException as exc:                      # noqa: BLE001 - the point of the test
         escaped = exc
     assert escaped is None, \
@@ -270,7 +274,7 @@ def reply_for(env, monkeypatch, label: str, *, no_history: bool = False) -> str:
     source = FakeSource(env.server, command="!!ask -n hi" if no_history else "!!ask hi")
     monkeypatch.setattr(chat_param, "response_chat", raise_error(make_error(label)))
     env.capture.records.clear()
-    games_ai.ask_ai(source, {"content": "hi"}, no_history=no_history)
+    games_ai.ask_ai.original(source, {"content": "hi"}, no_history=no_history)
     return source.text()
 
 
@@ -365,6 +369,9 @@ def test_the_real_registered_ask_callback_survives_it_too(env, monkeypatch, engl
     source = FakeSource(env.server, command="!!ask hi")
     error = AuthenticationError("invalid api key", response=response(401), body=None)
     monkeypatch.setattr(chat_param, "response_chat", raise_error(error))
+    # The registered dispatcher calls the module-global ask_ai, which runs on its own thread in
+    # production; the assertions below are synchronous, so hand it the undecorated body.
+    monkeypatch.setattr(games_ai, "ask_ai", games_ai.ask_ai.original)
     env.capture.records.clear()
     escaped = None
     try:

@@ -652,3 +652,82 @@ def test_a_node_that_missed_the_round_is_caught_up(hub, rig, manager, server, mo
     update_round._catch_up_round(server)
     assert rig.recorded == {}, \
         f"a node already on the hub's version is not ordered again: {rig.recorded}"
+
+
+# ── an ack timeout is not a failure: the node may report "staged" a moment later ──────────
+
+def test_a_late_ack_is_recorded_as_timeout_and_the_node_report_wins():
+    assert update_round._ack_failure_stage(None) == ("failed", "the node did not answer")
+    stage, detail = update_round._ack_failure_stage({"ok": False, "error": "timeout after 10s"})
+    assert stage == "timeout" and "timeout" in detail, "a timeout keeps its own stage: {}".format(detail)
+    stage, _detail = update_round._ack_failure_stage({"ok": False, "error": "send failed"})
+    assert stage == "failed"
+
+    entry = {"stage": "pending", "error": "", "event": threading.Event()}
+    update_round._set_node_stage(entry, "timeout", "no ack in time")
+    assert entry["stage"] == "timeout"
+    assert not entry["event"].is_set(), "a timeout is not a settled report, so it does not wake the wait"
+    update_round._set_node_stage(entry, "staged")
+    assert entry["stage"] == "staged", "the node's own late report corrects the timeout"
+    assert entry["event"].is_set(), "the late report wakes the waiter"
+
+
+class _OrderHub:
+    name = "hub"
+    peers = ["node"]
+    peer_apps = {"node": update_round.WS_APP_ID}
+    peer_versions = {"node": "8.8.8"}
+
+    def __init__(self, reply):
+        self.reply = reply
+        self.sent = []
+
+    def peer_supports(self, name, feature):
+        return True
+
+    def send(self, target, action, data=None, wait=False, timeout=None):
+        self.sent.append((target, action, dict(data or {})))
+        return self.reply
+
+
+def _order_manager(hub):
+    return types.SimpleNamespace(name="hub", hub=hub, hub_name="hub", is_server=True,
+                                 is_client=False, connected=True)
+
+
+def test_an_ack_timeout_is_retried_by_the_late_report(monkeypatch):
+    hub = _OrderHub({"ok": False, "error": "timeout after 10s"})
+    monkeypatch.setattr(update_round, "_manager_of", lambda: _order_manager(hub))
+    monkeypatch.setattr(update_round, "_update_round", None)
+    server = FakeServer()
+
+    state = update_round._order_cluster_update(server, types.SimpleNamespace(
+        version=TARGET, url=URL, sha256=SHA, size=1234, file_name="GamesAI.mcdr"))
+
+    assert hub.sent and hub.sent[0][0] == "node", "the node was ordered at least once"
+    assert state["node"]["stage"] == "timeout", \
+        "an ack timeout is recorded as correctable, not as failed: {}".format(state["node"])
+    update_round._set_node_stage(state["node"], "staged")
+    assert state["node"]["stage"] == "staged", "the node's own late report is accepted"
+
+
+def test_a_node_that_did_not_announce_a_version_is_ordered_not_compared(monkeypatch):
+    class UnknownVersionHub(_OrderHub):
+        peer_versions = {"node": ""}
+
+        def peer_supports(self, name, feature):
+            return False
+
+        def send(self, target, action, data=None, wait=False, timeout=None):
+            raise AssertionError("an unsupported node must not be sent to")
+
+    hub = UnknownVersionHub(None)
+    monkeypatch.setattr(update_round, "_manager_of", lambda: _order_manager(hub))
+    monkeypatch.setattr(update_round, "_update_round", None)
+    server = FakeServer()
+
+    state = update_round._order_cluster_update(server, types.SimpleNamespace(
+        version=TARGET, url=URL, sha256=SHA, size=1234, file_name="GamesAI.mcdr"))
+
+    assert state["node"]["stage"] == "unsupported", \
+        "an empty version is treated as a candidate, then reported as unsupported: {}".format(state["node"])

@@ -102,8 +102,12 @@ def test_the_tool_texts_are_the_sentences_the_model_gets():
 
 
 def test_every_tool_that_checks_a_level_returns_the_shared_text():
-    """The eight call sites hand back the constant instead of spelling the sentence out."""
-    for name in ("games_ai_tool.py", "__init__.py"):
+    """The eight call sites hand back the constant instead of spelling the sentence out.
+
+    The registry module is named by its full path: ``games_ai_tool.py`` alone now also matches
+    the compatibility re-export at the package root (see tests/test_tool_compat.py).
+    """
+    for name in ("ai/games_ai_tool.py", "__init__.py"):
         text = module_text(name)
         assert "Permission denied" not in text, f"{name} writes a refusal out by hand"
         assert "has_permission(source)" in text, f"{name} does not ask the shared predicate"

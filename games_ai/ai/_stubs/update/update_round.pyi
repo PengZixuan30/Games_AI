@@ -56,14 +56,20 @@ def _settled_role(timeout: float = 20.0) -> str:
     exists to prevent.
     '''
 def cyclic_check_updates(server: PluginServerInterface): ...
-def update(server: PluginServerInterface, force_table: bool = False, notify=None):
-    """Check the catalogue for a newer release and hand it to the updater.
+def update(server: PluginServerInterface, force_table: bool = False, notify=None, announce: bool = True):
+    '''Check the catalogue for a newer release and hand it to the updater.
 
     ``notify`` replaces ``server.say`` for the lines this function produces. ``!!gamesai check``
-    passes the command source's ``reply``: the command may have been forwarded from a client,
-    and only a reply travels back to the instance that typed it (the 24 h loop keeps the
-    broadcast, because nobody typed anything there).
-    """
+    passes the command source\'s ``reply``: the command may have been forwarded from a client,
+    and only a reply travels back to the instance that typed it.
+
+    ``announce`` is False for the 24 h loop and the check it runs on load: nobody asked for that
+    one, so "checking" and "no new version" are not broadcast at all -- a line per load, for a
+    decision no player is waiting for -- and go to the debug log instead (``logger.verbose``,
+    visible with ``!!gamesai debug``). A release that *is* found is announced either way, and so
+    is a check that fails: those two need an operator\'s attention. A typed ``!!gamesai check``
+    keeps every line, because somebody is waiting for the answer.
+    '''
 def self_update(server: PluginServerInterface, release_entry: dict, new_version: str):
     """Hand the release the checker resolved over to :mod:`games_ai.update.updater`.
 
@@ -82,6 +88,15 @@ def _set_node_stage(entry: dict, stage: str, error: str = '') -> None:
     The ack to an order and the node's own report arrive as two independent frames, so they can
     be processed in either order. Without this ranking a late ``accepted`` would overwrite the
     ``staged`` that already arrived, and the hub would wait for a report that will never come.
+    """
+def _ack_failure_stage(reply: dict | None) -> tuple[str, str]:
+    """The stage and detail to record for an order that did not come back ok.
+
+    An ack timeout is not a failure: the node may simply be busy (its link thread can be
+    serving a routed tool call) and report ``staged`` a moment later. Recording ``failed`` would
+    outrank that late report (see :data:`_STAGE_RANK`) and make the hub skip a node that is
+    actually updating, so a timeout is recorded as ``timeout`` -- it ranks below the node's own
+    word and the round waits for it up to the stage deadline.
     """
 def _order_cluster_update(server: PluginServerInterface, release) -> dict:
     '''Order every online node to install ``release``; returns ``{name: state}``.

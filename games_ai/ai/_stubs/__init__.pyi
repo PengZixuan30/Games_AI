@@ -4,7 +4,7 @@ import threading
 from .ai import ChatParam
 from .bot import AutonomousBotController
 from .cluster import CrossServerManager, WebSocketCommandSource
-from .core import ChatHistoryStore, require_permission as require_permission
+from .core import ChatHistoryStore, PublicDatabase as PublicDatabase, require_permission as require_permission
 from .ui import send_help as send_help
 from _typeshed import Incomplete
 
@@ -16,6 +16,7 @@ DEFAULT_WEBSOCKET_URI: str
 _BOT_WS_RECONNECT_INTERVAL: int
 _BOT_WS_TIMEOUT: int
 all_chat_param: dict[str, 'ChatParam']
+_conversations_lock: Incomplete
 _player_servers: dict[str, str]
 _player_servers_lock: Incomplete
 CONSOLE_ACCESS_KEY: str
@@ -35,6 +36,7 @@ _BOT_STOP_GRACE: float
 _BOT_UNLOAD_GRACE: float
 _mineflayer_pending_abort: Incomplete
 _mineflayer_wait_thread: threading.Thread | None
+_mineflayer_launch_token: int
 _reload_lock: Incomplete
 _bot_teardown_lock: Incomplete
 _bot_teardown_event: Incomplete
@@ -91,13 +93,21 @@ def _deps_install_thread(server: PluginServerInterface, names: list[str]) -> Non
     that call the module globals read earlier belong to an instance that is gone, so only this
     function's arguments and ``server`` are touched from then on.
     """
+def _load_skills_index(server: PluginServerInterface, skills_path: str) -> list:
+    '''Read ``skills.json``; a broken file is logged and answered with "no skills".
+
+    The file is user-editable and is written by the AI as well (a crash during a write can
+    truncate it), so a parse error must never abort ``on_load`` and keep the whole plugin from
+    loading. The same rule the stored conversations follow applies here: unreadable user data
+    is reported and skipped, not fatal.
+    '''
 def on_load(server: PluginServerInterface, _): ...
 def _raw_command(source: CommandSource) -> str | None:
-    """The line the user actually typed, for both a player chat command and the console.
+    """The line the user actually typed *here*, for both a player chat command and the console.
 
-    ``PluginCommandSource`` (our own ``server.execute_command`` calls) has no Info, so those
-    never travel: internal invocations must stay local, or a reload would bounce around the
-    cluster forever.
+    ``PluginCommandSource`` (our own ``server.execute_command`` calls) has no Info, and a
+    ``WebSocketCommandSource`` only has one rebuilt from another instance's line: neither may
+    travel, or a reload would bounce around the cluster (or a cluster command fan out) forever.
     """
 def _should_forward(source: CommandSource) -> bool: ...
 def _callback_arity(handler) -> int:
@@ -108,7 +118,9 @@ def _callback_arity(handler) -> int:
     the real count behind ``*args`` would therefore be handed too few values, which is why the
     wrappers below declare exactly what the wrapped callback declares.
     """
-def _route(kind: str, handler):
+def _normalised_command(raw: str | None) -> str:
+    """The command line with its whitespace collapsed (empty string for ``None``)."""
+def _route(kind: str, handler, expected_command: str | None = None):
     """Wrap a command callback with the cross-server routing of its class.
 
     ``ROUTE_LOCAL`` commands run where they were typed (help texts). ``ROUTE_SERVER`` and
@@ -117,6 +129,13 @@ def _route(kind: str, handler):
     the other trusted instances run it too. A client whose link is down has nothing to hand
     them to and must not run them with its own state, so they are refused with one localized
     line instead (see :func:`_client_link_is_down`).
+
+    ``expected_command`` is the literal this wrapper was registered for, and every cluster
+    command passes it. The fan-out reads the *source's* Info to know what to broadcast, and
+    an internal caller can execute a cluster command on a source whose Info happens to be a
+    different line (an AI round executing ``!!gamesai reload`` from its ``!!ask`` source used
+    to broadcast that whole ``!!ask`` to every peer, which made each node run its own AI
+    round). The fan-out therefore only happens when the source's line really is this command.
     """
 def _client_link_is_down() -> bool:
     """True when this instance is a client whose link cannot carry frames right now.
@@ -148,8 +167,25 @@ def _explain_local_run(raw: str, will_run: bool = True) -> None:
     """
 def _forward_command(kind: str, source: CommandSource, raw: str) -> None:
     """Send a command of a remote class to the hub; the answers come back as frames."""
-def _fan_out_cluster(source: CommandSource) -> None:
-    """Let the other trusted instances run the cluster command that just ran here."""
+def _fan_out_cluster(source: CommandSource, expected_command: str | None = None) -> None:
+    """Let the other trusted instances run the cluster command that just ran here.
+
+    The command is read back from the source's ``Info`` (that is how a typed command is known
+    at all), so it is checked against the literal this command was registered for before
+    anything is broadcast: an internal caller can execute a cluster command on a source whose
+    Info is a different line, and broadcasting that instead would make every peer execute the
+    wrong command (see the analysis in :func:`_route`).
+    """
+def _known_player_permission_level(server: ServerInterface | None, player: str) -> int:
+    """This instance's permission level for a remote player, without side effects.
+
+    ``ServerInterface.get_permission_level(name)`` goes through MCDR's ``auto_add=True`` path:
+    an unknown name is appended to ``permission.yml`` at the default level and that level is
+    returned, while the cross-server rule says an unknown remote player gets 0 (and the file
+    must not be rewritten by a background thread). The permission manager is therefore asked
+    with ``auto_add=False`` directly. Should that private member ever disappear, the fallback
+    reads the value but treats a missing name as unknown instead of letting MCDR add it.
+    """
 def _resolve_remote_permission(data: dict) -> int:
     """How much a remote issuer is allowed to do here.
 
@@ -234,7 +270,16 @@ def _write_mineflayer_config(server: PluginServerInterface, config: dict, peer_u
 def run_mineflayer_bot(source: CommandSource, ai_prefix: str): ...
 def stop_mineflayer_bot(source: CommandSource, ai_prefix: str): ...
 def _run_mineflayer_bot(server: ServerInterface, bot_config: dict, mineflayer_init_js_path: str): ...
-def _wait_server_then_launch(server: ServerInterface, bot_config: dict, mineflayer_init_js_path: str): ...
+def _wait_server_then_launch(server: ServerInterface, bot_config: dict, mineflayer_init_js_path: str, launch_token: int): ...
+def _cancel_pending_bot_launch() -> None:
+    """Cancel a bot launch that is waiting for the server (or was just started).
+
+    Called when the bot is disabled (``!!aibot leave``/config) or the plugin unloads. Without
+    it, a wait thread created before the disable would still call `_launch_mineflayer_bot` after
+    the server comes up: the operator disabled the bot, but a node process and an AI-burning
+    controller would start anyway. The token also invalidates a thread that was superseded by a
+    newer launch request before it got to its next check.
+    """
 def _launch_mineflayer_bot(server: ServerInterface, bot_config: dict, mineflayer_init_js_path: str): ...
 def _apply_config(server: PluginServerInterface, config: dict):
     """
@@ -508,7 +553,12 @@ def ask_context(source: CommandSource, player: str | None = None):
     """
 def aggregate_context_usage() -> tuple[list[dict], dict, list[str]]:
     """
-    Sum the context usage of every chatted player, grouped by the model they are on.
+    Sum the context usage of every chatted player, grouped by the configured AI they are on.
+
+    The group is the ``all_ai`` entry (its ``model_id``), not the upstream ``ai_model``: two
+    configured AIs may point at the same upstream model and still be two different assistants
+    (different ``ai_name``/prompt/key), so they are reported on separate lines. The upstream
+    model of each group is carried along for the hover, because that is what the provider bills.
 
     Reads :meth:`ChatParam.context_usage` for every entry of ``all_chat_param`` and adds the
     plain numbers up, so nothing here can block on a running round. Two groups of numbers are
@@ -520,17 +570,22 @@ def aggregate_context_usage() -> tuple[list[dict], dict, list[str]]:
       ``ChatParam`` and stored with the conversation (a restart does not zero them), so a
       compression does not erase the record of what it summarized away.
 
-    :return: ``(models, totals, broken)`` — one dict per model that has any non-zero usage,
-             sorted by the currently held context (then by lifetime spend); one dict with the
-             sums over all models; and the names whose usage could not be read.
+    :return: ``(models, totals, broken)`` — one dict per configured AI that has any non-zero
+             usage, sorted by the currently held context (then by lifetime spend); one dict with
+             the sums over all models; and the names whose usage could not be read.
     """
 def ask_context_server(source: CommandSource):
     """
-    ``!!ask context --all`` — the context usage of the whole server, grouped by model.
+    ``!!ask context --all`` — the context usage of the whole server, per configured AI.
 
-    Numbers only (no player names): the point is the server-wide picture — which model is
-    carrying how much context, how much of it is billed, and how much was served from cache.
-    Hidden are the models nobody is currently using, i.e. every counter is zero.
+    Numbers only (no player names): the point is the server-wide picture — which configured AI
+    is carrying how much context, how much of it is billed, and how much was served from cache.
+    The row is named by the entry's ``ai_name``; the hover names the ``all_ai`` id and the
+    upstream ``ai_model`` it actually calls, because several configured AIs may share one
+    upstream model (grouping by that model would merge them into one misleading row).
+
+    Hidden are the configured AIs nobody is currently using, i.e. every counter is zero.
+    A conversation whose numbers cannot be read is logged and left out; it never hides the rest.
     """
 def _ai_id_for(name_or_id: str) -> str:
     '''The AI id behind a configured ``ai_name``, or the input unchanged when nothing matches.

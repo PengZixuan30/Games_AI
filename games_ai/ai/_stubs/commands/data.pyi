@@ -1,13 +1,16 @@
 # Generated from games_ai/commands/data.py by tools/build_tool_stubs.py -- do not edit.
 from mcdreforged.api.all import *
+from ..core import database as database
 from ..core.config import plugin_config as plugin_config
-from ..core.database import PublicDatabase as PublicDatabase
 from ..core.permission import require_permission as require_permission
 from _typeshed import Incomplete
 
 class DataManager:
-    db: Incomplete
+    db_path: Incomplete
     def __init__(self, db_path: str) -> None: ...
+    @property
+    def db(self):
+        """The plugin's one public-database connection (opened by ``on_load``)."""
     def write_data(self, source: CommandSource, context: dict): ...
     def add_data(self, source: CommandSource, context: dict): ...
     def del_data(self, source: CommandSource, context: dict): ...

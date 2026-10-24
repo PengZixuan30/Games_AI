@@ -32,7 +32,19 @@ Module._load = function (request, parent, isMain) {
     if (request === 'mineflayer') {
         return { createBot: () => { throw new Error('the bot must not be created in this test'); } };
     }
-    if (request === 'mineflayer-pathfinder' || request === 'mineflayer-mcefly') {
+    if (request === 'mineflayer-pathfinder') {
+        // A fake plugin so the goto action can run against the driver's fake bot below.
+        return {
+            pathfinder: { pathfinder: {} },
+            goals: {
+                GoalNear: class GoalNear {
+                    constructor(x, y, z, range) { this.x = x; this.y = y; this.z = z; this.range = range; }
+                },
+            },
+            Movements: class Movements { constructor() {} },
+        };
+    }
+    if (request === 'mineflayer-mcefly') {
         throw new Error('optional plugin not installed in this test');
     }
     return realLoad.apply(this, arguments);
@@ -48,6 +60,17 @@ config.websocket.url = process.env.HUB_URL;
 config.websocket.reconnect_interval = 1;
 config.bot.username = 'TestBot';
 bot = { entity: { position: { x: 0, y: 64, z: 0 } }, chat: (m) => console.log('[test] bot.chat ' + m) };
+// A fake pathfinder so `goto` runs for real; the goal set is logged for the timeout test.
+bot.pathfinder = {
+    goal: null,
+    setGoal(goal) {
+        this.goal = goal;
+        console.log('[test] setGoal ' + (goal === null ? 'null' : 'goal'));
+    },
+    setMovements() {},
+};
+bot.on = () => {};
+bot.removeListener = () => {};
 connectToHub();
 console.log('[test] driver started against ' + config.websocket.url);
 """
@@ -174,3 +197,38 @@ def test_the_embedded_bot_js_registers_and_answers_actions(hub, bot_process):
 
     clear_bot_peer()
     assert get_mineflayer_client() is None, "clear_bot_peer forgets the link"
+
+
+def test_a_bad_action_is_answered_and_the_bot_process_survives(hub, bot_process):
+    """A thrown action used to escape the frame handler and kill the bot process."""
+    manager, _uri, _mode = hub
+    node, lines = bot_process
+    assert wait_until(lambda: "TestBot" in manager.peers, timeout=15), f"registered: {manager.peers}"
+    set_bot_peer(manager, "TestBot", log)
+    client = get_mineflayer_client()
+
+    result = client.send_command("setQuickBarSlot", {"slot": "not-a-number"}, timeout=5)
+    assert result.get("status") == "error", f"the failing action is answered with an error: {result}"
+    assert "invalid parameters" in str(result.get("data")), f"the reason travels: {result}"
+    assert node.poll() is None, "the bot process survived the failing action"
+
+    result = client.send_command("chat", {"message": "still alive"}, timeout=5)
+    assert result.get("status") == "success", f"the bot still serves actions: {result}"
+    assert wait_until(lambda: any("bot.chat still alive" in line for line in lines), timeout=5)
+    clear_bot_peer()
+
+
+def test_a_goto_timeout_clears_the_pathfinder_goal(hub, bot_process):
+    """Leaving the goal set after a timeout kept the bot walking after the tool said it stopped."""
+    manager, _uri, _mode = hub
+    node, lines = bot_process
+    assert wait_until(lambda: "TestBot" in manager.peers, timeout=15), f"registered: {manager.peers}"
+    set_bot_peer(manager, "TestBot", log)
+    client = get_mineflayer_client()
+
+    result = client.send_command("goto", {"x": 10, "y": 64, "z": 10, "timeout": 300}, timeout=5)
+    assert result.get("status") == "error", f"the unreachable goto times out: {result}"
+    assert "timeout" in str(result.get("data")).lower(), f"the timeout is reported: {result}"
+    assert wait_until(lambda: any("[test] setGoal null" in line for line in lines), timeout=5), \
+        f"the goal was dropped after the timeout: {lines[-10:]}"
+    clear_bot_peer()

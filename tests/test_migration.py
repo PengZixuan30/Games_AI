@@ -209,6 +209,24 @@ def test_the_update_path_lives_in_its_own_module():
         "...and no decorator was left behind on the entry module's debug()"
 
 
+def test_the_ask_pipeline_runs_on_its_own_thread():
+    """The AI round waits on the provider for minutes; it must not hold MCDR's TaskExecutor.
+
+    MCDR's watchdog declares the sync TaskExecutor unresponsive after
+    ``advanced.watchdog_threshold`` (10 s by default) and rebuilds it, logging this plugin's
+    thread stack each time -- which is what a synchronous ``ask_ai`` produced: a rebuild per
+    round, and every other command stuck behind it. The split into subpackages dropped the
+    decorator the old module had; this pins it back, under the thread name ``on_unload`` already
+    reports.
+    """
+    assert hasattr(games_ai.ask_ai, "__wrapped__"), \
+        "ask_ai is wrapped by @new_thread again"
+    assert callable(games_ai.ask_ai.original) and games_ai.ask_ai.original is not games_ai.ask_ai, \
+        "the decorator exposes the undecorated body as .original (tests/test_ask_errors.py runs it)"
+    assert "games_ai@ask_ai" in games_ai._PLUGIN_THREAD_NAMES, \
+        "...and on_unload still knows the thread name it creates"
+
+
 def test_the_help_texts_live_in_their_own_module():
     _help_src = module_text("help")
     _init_src = module_text("__init__.py")

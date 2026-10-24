@@ -198,6 +198,7 @@ class BasicChatParam(ABC, metaclass=abc.ABCMeta):
     A abstract basic class about ChatParam Object.
     """
     allow_type: Incomplete
+    _ctx_version: int
     server: Incomplete
     model_id: str | None
     ai_info: dict
@@ -278,7 +279,12 @@ class BasicChatParam(ABC, metaclass=abc.ABCMeta):
         :return: how many messages were dropped (0 or 1).
         """
     def _abort_interrupted_round(self) -> None:
-        """Finish a round that ``!!ask stop`` interrupted (keep the history, validate, release)."""
+        """Finish a round that ``!!ask stop`` interrupted (keep the history, validate, release).
+
+        The round is not marked stopped here any more: this conversation owns its round through
+        :meth:`ChatParam.try_claim_round` / :meth:`ChatParam.release_round`, and the queued
+        questions of a merged conversation are sent afterwards (see ``ask_ai``).
+        """
     @property
     def get_response_list(self) -> list[dict]: ...
     @property
@@ -427,14 +433,6 @@ class BasicChatParam(ABC, metaclass=abc.ABCMeta):
     def _limit_summary_input(self, parts: list[str], window: int) -> list[str]:
         """Keep the newest part of the summarization input within its own budget."""
     def _compress_old_rounds(self) -> bool:
-        """
-        Summarize the old rounds and replace them with the summary (see the locked twin).
-
-        The lock is held across the whole operation, summarizing request included: the round
-        thread must not append to or rewrite the history while the replacement is built, and
-        a command thread taking a snapshot waits for it instead of seeing a half-built list.
-        """
-    def _compress_old_rounds_locked(self) -> bool:
         '''
         Replace all but the newest KEEP_ROUNDS rounds with one summary system message.
 
@@ -442,7 +440,17 @@ class BasicChatParam(ABC, metaclass=abc.ABCMeta):
         compression keeps verbatim are the only ones it has, so there is nothing older to
         replace and no summarizing request is spent on it. The manual ``!!ask compact``
         reports that as "no history to compact" instead of scheduling the work.
+
+        The summarizing request is a network call that may take up to
+        :data:`SUMMARY_TIMEOUT` seconds, so it runs **outside** :attr:`_ctx_lock`: holding the
+        lock across it made a read-only command (``!!ask context``) block the MCDR command
+        thread for that long. The history is snapshotted under the lock, summarized without
+        it, and replaced only when :attr:`_ctx_version` is unchanged -- otherwise a message
+        appended by another thread during the request would be lost, so the replacement is
+        skipped and the next preflight retries.
         '''
+    def _compress_old_rounds_locked(self) -> bool:
+        """Compatibility name: the compression no longer runs under the lock (see above)."""
     def _validate_sequence(self) -> None:
         """Drop orphan tool messages / broken tool-call groups before sending."""
     def manage_context(self, system: list[dict], tools: list[dict] | None, *, preflight: bool = False, source: CommandSource | None = None) -> None:
@@ -472,9 +480,46 @@ class BasicChatParam(ABC, metaclass=abc.ABCMeta):
         The produced text is deliberately short — the chat box only gets a few lines — while
         the hover carries the details that would not fit, such as the per-round sizes.
         """
-    def reload_ai_info(self) -> None: ...
+    def reload_ai_info(self) -> bool:
+        """Re-read this conversation's model from the config (hot reload).
+
+        A model the config no longer has (removed or renamed while the conversation is live)
+        must not abort the reload: the warning is logged and the previous client/info are kept,
+        so the conversation keeps answering until the player switches or the config gains the
+        model again. The reload itself continues (see ``_reload_body``).
+
+        :return: True when the conversation now uses a configured model, False when the
+                 previous one was kept.
+        """
     def is_running(self) -> bool:
-        """True while a round of this conversation is in flight."""
+        """True while a round of this conversation is in flight (for messages/commands)."""
+    _round_active: bool
+    def try_claim_round(self) -> bool:
+        """Atomically take this conversation's round ownership.
+
+        :return: True when the caller now owns the round and must call :meth:`release_round`
+                 (or :meth:`finish_round_or_take_next` when it runs a merged sequence).
+        """
+    def queue_pending_ask(self, source: CommandSource, message: str) -> None:
+        """Queue one question asked while another round owns this conversation.
+
+        The owner thread drains the queue when its round ends and sends the questions in
+        arrival order as one merged round (see ``ask_ai``).
+        """
+    _pending_asks: Incomplete
+    def finish_round_or_take_next(self) -> tuple[list[tuple[CommandSource, str]], bool] | None:
+        """Finish the current round of an owned sequence, or start its next merged round.
+
+        :return: ``(batch, True)`` while the owner must run another round; ``None`` when the
+                 sequence is finished and the round ownership has been released.
+        """
+    def release_round(self) -> None:
+        """Release this conversation's round ownership (idempotent safety net)."""
+    def is_round_active(self) -> bool:
+        """True while some thread owns this conversation's round (or merged sequence)."""
+    _round_lock: Incomplete
+    def _ensure_round_state(self) -> None:
+        """Create the ownership/stop state on objects built without ``__init__`` (test doubles)."""
     def compact_history(self) -> str:
         '''
         Summarize the older rounds and keep only the newest ``KEEP_ROUNDS`` verbatim.
@@ -491,6 +536,9 @@ class BasicChatParam(ABC, metaclass=abc.ABCMeta):
         thread) for up to :data:`SUMMARY_TIMEOUT` seconds, while the round that needs the
         smaller context is the one that should pay for it. That is also why the caller is
         told ``"scheduled"`` rather than ``"done"``.
+
+        The round is claimed for the short inspection below, so the scheduling cannot race a
+        round that just started.
 
         :return: ``"scheduled"`` (deferred, applied before the next request),
                  ``"empty"`` (nothing older than the kept rounds, so nothing to compact),
@@ -511,6 +559,9 @@ class ChatParam(BasicChatParam):
     building an OpenAI client, adding messages to the response list, and handling forced
     additions to the response queue.
     """
+    _round_lock: Incomplete
+    _round_active: bool
+    _pending_asks: list[tuple[CommandSource, str]]
     def __init__(self, server: ServerInterface, *, model_id: str | None = None) -> None: ...
     openai_client: Incomplete
     def build_openai_client(self) -> None: ...

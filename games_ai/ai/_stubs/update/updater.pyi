@@ -133,6 +133,8 @@ def _remove_with_retries(path: Path) -> None:
 def _replace_with_retries(source: Path, target: Path) -> None: ...
 def _load_quietly(server, target: Path, log) -> None:
     """Load what is on disk (used when the old file was never touched)."""
+def _files_identical(left: Path, right: Path) -> bool:
+    """Byte-for-byte comparison of two files (size first, then SHA-256)."""
 def _restore_backup(server, backup: Path, target: Path, log, *, unload_first: bool = False) -> bool:
     """Put the previous archive back and load it: never leave the server without GamesAI.
 
@@ -145,7 +147,8 @@ def _restore_backup(server, backup: Path, target: Path, log, *, unload_first: bo
     file whose path is already registered, so without the unload the rollback would silently do
     nothing while reporting success.
 
-    Returns True when the previous archive really is back on disk (the caller's message must not
-    claim a recovery that did not happen).
+    Returns True only when the previous archive really is back on disk **and is the previous
+    archive** (size + SHA-256 checked against the backup). A rollback that replaced the file but
+    could not verify it must not be reported as a recovery (the caller's message would lie).
     """
 def _remove_quietly(path: Path) -> None: ...

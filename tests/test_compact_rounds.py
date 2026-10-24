@@ -49,6 +49,10 @@ def make_chat_param(round_count, *, running=False):
     cp.is_stopped = threading.Event()
     if not running:
         cp.is_stopped.set()
+    # Round ownership is what serialises rounds now (`is_stopped` mirrors it for waiters).
+    cp._round_lock = threading.Lock()
+    cp._round_active = bool(running)
+    cp._pending_asks = []
 
     def split():
         return list(state["preamble"]), [list(g) for g in state["rounds"]]
@@ -173,3 +177,28 @@ def test_compact_of_thirty_rounds_summarizes_the_twenty_oldest():
     assert len(state["summarized"][0]) == 20 and len(cp.response_list) == 1 + 1 + 20, \
         "30 rounds -> 20 oldest summarized, 10 kept: {}".format(
             (len(state["summarized"][0]), len(cp.response_list)))
+
+
+def test_a_history_change_during_the_summarizing_request_skips_the_replacement():
+    """The summary is requested outside the lock now: a message arriving meanwhile must survive.
+
+    Before, ``_summarize`` ran while the context lock was held, so a read-only command could wait
+    for up to a minute and a message appended from another thread had to queue behind it. With the
+    request outside the lock, the replacement is only applied while ``_ctx_version`` is unchanged.
+    """
+    cp, state = make_chat_param(12)
+    original = cp._summarize
+    arrived = {"role": "user", "content": "arrived during the summarizing request"}
+
+    def summarize_and_append(old_rounds, existing):
+        cp.response_list.append(dict(arrived))       # another thread writes during the request
+        cp._ctx_version += 1
+        return original(old_rounds, existing)
+
+    cp._summarize = summarize_and_append
+    before = len(cp.response_list)
+
+    assert cp._compress_old_rounds() is False, \
+        "the stale replacement is skipped when the history changed while summarizing"
+    assert cp.response_list[-1] == arrived, "the message that arrived meanwhile is still there"
+    assert len(cp.response_list) == before + 1, "the history was not replaced by the stale summary"

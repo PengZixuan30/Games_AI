@@ -44,13 +44,20 @@ from _helpers.paths import LANG_DIR, MANIFEST, PKG, REPO_ROOT, TESTS_DIR
 from _helpers.pkg import module_file
 
 # The size the entry module has today. It is a ceiling, not a target: splitting more out of it is
-# fine, an accidental growth is not.
-ENTRY_LIMIT = 3329
+# fine, an accidental growth is not. It was raised on purpose three times: the Python-version guard
+# at the top of the module is 10 lines of it, restoring ``ask_ai``'s @new_thread decorator is one
+# more, and the audit fixes (round ownership, fan-out guard, permission lookup, bot launch checks,
+# extension-unload log, per-AI context totals, colored-row reset) added 248 lines to the hot path
+# that lives here.
+ENTRY_LIMIT = 3589
 
 # Every module the package is allowed to contain, as paths relative to games_ai/. Anything else in
 # the tree is a stray file (a leftover .bak, a scratch script).
 KNOWN_MODULES = {
     "__init__.py",
+    # The pre-0.8.0 import paths kept as re-export modules for code outside the plugin (see
+    # tests/test_compat_modules.py); nothing inside the package imports them.
+    "external_skills_loader.py", "games_ai_tool.py", "register_extra_plugin.py",
     "core/__init__.py", "core/clock.py", "core/config.py", "core/database.py", "core/deps.py",
     "core/logger.py", "core/permission.py",
     "commands/__init__.py", "commands/aibot.py", "commands/clear.py", "commands/data.py",
