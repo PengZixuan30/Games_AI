@@ -6,7 +6,7 @@ remote table the plugin fetches at runtime. Regenerate after editing that file::
 
     python tools/build_context_table.py
 
-Loaded by ``games_ai/context_table.py`` as the offline fallback (priority 3).
+Loaded by ``games_ai/ai/context_table.py`` as the offline fallback (priority 3).
 """
 
 BUNDLED_TABLE: dict = {

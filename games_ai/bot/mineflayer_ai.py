@@ -6,9 +6,10 @@ import logging
 import datetime
 from typing import Callable
 
-from .openai_api import response_chat
-from .games_ai_tool import get_tool_handler, register_tool, register_bot_tool, get_bot_tool_schemas
-from .mineflayer import MineflayerWSClient
+from ..ai.openai_api import response_chat
+from ..ai.games_ai_tool import get_tool_handler, register_tool, register_bot_tool, get_bot_tool_schemas
+from ..core import clock
+from .mineflayer import BotPeerClient
 from openai import OpenAI
 from mcdreforged.command.command_source import CommandSource
 from mcdreforged.plugin.si.server_interface import ServerInterface
@@ -120,6 +121,7 @@ _LK = "games_ai.autonomous_bot"
         "Only call this when the task really requires the bot to act in the Minecraft world; "
         "plain questions do not need it."
     ),
+    execute_in_hub=True,
     parameters={
         "type": "object",
         "properties": {
@@ -155,7 +157,7 @@ class AutonomousBotController:
 
     def __init__(
         self,
-        ws_client: 'MineflayerWSClient | None',
+        ws_client: 'BotPeerClient | None',
         model: str,
         base_url: str,
         api_key: str,
@@ -438,8 +440,13 @@ class AutonomousBotController:
         T = self._tr
         msgs: list[dict] = []
 
-        now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        msgs.append({"role": "system", "content": T(f"{_LK}.time", time=now)})
+        # Same clock as the chat path (see games_ai/core/clock.py): an ISO timestamp with the
+        # machine's own offset, and the zone name when it can be trusted. This controller
+        # rebuilds its messages every cycle, so its time cannot go stale -- which is why it
+        # carries neither a round number nor the elapsed lines the chat reading has. The line is
+        # English in the code like the chat reading: it is addressed to the model, not a player.
+        now = "{} ({})".format(clock.timestamp(), clock.zone_label())
+        msgs.append({"role": "system", "content": f"Current time: {now}"})
 
         msgs.append({"role": "system", "content": self._system_prompt})
 

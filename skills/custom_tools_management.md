@@ -27,6 +27,8 @@ config/games_ai/tools/tools.py
 
 This file is loaded on every plugin reload. Tools defined here are registered alongside the built-in tools and become available to the AI immediately after a reload.
 
+Beside it the plugin keeps a generated `games_ai/` folder of type stubs (`.pyi`) — that is what an editor resolves `games_ai.*` from while this file is edited. It is not a tool module: never edit or delete it (the plugin rewrites it on load), and never import anything from it.
+
 ---
 
 ## File Structure Rules
@@ -37,8 +39,10 @@ Every custom tools file MUST include these imports at the top:
 
 ```python
 from mcdreforged.command.command_source import CommandSource
-from games_ai.games_ai_tool import register_tool
+from games_ai.ai.games_ai_tool import register_tool
 ```
+
+An existing file may import the older flat path instead (`from games_ai.games_ai_tool import ...`) — that module is kept as a compatibility re-export, so such a file works unchanged and must not be "fixed". Write new imports as above.
 
 ### Tool Registration Pattern
 
@@ -46,11 +50,12 @@ Each tool function MUST be decorated with `@register_tool(...)`. The decorator p
 
 - **description** (required): A clear description of what the tool does. This is what the AI reads to decide when to call the tool.
 - **parameters** (optional): JSON Schema for function parameters.
-- **perm** (optional, 0.6.4+): The minimum MCDR permission level required for the tool to be offered to the player's AI. Can be an `int` or a zero-argument callable returning an `int`. Defaults to `0` (available to everyone). Use `get_plugin_config_perm` (imported from `games_ai.games_ai_tool`) to make the tool follow the plugin's `permission` config value dynamically:
+- **execute_in_hub** (optional, default `false`): which machine runs the tool when several instances share one AI — see [Cluster Scope](#cluster-scope-execute_in_hub).
+- **perm** (optional): The minimum MCDR permission level required for the tool to be offered to the player's AI. Can be an `int` or a zero-argument callable returning an `int`. Defaults to `0` (available to everyone). Use `get_plugin_config_perm` (imported from `games_ai.ai.games_ai_tool`) to make the tool follow the plugin's `permission` config value dynamically:
 
 ```python
 from mcdreforged.command.command_source import CommandSource
-from games_ai.games_ai_tool import register_tool, get_plugin_config_perm
+from games_ai.ai.games_ai_tool import register_tool, get_plugin_config_perm
 
 @register_tool(description="Admin-only tool", perm=get_plugin_config_perm)
 def my_admin_tool(source: CommandSource, ai_prefix: str):
@@ -67,7 +72,7 @@ Every tool function MUST accept these two parameters:
 
 ```python
 from mcdreforged.command.command_source import CommandSource
-from games_ai.games_ai_tool import register_tool
+from games_ai.ai.games_ai_tool import register_tool
 
 @register_tool(description="Description of what this tool does")
 def my_tool(source: CommandSource, ai_prefix: str):
@@ -94,6 +99,21 @@ def my_tool(source: CommandSource, ai_prefix: str, param_name: str):
     return f"Result: {param_name}"
 ```
 
+### Cluster Scope (`execute_in_hub`)
+
+When several MCDR instances share one AI (a cross-server cluster), every tool runs on exactly one machine, and this flag picks which:
+
+- **`false` (default)** — the tool describes **the server the player is on**. The instance that asked uploads its tool list with the request, and a call is routed back and executed **there**, with that machine's `source.get_server()`, its plugins, its commands and its permission table.
+- **`true`** — the tool belongs to **the instance that runs the AI** (the hub): its skill files, its public database, its bot, its own `tools.py`. It is offered for every request no matter which instance the player is on, and always runs on the hub.
+
+Which one to write:
+
+- touches files under `config/games_ai/` of the AI instance, the public database, the bot, or is pure computation → `execute_in_hub=True`;
+- reads or changes the player's world, players, other plugins or server commands → keep the default;
+- **never promise a tool that needs the asking player's server.** If the tool has to read the world, the player list, another plugin or run commands on the machine the player is on, do not write it here: this file belongs to the AI instance, and a tool written here either runs on the hub (`execute_in_hub=True`) or is only visible to players asking on the hub. Tell the user instead that the tool has to be added to that instance's own `config/games_ai/tools/tools.py` by hand — GamesAI cannot write another instance's file;
+- **the file you are editing lives on the hub**, so a tool appended here with the default flag is usable **only by players asking on the hub**. If everyone should have it, either pass `execute_in_hub=True`, or tell the user the same code has to be added on the other instances;
+- **nothing syncs this file.** Every instance keeps its own `config/games_ai/tools/tools.py`; if the user wants the same tool everywhere, they have to copy the file to the other instances themselves and reload them there.
+
 ### Important Rules
 
 1. **Function names must be unique** — they cannot conflict with built-in tool names or other custom tools.
@@ -101,6 +121,7 @@ def my_tool(source: CommandSource, ai_prefix: str, param_name: str):
 3. **Return a string** — this is sent back to the AI as the tool result. Make it informative and actionable.
 4. **Permission checks** — use `source.get_permission_level()` to restrict sensitive operations.
 5. **Access other plugins** — use `source.get_server().get_plugin_instance('plugin_id')` to interact with other MCDR plugins.
+6. **Pick the cluster scope on purpose** — the default runs the tool where the asking player is; pass `execute_in_hub=True` for a tool that belongs to the AI instance (its files, database or bot). A tool appended here without the flag only works for players asking on the hub, because this file lives there (see [Cluster Scope](#cluster-scope-execute_in_hub)).
 
 ---
 
@@ -121,6 +142,7 @@ Required questions (ask only the ones the user has not already answered):
 | 5 | **What should it return to you?** What information must the tool result contain so you can answer the player afterwards? | Decides the return string — remember only a string comes back, and it must be in English |
 | 6 | **What is the tool called?** Propose a `snake_case` function name and confirm it does not collide with an existing tool | The function name *is* the tool name the model will call |
 | 7 | **Is there an existing tool that should be extended instead of a new one being added?** | Avoids duplicated tools |
+| 8 | **Should it work for players on every instance, or only where the player is?** Ask this only when more than one instance shares this AI | Decides `execute_in_hub`; the `tools.py` you edit lives on the hub, so a tool meant for another instance's players has to be marked `true` or installed there |
 
 Rules:
 

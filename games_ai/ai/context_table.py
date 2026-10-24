@@ -7,7 +7,7 @@ Window resolution order (highest priority first):
   3. version-bundled table    -> context_table_data.BUNDLED_TABLE (works fully offline)
   4. DEFAULT_CONTEXT_WINDOW   -> conservative fallback
 
-The bundled table lives in its own generated module (`games_ai/context_table_data.py`),
+The bundled table lives in its own generated module (`games_ai/ai/context_table_data.py`),
 synced from `data/context_windows.json` by `tools/build_context_table.py` in the repository.
 
 The remote table is fetched on plugin startup and on every 24h update check,
@@ -22,7 +22,8 @@ from fnmatch import fnmatch
 
 import requests
 
-from .config import plugin_config
+from ..core.config import plugin_config
+from ..core import logger
 from .context_table_data import BUNDLED_TABLE
 
 TABLE_VERSION = 1
@@ -49,12 +50,8 @@ _cached_at: float = 0.0
 
 
 def _log(server, level: str, msg: str) -> None:
-    if server is None:
-        return
-    try:
-        getattr(server.logger, level)(f"[context_table] {msg}")
-    except Exception:
-        pass
+    """One line tagged ``[context_table]``: the shared guard, this module's tag."""
+    logger.safe(server, level, msg, tag="context_table")
 
 
 def _data_folder() -> str:

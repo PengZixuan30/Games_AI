@@ -26,6 +26,27 @@ class _MCDRBridgeHandler(logging.Handler):
 _openai_bridge_setup_done = False
 
 
+def http_logger_names() -> list[str]:
+    """Every logger the OpenAI SDK may write its HTTP traffic to.
+
+    The SDK's HTTP dependency gets renamed from time to time -- ``httpx`` in the 1.x SDKs,
+    ``httpx2`` in the 2.x/3.x ones -- and a hardcoded list is exactly how
+    ``INFO:httpx2:HTTP Request: ...`` ended up printed by the root logger instead of the
+    MCDR console. The names are therefore read from the installed SDK's own metadata, with
+    the known ones kept as a fallback for the import-shadowing case.
+    """
+    names = {"openai", "httpx", "httpx2", "httpcore", "httpcore2"}
+    try:
+        from importlib.metadata import requires
+        for requirement in requires("openai") or []:
+            dependency = requirement.split(";")[0].split()[0].strip().lower()
+            if dependency.startswith(("httpx", "httpcore")):
+                names.add(dependency)
+    except Exception:
+        pass
+    return sorted(names)
+
+
 def setup_openai_logging(mcdr_logger: logging.Logger, level=logging.INFO):
     global _openai_bridge_setup_done
     if _openai_bridge_setup_done:
@@ -37,14 +58,19 @@ def setup_openai_logging(mcdr_logger: logging.Logger, level=logging.INFO):
     handler.setFormatter(fmt)
     handler.setLevel(level)
 
-    for name in ("openai", "httpx"):
+    bridged = []
+    for name in http_logger_names():
         lg = logging.getLogger(name)
         lg.setLevel(level)
         lg.handlers.clear()
+        # propagate=False is what keeps the record from reaching the root logger, where it
+        # would be printed a second time in a plain "LEVEL:name:message" format.
         lg.propagate = False
         lg.addHandler(handler)
+        bridged.append(name)
 
-    mcdr_logger.info("[OpenAI] Logging bridge enabled (level=%s)", logging.getLevelName(level))
+    mcdr_logger.info("[OpenAI] Logging bridge enabled (level=%s, loggers=%s)",
+                     logging.getLevelName(level), ", ".join(bridged))
 
 
 def response_chat(

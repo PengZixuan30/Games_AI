@@ -3,7 +3,7 @@ import os
 import sys
 from typing import Callable
 
-from .config import plugin_config
+from ..core.config import plugin_config
 from .games_ai_tool import _TOOL_REGISTRY, TOOL_SCHEMAS
 
 _external_tool_names: set[str] = set()
