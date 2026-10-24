@@ -8,7 +8,7 @@
 
 </div>
 
-GamesAI 0.6.0 引入了基于 [Mineflayer](https://github.com/PrismarineJS/mineflayer) 的全自主 Minecraft 机器人。AI 可以直接控制机器人在游戏世界中寻路、挖掘、建造、合成、战斗和交互。
+GamesAI 内置基于 [Mineflayer](https://github.com/PrismarineJS/mineflayer) 的全自主 Minecraft 机器人。AI 可以直接控制机器人在游戏世界中寻路、挖掘、建造、合成、战斗和交互。
 
 ## 环境要求
 
@@ -29,15 +29,15 @@ GamesAI 0.6.0 引入了基于 [Mineflayer](https://github.com/PrismarineJS/minef
 ```mermaid
 flowchart LR
     A["玩家"] -->|"!!ask"| B["GamesAI 插件 (Python)"]
-    B --> C["WS 客户端 (Python)"]
-    C -->|"WebSocket"| D["WS 服务器 (Node.js)"]
-    D --> E["Mineflayer Bot"]
+    B -->|"bot_action"| D["跨服 hub"]
+    H["JS Bot 进程 (Node.js)"] -->|"以 mineflayer_bot 注册"| D
+    H --> E["Mineflayer Bot"]
     E --> F["Minecraft 服务器"]
     B --> G["自主控制器 (AI)"]
     G -->|"get_state → 分析状态 →<br/>bot_call_action(goto / dig / attack / …)"| D
 ```
 
-插件启动一个 Node.js 进程运行 WebSocket 服务器，Python WebSocket 客户端（插件内置）通过本地连接与其通信，形成 MCDR 与 Mineflayer Bot 之间的桥梁。Bot 启动后，**自主 AI 控制器**会定时读取机器人状态、检查聊天消息，并自主决定执行什么操作。
+插件把 JS Bot 进程当作集群里的一个 peer：它接入 hub 并以 `mineflayer_bot` 身份注册，插件通过 hub 向它发送 `bot_action` 请求。Bot 启动后，**自主 AI 控制器**会定时读取机器人状态、检查聊天消息，并自主决定执行什么操作。
 
 ## 支持的操作
 
@@ -46,7 +46,6 @@ Bot 支持 20+ 种操作，通过 `bot_call_action` AI 工具调用：
 |操作|描述|
 |---|---|
 |`goto`|A* 寻路到坐标 `{x, y, z, range?}`|
-|`efly`|鞘翅飞行到坐标（需装备鞘翅）|
 |`dig`|挖掘指定坐标的方块|
 |`place`|在指定坐标放置方块|
 |`attack`|按名称攻击附近实体，或攻击最近敌对生物|
@@ -72,7 +71,7 @@ Bot 支持 20+ 种操作，通过 `bot_call_action` AI 工具调用：
 |`bot_chat`|让 Bot 在公共聊天中发送消息。|
 |`bot_whisper`|让 Bot 向某个玩家发送私聊消息。|
 |`bot_get_state`|获取 Bot 完整状态（30+ 字段）。|
-|`run_mineflayer_bot` / `stop_mineflayer_bot`|启动或停止 Bot。需要达到配置的 `permission` 权限等级（0.6.4+）。|
+|`run_mineflayer_bot` / `stop_mineflayer_bot`|启动或停止 Bot。需要达到配置的 `permission` 权限等级。|
 |`delegate_to_bot`|将复杂的 Minecraft 任务委派给自主控制器。|
 
 ## 配置
@@ -80,9 +79,9 @@ Bot 支持 20+ 种操作，通过 `bot_call_action` AI 工具调用：
 完整配置参考见 [5.mineflayer_bot](configuration.md#5mineflayer_bot)。关键要点：
 
 - 将 `mineflayer_bot.enabled` 设为 `true`（或使用 `!!aibot join`）以启动 Bot
-- `mineflayer_bot.bot.username` / `password` / `auth` — Bot 的 Minecraft 登录凭据。**用户名必须匹配 `[a-zA-Z0-9_]+`**（仅限英文字母、数字和下划线）。
+- `mineflayer_bot.bot.username` / `password` / `auth` — Bot 的 Minecraft 登录凭据。**用户名必须匹配 `[a-zA-Z0-9_]+`**（仅限英文字母、数字和下划线）；`!!aibot set` 对 `password` 施加同样的限制，因此含有其他字符的密码只能手工写入 `config.json`。
 - `mineflayer_bot.cycle_interval` — 自主 AI 决策间隔（秒）
-- `mineflayer_bot.websocket` — 内部设置，除非明确知道用途否则不要修改
+- `websocket.uri` / `websocket.force_server`（顶层）— 集群地址与角色；Bot 作为客户端接入该地址。详见[跨服连接](cross-server.md)
 
 > [!NOTE]
-> 修改 Bot 配置后，执行 `!!gamesai reload`（或使用 `!!aibot set` / `!!gamesai config set`）即可自动重启 Bot 并应用新配置。详见[热重载](hot-reload.md#热重载)。
+> 修改 Bot 配置后，执行 `!!gamesai reload`（或使用 `!!aibot set`）即可生效。`cycle_interval` 与 AI 相关设置会立即作用于运行中的 Bot；`username`、`password` 和 `auth` 只在 Node 进程（重新）启动时读取，因此修改后需要先停止再启动 Bot（`!!aibot leave`，然后 `!!aibot join`）。`!!gamesai config set` 会拒绝 `mineflayer_bot`（以及 `all_ai`），无法设置这些键。

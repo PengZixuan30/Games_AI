@@ -14,11 +14,11 @@ This section explains what happens between your `!!ask` and the AI's reply, and 
 
 1. You run `!!ask <content>` (or `!!ask -n <content>` / `!!ask -f <content>`).
 2. The plugin resolves your username and builds the user message (labeled with `Username:` / `Message:` in your current language).
-3. Your per-user `ChatParam` object (see `games_ai/chat_param.py`) is created lazily and uses the model configured by `all_ai` / `default_ai`. `!!ask -n` uses a throwaway `NonHistoryChatParam` instead — see [The stateless path](#the-stateless-path-ask--n).
+3. Your per-user `ChatParam` object (see `games_ai/ai/chat_param.py`) is created lazily and uses the model configured by `all_ai` / `default_ai`. `!!ask -n` uses a throwaway `NonHistoryChatParam` instead — see [The stateless path](#the-stateless-path-ask--n).
 4. Each round, `response_ai` assembles the request:
    - one system message: the model's prompt and the skills list (built-in + `skills.json` + registered by external plugins), joined together;
    - the public data list as an `assistant` message, only when the database is not empty;
-   - the conversation history (the stateless path keeps none), with the current time written in front of the question as a `user` message;
+   - the conversation history (the stateless path keeps none), with the time reading written in front of the question as a `user` message;
    - tools filtered by your permission level.
 5. The round talks to the OpenAI-compatible API through `openai_api.response_chat`. A history object owns one client per AI config; the stateless path reuses a client per `base_url` + API key.
 6. If the AI calls a tool, the plugin executes it, injects the result, and **continues the same round** until the AI produces a final text reply.
@@ -30,7 +30,7 @@ flowchart TD
     U -->|"!!ask -n <content>"| NOH["NonHistoryChatParam<br/>(stateless)"]
     U -->|"!!ask -f <content>"| QUEUE["response_queue"]
     U -->|"!!ask switch <model>"| SWITCH["Summary hand-off<br/>old model summarizes, history cleared"]
-    U -->|"!!ask stop"| STOP["Abort round / -n request / bot task<br/>interrupted step dropped"]
+    U -->|"!!ask stop"| STOP["Abort round / -n request / bot task<br/>the round's history is kept"]
 
     ASK --> CP["ChatParam (per player)"]
     CP --> BUILD["response_ai — build request"]
@@ -48,7 +48,7 @@ flowchart TD
 
     QUEUE -.->|"merged into running round<br/>or answered by follow-up round"| BUILD
     SWITCH --> CP
-    STOP -.->|"stop at the next checkpoint<br/>+ delete the interrupted step"| BUILD
+    STOP -.->|"stop at the next checkpoint<br/>+ drop only an unfinished tool call"| BUILD
 ```
 
 ## What a request contains
@@ -62,13 +62,13 @@ flowchart TD
 
 - **One system message only** — some upstreams (the Qwen3.5/3.6/3.8 chat template, for one) accept a system message at index 0 only and reject a second one with `System message must be at the beginning`. The prompt and the skills list are therefore joined with a blank line; being static, they are also the stable prefix the provider cache hits.
 - **The public data travels as an `assistant` message** — it is reference material rather than an instruction, so it is not a second system message; when the database is empty the message is not sent at all (no empty "public data" line).
-- **The current time travels as a `user` message right in front of the question** — the time changes every round, and inside the system block it would invalidate the provider's prefix cache from that point on (the whole history re-billed every round). It is injected on the first round and then once every **20 rounds**, so two consecutive rounds share exactly the same prefix.
+- **The time reading travels as a `user` message right in front of the question** — the time changes every round, and inside the system block it would invalidate the provider's prefix cache from that point on (the whole history re-billed every round). The reading is four lines: an ISO timestamp carrying the server's own UTC offset, the zone it was written in, the time since the previous reading, and the time since the previous message. It is refreshed on the first round, every **20 rounds**, and whenever the previous reading is older than **10 minutes** — twenty rounds can be twenty seconds or twenty hours, and a conversation picked up the next morning must not answer with yesterday's clock. Both baselines are stored with the conversation, so a restart or a compression cannot make them lie; a reading with nothing to measure from says `unavailable` instead of inventing a number. The zone is detected from the machine (`games_ai/core/clock.py`: `TZ` → the system's own record → the C library's name) and deliberately has no configuration knob, because the server already runs in exactly one zone — the operator's; the offset always comes from the clock itself, so daylight saving and a clock that was just changed are right. The four lines are **English written in the code, never translated**: they are addressed to the model, not to a player, and sending them through `rtr` would tie the model's clock to whichever language the server happens to run in. Nothing about the reading lives in `lang/*.yml`.
 - **Adjacent `user` messages are merged into one before sending** — time + question, the "read this skill first" note + question, several `!!ask -f` messages, a question retried after a failed round. Some upstreams require strict user/assistant alternation, and a model reading two user turns in a row tends to answer only the last one. The history keeps them apart; only the request merges them.
 - The exception: context-compression summaries and model-switch hand-off summaries are still injected as `system` messages (see below).
 
 ## The stateless path (`!!ask -n`)
 
-`!!ask -n <content>` answers one question and keeps nothing. It is served by `NonHistoryChatParam`, a self-contained class in `games_ai/chat_param.py` that shares no helper, attribute or lifecycle with the history objects.
+`!!ask -n <content>` answers one question and keeps nothing. It is served by `NonHistoryChatParam`, a self-contained class in `games_ai/ai/chat_param.py` that shares no helper, attribute or lifecycle with the history objects.
 
 **What it does not have:** dialogue history (`response_list`), the forced-request queue, the round lifecycle event, the tool counter, context management (token estimation, usage calibration, history compression, summarization requests) and any per-user state — nothing is stored in `all_chat_param`, and the object is discarded as soon as the answer is sent.
 
@@ -76,7 +76,7 @@ flowchart TD
 
 - the same message layout (a single system message: prompt + skills; the public data as an `assistant` message when there is any; the time as a `user` message in front of the question) and the same tools for your permission level;
 - tool calls are still executed and fed back **inside the same round**, until the AI produces a final text reply;
-- the same reply format and the same error report (HTTP status mapping plus the provider's request ID).
+- the same reply format and the same error report: the player gets the provider's HTTP status **with its localized meaning** (for example *insufficient balance* or *model not found*), while the provider's request ID and the full traceback go to the log.
 
 **Two differences worth knowing:**
 
@@ -91,7 +91,7 @@ GamesAI no longer uses a fixed `max_history` value. Instead, every request is me
 
 1. `context_window` in the AI entry of `all_ai` — per-model override;
 2. the context-window table: fetched from [`data/context_windows.json`](https://github.com/PengZixuan30/Games_AI/blob/main/data/context_windows.json) (GitHub Raw, with jsDelivr as a second source), cached at `config/games_ai/cache/context_windows.json`, refreshed by the startup / 24 h update-check chain — and by `!!gamesai check`, which bypasses the 24 h TTL;
-3. a table bundled with the plugin version (works fully offline; generated module `games_ai/context_table_data.py`, synced from the repository JSON);
+3. a table bundled with the plugin version (works fully offline; generated module `games_ai/ai/context_table_data.py`, synced from the repository JSON);
 4. a conservative default of `32768` tokens for unknown models.
 
 **Triggers** (checked before *and* after every request):
@@ -111,19 +111,32 @@ Run `!!gamesai debug` to see the window, usage, calibration factor and every com
 
 ## Per-user state
 
-- `all_chat_param` keeps one `ChatParam` per player in memory; `!!gamesai clear` / `!!gamesai clearall` removes them.
+- `all_chat_param` keeps one `ChatParam` per player in memory, restored from the stored conversations at every plugin load; `!!gamesai clear` removes your own, `!!gamesai clear <name>` (config permission) removes one other player's, and `!!gamesai clearall` removes all of them -- each one together with its stored row.
 - `ChatParam` owns:
   - `response_list` — the dialogue history;
   - `system_message` — rebuilt every round (the model's prompt + the skills list, as one system message);
   - `response_queue` — messages from `!!ask -f` waiting to be merged;
-  - `is_stopped` — the round lifecycle event (used to serialize rounds per player).
+  - the **round owner** (a lock plus an "active" flag) — only one round may run per conversation; `is_stopped` mirrors that state for the code that waits on a conversation.
 - **`!!ask -n` keeps no state at all**: it is served by `NonHistoryChatParam`, which is not registered in `all_chat_param` and is dropped when the answer has been sent — see [The stateless path](#the-stateless-path-ask--n).
 - **`!!ask switch <model>`** rebuilds the AI client of your `ChatParam` with a **summary hand-off**: the raw history is cleared right away, and the old model compresses it into one neutral factual summary **right before your next request** (same timing as automatic context compression), which is then injected as the first system message of the new session. See [Summary Hand-off on Model Switch](#summary-hand-off-on-model-switch).
 - **`!!ask -f <content>`** queues the request while a round is still running: the in-flight round merges it and keeps going; if the round just ended before the merge, an automatic follow-up round answers it.
+- **A plain `!!ask` sent while that conversation is answering** is queued too: the round owner sends it, in arrival order with every other queued question, as **one merged follow-up round** after the current one, and the answer streams to the round owner (the player who asked first). The waiting player gets the usual "thinking" line immediately. **`!!ask stop`** aborts the current round but keeps the queued questions; they are then sent as that merged round. The server-change note is written before a round starts, never in the middle of a tool-call group, and a failure while setting a round up is logged and answered instead of leaving the conversation "running" forever.
 - **`!!gamesai debug`** switches the request-flow logs to INFO level in the MCDR console (request start/finish, forced-request queue/merge, tool calls); without it, the same logs go to DEBUG.
 
 > [!NOTE]
-> **Community vote result:** the poll in [issue #20](https://github.com/PengZixuan30/Games_AI/issues/20) is closed. Option **B1 (summary hand-off)** is implemented in v0.7.1 — the previous model's style no longer shapes the new model's replies, while the facts of the conversation are carried over.
+> **Community vote result:** the poll in [issue #20](https://github.com/PengZixuan30/Games_AI/issues/20) is closed. Option **B1 (summary hand-off)** is implemented — the previous model's style no longer shapes the new model's replies, while the facts of the conversation are carried over.
+
+### Conversation persistence
+
+Every conversation is **stored**, in a table of its own inside the public database file:
+
+`config/games_ai/database/public_database.db` -> table `chat_history`, one row per user.
+
+- **Stored** is the whole conversation: its messages (tool calls and their results included), the queue of messages waiting to be merged, the model it belongs to, the number of rounds since the last time injection, and the lifetime token counters behind `!!ask context --all`. The **usage state of the last request** rides along: its real input size, that round's counters, the raw `usage` dict behind the cache-hit share and the last compression -- so `!!ask context` shows the same numbers after a reload instead of claiming that no request was ever sent.
+- **When**: right after every finished round (a failed or interrupted one included), after `!!ask switch`, and after a message another user handed over. `!!gamesai clear` deletes your row, `!!gamesai clear <name>` deletes one other player's (config permission), `!!gamesai clearall` deletes all of them. A conversation that was cleared while a round of it was still in flight cannot be written back: the plugin stores a conversation only while it is still the registered one.
+- **Restored on every plugin load**, before any command can run -- so a reload, an update, a restart or removing and reinstalling the plugin keeps every conversation. A row whose model was removed from the config continues on `default_ai`; a row that is unreadable or of a different format is skipped with one log line, a row holding nothing usable is dropped silently, and neither ever keeps the plugin from loading.
+- **Not stored**: a round still in flight when the plugin unloads, a model-switch hand-off that has not been summarized yet (`!!ask switch` clears the raw history immediately and the summary is written right before the next question), and anything from `!!ask -n` (which keeps no history at all). The **held-context estimate** is not stored either: the restore recomputes it from the messages (system prompt included, tool schemas not -- those belong to the next request), so it stays true even when the window or the model changed while the plugin was down.
+- **One file, two tables**: `!!data` and the conversations never read each other's rows, but deleting `config/games_ai/database/public_database.db` (to reset `!!data`, for instance) deletes every stored conversation too. In a cluster the store belongs to the **hub**, exactly like the public database and the AI configuration.
 
 ## Summary Hand-off on Model Switch
 
@@ -146,43 +159,43 @@ Run `!!gamesai debug` to see the window, usage, calibration factor and every com
 Notes:
 
 - the switch waits for a running round to finish first, so a snapshot is never taken from a half-written conversation;
-- switching also resets the tool counter, the forced-request queue and the usage/calibration counters of the conversation;
+- switching also resets the tool counter, the forced-request queue and the last-request display counters (last input size, round peak, held-context estimate); the lifetime totals behind `!!ask context --all` and the per-`base_url|model` calibration factor are kept.
 - the extra summarizing request is only paid when you actually ask again — and only once per switch (with a 60 s timeout). It never blocks the command and never fails the switch; a failed hand-off just leaves the new conversation without the old context;
-- `!!ask stop` does not cancel a scheduled hand-off: it belongs to the previous conversation, not to the running round. `!!gamesai clear` removes it together with the conversation object;
+- `!!ask stop` does not cancel a scheduled hand-off: it belongs to the previous conversation, not to the running round. `!!gamesai clear` (or its `<name>` form) removes it together with the conversation object;
 - using `-n` costs nothing here: only the history path summarizes. See [The stateless path](#the-stateless-path-ask--n).
 
 ## Stopping a Running Round
 
-`!!ask stop` aborts everything **you** have in flight, right away:
+`!!ask stop` aborts everything **you** have in flight, right away. Nothing it already wrote is thrown away; only an unfinished tool call is.
 
 | What is running | What the command does |
 |---|---|
-| A round of your conversation (the model is thinking, or tools are executing) | The round stops at its next checkpoint, the interrupted step is deleted from the history, and queued `!!ask -f` messages are discarded |
+| A round of your conversation (the model is thinking, or tools are executing) | The round stops at its next checkpoint, and **what it already wrote stays in the history**: your question, the injected notes and every finished tool call keep their place. Only a tool call whose result never arrived is dropped (an incomplete batch goes as a whole, because a provider rejects a `tool_calls` message without its results); queued `!!ask -f` messages stay queued and the next round merges them |
 | A `!!ask -n` request | The request is abandoned; its answer is thrown away (the stateless path keeps nothing anyway) |
 | A task you delegated to the autonomous bot | The queued task is removed, and the cycle executing it stops and discards what it produced |
 
-How the interrupted step is deleted:
+What is dropped, and what stays:
 
-- a trailing **tool-call group** (the assistant message that requested the tools plus its tool results) is removed as a whole, so no orphan tool message is left behind;
-- otherwise **everything the interrupted round appended** is removed — your message, messages merged from `!!ask -f`, injected skill notes — stopping at the last completed answer, so an interrupted ask never happened;
-- if that round had already produced its final answer, that answer is removed too.
+- only a **tool call whose result never arrived** is dropped: a trailing `tool_calls` message without answers is removed, and a batch that is only partly answered goes as a whole (the results that did arrive included), because a provider rejects a `tool_calls` message without its results;
+- everything else the round already wrote stays in the history and in the stored conversation: your question, the injected notes (time, skills) and every tool call that came back with its result;
+- if that round had already produced its final answer, that answer stays as well.
 
 Details:
 
 - an in-flight HTTP request cannot be cancelled, so the round stops at the next checkpoint: before the next request, right after the response arrives, or between two tool calls of a batch. The delay is therefore at most one request;
 - the command only ever touches your own conversations (no target argument), and needs no special permission;
 - with nothing running it answers "There is no conversation in progress.";
-- `stop` must be **exactly that one word** to act as a command: a sentence such as `!!ask stop it.` is handed to the model unchanged (since 0.7.2 `!!ask` is parsed by a command dispatcher; see the [Context Inspection](#context-inspection) section below).
+- `stop` must be **exactly that one word** to act as a command: a sentence such as `!!ask stop it.` is handed to the model unchanged (`!!ask` is parsed by a command dispatcher; see the [Context Inspection](#context-inspection) section below).
 
 ## Context Inspection
 
-0.7.2 adds three read-only commands that turn context management from invisible into visible. None of them writes any state or starts a round, so they are always safe to run.
+Two read-only commands and a deferred compaction request: `!!ask context` and `!!ask context --all` write nothing and start no round, so they are always safe to run; `!!ask compact` only records an intent (it is refused while a round is in flight) that the preflight of your next question turns into the summarizing request.
 
 | Command | Purpose |
 |---|---|
 | `!!ask context [player]` | Show the context usage of one conversation (your own when no player is given) |
-| `!!ask context --all` | Sum the usage of every player on the server, grouped by model |
-| `!!ask compact` | Compress the older history now, ignoring the window triggers |
+| `!!ask context --all` | Sum the usage of every player on the server, per configured AI entry (named by `ai_name`; the hover shows its `all_ai` id and upstream `ai_model`) |
+| `!!ask compact` | Compress the older history now, ignoring the window triggers, keeping the newest 10 rounds verbatim; a history that does not hold more than those 10 rounds has nothing older to replace, so `!!ask compact` answers "There is no history to compact." and sends nothing |
 
 ### One conversation: `!!ask context [player]`
 
@@ -194,27 +207,29 @@ The chat lines are a short summary; the details live on hover:
 - **how many tokens are left before compression triggers**, and which line will be hit first (history 80% / burst 20% / emergency 95%);
 - **round and message counts**, how many summaries the history already carries, whether a model-switch hand-off summary is present, and how many `!!ask -f` messages are waiting to be merged.
 
-The hover adds: the exact token values of the three lines, the **per-round token sizes** (oldest first, with their share of the window, at most 10 rows), the **last request's usage** (prompt/completion/total, cache hits, reasoning) with this round's totals, and the **last compression** (time and message counts before/after).
+The hover adds: the exact token values of the three lines, the **per-round token sizes** (oldest first, with their share of the window, at most 10 rows), the **last request's usage** (prompt/completion/total, cache hits, reasoning) with this round's totals, and the **last compression** (time and message counts before/after). All of these are stored with the conversation, so a reload or a restart keeps them; the held-context estimate below is recomputed from the restored history at load.
 
 Inspecting is read-only but must be **mutually exclusive with the round thread**: a running round keeps appending messages, and a compression replaces the whole history list. The snapshot is therefore taken under one lock, so you see either the state before or after a compression, never a half-rewritten history. Inspecting **never creates** a conversation object: a player who never asked simply gets "no context recorded for that player" (which also notes that `!!ask -n` keeps no context at all).
 
 ### Server-wide totals: `!!ask context --all`
 
-- grouped by **model**, one line each: player count, total context in use and its share of the window, total round prompt, total round peak;
-- the hover shows that model's totals **since the plugin was loaded**: prompt, completion, total, cache hits (0.1% resolution) and reasoning;
+- grouped by **configured AI entry**, one line each (named by that entry's `ai_name`; two entries pointing at the same upstream `ai_model` are two rows, because they are two assistants): player count, total context in use and its share of the window, total round prompt, total round peak (the in-use and round numbers come back with the restored conversations, so a restart does not zero them);
+- the hover shows that entry's `all_ai` id and upstream `ai_model`, plus its totals **since those conversations were created** (they survive a restart): prompt, completion, total, cache hits (0.1% resolution) and reasoning;
 - **models with zero usage are not listed**;
+- conversations whose numbers cannot be read are logged and left out; they never hide the rest;
+- the rows are gray; an `ai_name` carrying `§` formatting codes keeps those colors only for the name itself, the rest of the row stays gray;
 - no player names, and no permission restriction.
 
 Two things that are easy to misread:
 
-1. **"context in use" shrinks** — compressing the history or running `!!ask clear` makes it drop; to see what has been spent in total, read the accumulators on hover;
-2. **the accumulators start at this plugin load** — they are in-memory counters, so earlier conversations cannot be reconstructed, and a compression never lowers them. That is exactly their purpose: compressing erases the traces in the history, but not the bill that was already paid.
+1. **"context in use" shrinks** — compressing the history or running `!!gamesai clear` makes it drop; to see what has been spent in total, read the accumulators on hover;
+2. **the accumulators follow the conversation** — they are stored with it and come back on load, so a restart does not zero them, and a compression never lowers them: compressing erases the traces in the history, but not the bill that was already paid.
 
 ### On-demand compression: `!!ask compact`
 
-It uses the very same logic as automatic compression (the newest **10 rounds** are kept verbatim, older ones are replaced by one neutral summary); the only difference is that it **ignores the triggers**, so it compresses on request even when the context is far from the 80% line.
+It uses the very same logic as automatic compression (the newest **10 rounds** are kept verbatim, older ones are replaced by one neutral summary); the only difference is that it **ignores the triggers**, so it compresses on request even when the context is far from the 80% line. A history that does not hold more than those 10 rounds has nothing older to replace, so `!!ask compact` answers "There is no history to compact." and sends nothing.
 
-Like the model-switch hand-off it is **deferred**: the command only records the intent and returns at once, and the actual summarizing request is sent by the preflight of your **next question**. The reason is that this request can take up to 60 seconds, which would block the server's main thread if it ran inside the command — and the round that needs the smaller context is the next one anyway.
+Like the model-switch hand-off it is **deferred**: the command only records an intent and returns at once, and the actual summarizing request is sent by the preflight of your **next question**. The reason is that this request can take up to 60 seconds, which would block the server's main thread if it ran inside the command — and the round that needs the smaller context is the next one anyway.
 
 The reply therefore only says that compression is *scheduled*. The other two outcomes are reported just as honestly: there is no history to compact, or a round is in progress (the request is then refused, because replacing the history mid-round would split the tool-call group being executed — wait for it or use `!!ask stop` first).
 

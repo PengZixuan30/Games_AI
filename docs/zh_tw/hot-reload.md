@@ -16,7 +16,7 @@ GamesAI 提供了完善的熱重載機制，讓你在不重啟伺服器的情況
 
 |方式|說明|
 |---|---|
-|`!!gamesai reload`|管理員手動執行，重新載入全部設定、工具與技能。|
+|`!!gamesai reload`|重新載入全部設定、工具與技能。此命令未附加任何權限要求，因此任何命令來源（包括低權限玩家）都能執行它。|
 |`!!gamesai config set <key> <value>`|修改設定項後自動觸發重載。|
 |AI 工具 `reload_plugin`|AI 在修改工具程式碼或技能檔案後呼叫，確保變更立即生效。|
 |`!!aibot set <key> <value>`|修改 Bot 設定後自動觸發重載。|
@@ -25,12 +25,12 @@ GamesAI 提供了完善的熱重載機制，讓你在不重啟伺服器的情況
 
 執行熱重載時，插件會依次執行以下操作：
 
-1. **重新讀取設定檔** (`config/games_ai/config.json`) — 套用 `prefix`、`permission`、`all_ai`、`default_ai` 等全部設定變更（含單模型 `context_window`）。
-2. **全量重建工具註冊（0.6.4+）** — 徹底清空工具註冊表，然後從所有來源重建：內建工具透過註冊重放恢復、自訂 `tools.py` 重新匯入、註冊過工具的插件被重新載入以重新執行註冊程式碼（見第 4、6 步）。
+1. **重新讀取設定檔** (`config/games_ai/config.json`) — 套用 `prefix`、`permission`、`all_ai`、`default_ai` 等全部設定變更（含單模型 `context_window`）。此處會讀取 `websocket` 區塊的變更，但運行中的鏈路與寫入 Bot 設定的位址只在載入時重建，因此這類變更需透過 `!!MCDR plugin reload games_ai`（或 `!!gamesai node claim` / `node forget`，它們會重建鏈路）來套用。
+2. **全量重建工具註冊** — 徹底清空工具註冊表，然後從所有來源重建：內建工具透過註冊重放恢復、自訂 `tools.py` 重新匯入、註冊過工具的插件被重新載入以重新執行註冊程式碼（見第 4、6 步）。
 3. **重新載入 Skills** (`config/games_ai/skills/skills.json`) — 刷新技能索引，AI 系統提示中的可用技能列表同步更新。
 4. **重新載入自訂工具** (`config/games_ai/tools/tools.py`) — 熱載入自訂工具程式碼，無需重啟 MCDR。
-5. **重啟 Mineflayer Bot**（如已啟用）— 停止現有 Bot 程序和 WebSocket 連線，套用新設定後重新啟動。
-6. **重載註冊過工具的插件與已註冊的擴展插件** — 重新載入所有透過 `@register_tool` 註冊過工具的第三方插件（0.6.4 起自動追蹤）以及 `REGISTER_PLUGIN_LIST` 中的插件（[見下方](#讓自己的-mcdr-插件跟隨-gamesai-熱重載)）。重載失敗或找不到的插件會從重載列表中移除。
+5. **在需要時重啟 Mineflayer Bot** — 已在運行的 Bot 會保持原樣（僅重新讀取其控制器設定），除非 `init.js` 需要被重寫；否則會停止現有程序並讓它離開叢集，並在 `enabled` 為 true 時以新設定重新啟動。
+6. **重載註冊過工具的插件與已註冊的擴展插件** — 重新載入所有透過 `@register_tool` 註冊過工具的第三方插件（由工具註冊表自動追蹤）以及 `REGISTER_PLUGIN_LIST` 中的插件（[見下方](#讓自己的-mcdr-插件跟隨-gamesai-熱重載)）。重載失敗或找不到的插件會從重載列表中移除。
 7. **派發 `games_ai.reload` 事件** — 通知所有監聽了此事件的其他 MCDR 插件（[見下方](#方式二透過監聽事件回應熱重載)）。
 
 > [!NOTE]
@@ -45,14 +45,16 @@ GamesAI 提供了完善的熱重載機制，讓你在不重啟伺服器的情況
 這是最簡單的方式。在你的插件 `on_load` 中呼叫 `register_self()`，將插件加入 GamesAI 的重載列表：
 
 > [!NOTE]
-> 自 0.6.4 起，透過 `@register_tool` 註冊過工具的插件在熱重載時會自動重新載入（由工具註冊表自動追蹤），因此 `register_self()` 僅適用於未註冊工具的插件（如只註冊技能的插件）或需要自訂重載邏輯的插件。
+> 透過 `@register_tool` 註冊過工具的插件在熱重載時會自動重新載入（由工具註冊表自動追蹤），因此 `register_self()` 僅適用於未註冊工具的插件（如只註冊技能的插件）或需要自訂重載邏輯的插件。
 
 ```python
-from games_ai.register_extra_plugin import register_self
+from games_ai.ai.register_extra_plugin import register_self
 
 def on_load(server, old):
     register_self(server.get_self_metadata().id)
 ```
+
+子套件出現之前寫的外掛可以繼續用 `from games_ai.register_extra_plugin import register_self`：該扁平路徑是相容轉發，轉發的是同一個函式與同一份重載清單，因此既有外掛無需改動。新程式碼使用上面的路徑。
 
 每次執行 `!!gamesai reload` 時，你的插件會被 MCDR 自動重載（呼叫 `server.reload_plugin()`）。如果重載失敗，插件會被卸載並從重載列表中移除。
 
@@ -60,7 +62,7 @@ def on_load(server, old):
 
 ```python
 from mcdreforged.command.command_source import CommandSource
-from games_ai.register_extra_plugin import register_self
+from games_ai.ai.register_extra_plugin import register_self
 
 def my_reloader(source: CommandSource):
     # 自訂重載邏輯

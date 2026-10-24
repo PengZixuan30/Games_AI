@@ -16,7 +16,7 @@ Hot reload can be triggered in the following ways:
 
 |Method|Description|
 |---|---|
-|`!!gamesai reload`|Run by an admin to reload all configuration, tools, and skills.|
+|`!!gamesai reload`|Reload all configuration, tools and skills. The plugin attaches no permission requirement to this command, so any command source -- a low-permission player included -- can run it.|
 |`!!gamesai config set <key> <value>`|Automatically triggers a reload after modifying a config value.|
 |AI tool `reload_plugin`|Called by the AI after modifying tool code or skill files to ensure changes take effect immediately.|
 |`!!aibot set <key> <value>`|Automatically triggers a reload after modifying Bot configuration.|
@@ -25,12 +25,12 @@ Hot reload can be triggered in the following ways:
 
 When a hot reload is performed, the plugin executes the following steps in order:
 
-1. **Re-read the configuration file** (`config/games_ai/config.json`) — Applies all changes to `prefix`, `permission`, `all_ai`, `default_ai`, etc. (including per-model `context_window`).
-2. **Re-register all tools (0.6.4+)** — Completely clears the tool registry and rebuilds it from every source: built-in tools are replayed from recorded registrations, custom `tools.py` tools are re-imported, and plugins that registered tools are reloaded so their registration code runs again (see steps 4 and 6).
+1. **Re-read the configuration file** (`config/games_ai/config.json`) — Applies all changes to `prefix`, `permission`, `all_ai`, `default_ai`, etc. (including per-model `context_window`). Changes to the `websocket` block are read here, but the running link and the address written into the bot's config are only rebuilt on load, so apply those with `!!MCDR plugin reload games_ai` (or `!!gamesai node claim` / `node forget`, which rebuild the link).
+2. **Re-register all tools** — Completely clears the tool registry and rebuilds it from every source: built-in tools are replayed from recorded registrations, custom `tools.py` tools are re-imported, and plugins that registered tools are reloaded so their registration code runs again (see steps 4 and 6).
 3. **Reload Skills** (`config/games_ai/skills/skills.json`) — Refreshes the skill index; the available skills list in the AI's system prompt is updated synchronously.
 4. **Reload Custom Tools** (`config/games_ai/tools/tools.py`) — Hot-loads custom tool code without restarting MCDR.
-5. **Restart the Mineflayer Bot** (if enabled) — Stops the existing Bot process and WebSocket connection, then restarts with the new configuration.
-6. **Reload Plugins that Registered Tools & Registered Extension Plugins** — Reloads every third-party plugin that registered tools via `@register_tool` (tracked automatically since 0.6.4) plus every plugin in `REGISTER_PLUGIN_LIST` ([see below](#making-your-mcdr-plugin-follow-gamesai-hot-reload)). Failed or missing plugins are removed from the reload list.
+5. **Restart the Mineflayer Bot when it is needed** -- a bot that is already running is left alone (only its controller settings are re-read) unless `init.js` had to be rewritten; otherwise the existing process is stopped, made to leave the cluster and, when `enabled` is true, started again with the new configuration.
+6. **Reload Plugins that Registered Tools & Registered Extension Plugins** — Reloads every third-party plugin that registered tools via `@register_tool` (tracked automatically by the tool registry) plus every plugin in `REGISTER_PLUGIN_LIST` ([see below](#making-your-mcdr-plugin-follow-gamesai-hot-reload)). Failed or missing plugins are removed from the reload list.
 7. **Dispatch the `games_ai.reload` Event** — Notifies all other MCDR plugins that are listening for this event ([see below](#approach-2-responding-to-hot-reload-via-event-listening)).
 
 > [!NOTE]
@@ -45,14 +45,16 @@ If you are developing an MCDR plugin that depends on GamesAI (e.g., registering 
 This is the simplest approach. Call `register_self()` in your plugin's `on_load` to add your plugin to GamesAI's reload list:
 
 > [!NOTE]
-> Since 0.6.4, plugins that register tools via `@register_tool` are reloaded automatically during hot reload (they are tracked by the tool registry), so `register_self()` is only needed for plugins that don't register tools (e.g. skills-only plugins) or need custom reload logic.
+> Plugins that register tools via `@register_tool` are reloaded automatically during hot reload (they are tracked by the tool registry), so `register_self()` is only needed for plugins that don't register tools (e.g. skills-only plugins) or need custom reload logic.
 
 ```python
-from games_ai.register_extra_plugin import register_self
+from games_ai.ai.register_extra_plugin import register_self
 
 def on_load(server, old):
     register_self(server.get_self_metadata().id)
 ```
+
+A plugin written before the subpackages existed may keep `from games_ai.register_extra_plugin import register_self`: that flat path is a compatibility re-export of the same function and the same reload list, so an existing plugin needs no edit. New code uses the path above.
 
 Each time `!!gamesai reload` is executed, your plugin will be automatically reloaded by MCDR (via `server.reload_plugin()`). If the reload fails, the plugin is unloaded and removed from the reload list.
 
@@ -60,7 +62,7 @@ If your plugin needs **custom reload logic** (beyond the default `reload_plugin`
 
 ```python
 from mcdreforged.command.command_source import CommandSource
-from games_ai.register_extra_plugin import register_self
+from games_ai.ai.register_extra_plugin import register_self
 
 def my_reloader(source: CommandSource):
     # Custom reload logic

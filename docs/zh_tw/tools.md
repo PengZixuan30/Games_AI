@@ -15,12 +15,12 @@
 下表由插件的工具註冊表匯出，`權限` 欄表示**向 AI 提供該工具**所需的最低 MCDR 權限等級，`Bot` 欄表示該工具是否同時提供給自治 Bot 控制器（否則只有聊天 AI 能用）。
 
 <details>
-<summary>點擊查看全部內建工具（26 個）</summary>
+<summary>點擊查看全部內建工具（27 個）</summary>
 
 | 工具 | 參數 | 權限 | Bot | 說明 |
 |---|---|:---:|:---:|---|
 | `get_online_players` | 無 | 0 | ✅ | 取得線上玩家清單。依賴 `online_player_api` 插件，插件缺失時退回 RCON `list` 查詢 |
-| `get_player_position` | `player` | 0 | ✅ | 查詢指定玩家的座標與維度。依賴 `minecraft_data_api` 插件，缺失時該工具不會註冊 |
+| `get_player_position` | `player` | 0 | ✅ | 查詢指定玩家的座標與維度。依賴 `minecraft_data_api` 插件，缺失時工具仍會註冊，只是每次呼叫都會回傳錯誤字串 |
 | `calculator` | `expression` | 0 | ✅ | 四則運算表達式計算器 |
 | `item_caculator` | `expression`、`single_limit`（可選） | 0 | ✅ | 計算表達式並換算成「盒 / 組 / 個」，`single_limit` 為單組堆疊數（預設 64） |
 | `setting_timer` | `duration` | 0 | ✅ | 等待指定秒數後再繼續 |
@@ -45,14 +45,16 @@
 | `bot_get_state` | 無 | 0 | ✅ | 取得假人的完整狀態（30 餘個欄位） |
 | `bot_call_action` | `action`、`params`（可選） | 0 | ✅ | 向假人下發任意動作（`goto`、`dig`、`place`、`attack` 等） |
 | `delegate_to_bot` | `task`、`username`（可選） | 0 | ✅ | 把複雜任務交給自治 Bot 控制器，由它自行拆解執行 |
+| `send_message_to_player_ai` | `target`、`message` | 0 | — | 把目前使用者的一則訊息轉交給**任何人**的對話，對方的助手會在下次提問時讀到（單向）。只要目標已經擁有對話就能發，不比較任何權限等級 |
 
 </details>
 
-關於這張表的三點說明：
+關於這張表的四點說明：
 
 - **`設定權限`** 指的是 `config.json` 裡的 `permission` 值。該值決定這些工具對**哪個等級**的玩家開放；等級不足的玩家，其 AI 請求裡根本不會出現這些工具，模型也就無從呼叫。
 - **`Bot` 欄的差異是有意為之**：發給 Bot 控制器的工具集刻意收窄（例如 `read_skills`、資料庫讀寫、技能與工具管理都不給它），以免自治迴圈在無人監督時改動技能或資料。
 - **`perm` 只是第一道門**。內建工具與自訂工具裡的敏感操作，通常還會在函式內部再次檢查呼叫者的實際權限等級（`source.get_permission_level()`）。兩道門都過不了，指令就不會執行。
+- **`send_message_to_player_ai` 是唯一的跨使用者寫入。**它對所有使用者開放，而且**任何人都可以寫給任何人**：轉達那一刻唯一的檢查是「目標已經擁有對話」（轉達永遠不會建立對話），**不比較也不查詢任何權限等級** —— 兩邊的等級都不查，所以一次轉達不可能往 `permission.yml` 裡寫入名字。訊息會以 `user` 角色存進對方的對話，並在正文裡標明傳送者，由對方的助手在下次提問時讀到。主控台自己的對話也是合法目標，用它的鍵名 `Server Control Panel` 指定。
 
 > [!TIP]
 > 需要更多工具時，有三條路：裝 [GamesAI-Extra](https://github.com/PengZixuan30/Games_AI-Extra)（座標點管理、白名單管理、Minecraft Wiki 搜尋等）、在 `tools.py` 裡自己寫、或在自己的 MCDR 插件裡註冊。
@@ -69,7 +71,7 @@ config/games_ai/tools/tools.py
 
 ```python
 from mcdreforged.command.command_source import CommandSource
-from games_ai.games_ai_tool import register_tool
+from games_ai.ai.games_ai_tool import register_tool
 
 @register_tool(description="我的自訂工具")
 def my_custom_tool(source: CommandSource, ai_prefix: str):
@@ -78,9 +80,17 @@ def my_custom_tool(source: CommandSource, ai_prefix: str):
 
 三條硬性要求：
 
-1. `from games_ai.games_ai_tool import register_tool` 必須存在；
-2. 函式必須帶 `@register_tool(...)` 裝飾器。**沒有裝飾器的公開函式不會註冊**——插件載入時會掃描檔案並把它們列進日誌，提示 `Functions in external tools.py WITHOUT @register_tool() decorator (REJECTED)`。私有輔助函式請以 `_` 開頭，它們會被跳過而不是被判為錯誤；
+1. `from games_ai.ai.games_ai_tool import register_tool` 必須存在；
+2. 函式必須帶 `@register_tool(...)` 裝飾器。**沒有裝飾器的公開函式不會註冊**——插件載入時會掃描檔案並把它們列進日誌，提示 `Functions in external tools.py WITHOUT @register_tool() decorator (REJECTED)`。私有輔助函式請以 `_` 開頭，它們會被跳過而不是被判為錯誤。該掃描會列出所有不是已註冊工具的公開可呼叫物件，因此檔案頂部匯入的名字（骨架檔案匯入的 `register_tool` 與 `CommandSource`）同樣會出現在 `REJECTED` 之後；
 3. 函式簽名前兩個參數必須是 `source: CommandSource` 與 `ai_prefix: str`，其餘參數與 `parameters` 中宣告的順序一致。
+
+既有的檔案也可能匯入舊的扁平路徑 `from games_ai.games_ai_tool import ...`：該模組作為登錄表的相容再匯出被保留（同一批物件，工具落在同一個登錄表裡），舊檔案無需改動即可繼續運作。新檔案請使用上面的路徑。
+
+### 編輯器型別：生成的 `games_ai/` 資料夾
+
+外掛會在 `tools.py` 旁邊維護一個生成出來的 `games_ai/` 存根套件（`.pyi`）。它讓編輯器（裝了 Pylance 的 VS Code）在你編輯該檔案時能解析 `from games_ai.ai.games_ai_tool import register_tool`：沒有它，這個匯入會被報為無法解析，外掛裡的每個名字都退化成 `Any`。存根同時帶著外掛的簽名與 docstring，因此把滑鼠停在某個名字或被裝飾的工具上時，能看到它做什麼、需要什麼參數，而不只是「它存在」。不需要任何設定 —— 與被編輯檔案同目錄的存根套件會被自動找到；對於以 `.mcdr` 打包安裝的情況，這也是唯一能拿到型別的途徑，因為此時外掛原始碼在封存檔裡，語言伺服器讀不到（目錄安裝可以改用 `python.analysis.extraPaths` 指向外掛目錄、直接解析真實原始碼；打包安裝沒有可指的目標）。
+
+該資料夾由外掛自身原始碼生成（倉庫裡的 `tools/build_tool_stubs.py`），每次載入時只要檔案缺失或內容不同就會刷新，因此外掛升級會把新型別一起帶來。不要手動編輯它（下次載入會覆蓋），也不要 import 它：裡面沒有任何東西會執行。刪掉它沒有副作用，下次載入會重新寫回。
 
 ### 參數定義
 
@@ -118,7 +128,7 @@ def read_skills(source: CommandSource, ai_prefix: str, skills: str):
 ### 權限
 
 ```python
-from games_ai.games_ai_tool import register_tool, get_plugin_config_perm
+from games_ai.ai.games_ai_tool import register_tool, get_plugin_config_perm
 
 @register_tool(description="管理員專用工具", perm=get_plugin_config_perm)
 def my_admin_tool(source: CommandSource, ai_prefix: str):
@@ -131,12 +141,30 @@ def my_admin_tool(source: CommandSource, ai_prefix: str):
 - **`perm` 只控制「工具是否交給模型」**。一旦工具發出去了，真正執行時仍應像上面那樣再查一次呼叫者等級——因為工具是**代表提問玩家**執行的，而模型可能被誘導去呼叫它。
 - 若還需要按等級區分**同一工具的不同行為**，把等級判斷寫進函式內即可（例如一個工具在 4 級時不限指令，在 1/3 級時只允許白名單內的指令）。
 
+### 叢集作用域：`execute_in_hub`
+
+多個 MCDR 實例共用一個 AI 時（見[跨服連線](cross-server.md)），每個工具只在**一台**機器上執行，由這個參數決定是哪一台：
+
+```python
+@register_tool(description="在提問玩家所在的伺服器上執行")                 # 預設：false
+@register_tool(description="在跑 AI 的那台實例上執行", execute_in_hub=True)  # hub
+```
+
+- **`false`（預設）** —— 工具描述的是**提問玩家自己的伺服器**。玩家所在實例隨請求上傳自己的工具清單，hub 提供它，呼叫被回傳給那台實例執行 —— 用的是**那台機器**的 `source.get_server()`、它的外掛、它的指令和它的權限表。
+- **`true`** —— 工具屬於**跑 AI 的那台實例**（hub）：它提示詞背後的技能檔案、公共資料庫、假人、它自己的 `tools.py`。無論玩家在哪台實例，它都會出現在請求裡，並且**始終在 hub 上執行**。
+
+叢集裡要注意的三條：
+
+- 來自其它實例的請求，hub 只會提供自己的 `true` 工具；所以**只裝在 hub 上**的 `false` 工具，對 node 上的玩家永遠不會出現 —— 要嘛把那台實例也裝上同樣的程式碼，要嘛把工具標成 `true`；
+- 兩邊同名時只提供一份，且 **hub 的那份勝出**；
+- **檔案不會同步**：每台實例各有自己的 `config/games_ai/tools/tools.py`，AI 寫的工具只會落進 hub 那一份。要讓某台 node 也有，只能人工把那份檔案複製過去，並在那台執行 `!!gamesai reload` —— 沒有任何機制會替你寫別的實例的檔案。
+
 ### 給自治 Bot 使用
 
 預設情況下自訂工具只給聊天 AI 用。要讓 Bot 控制器也能呼叫，疊加第二個裝飾器：
 
 ```python
-from games_ai.games_ai_tool import register_tool, register_bot_tool
+from games_ai.ai.games_ai_tool import register_tool, register_bot_tool
 
 @register_tool(description="讓假人把物品丟給玩家")
 @register_bot_tool()
@@ -168,7 +196,7 @@ Bot 控制器在無人監督的迴圈裡呼叫這些工具，因此**只給那�
 不修改 `tools.py`，直接在插件程式碼裡註冊：
 
 ```python
-from games_ai.games_ai_tool import register_tool, register_bot_tool
+from games_ai.ai.games_ai_tool import register_tool, register_bot_tool
 
 @register_tool(
     description="你的工具說明",
@@ -195,7 +223,7 @@ def my_plugin_tool(source: CommandSource, ai_prefix: str, ...):
 ```
 
 - 用 `@register_bot_tool()` 時把版本門檻設為 `>= 0.6.0` 以上；
-- 以插件身分註冊的工具與內建工具、`tools.py` 裡的工具**完全等價**：同樣的權限規則、同樣出現在模型的可呼叫清單裡；
+- 以插件身分註冊的工具與內建工具、`tools.py` 裡的工具**完全等價**：同樣的權限規則、同樣出現在模型的可呼叫清單裡，`execute_in_hub` 的規則也一樣（預設 `false` = 在玩家所在實例執行；屬於 AI 實例的工具要傳 `True`）；
 - **凡是註冊過工具的插件，都會在 GamesAI 熱重載時自動重載**，工具程式碼始終跟隨最新版本，無需額外處理。若你的插件只註冊技能（不註冊工具），或需要自己的重載邏輯，再使用 `register_self()`——見[熱重載](hot-reload.md#熱重載)。
 
 ## 4. 排查
@@ -203,7 +231,8 @@ def my_plugin_tool(source: CommandSource, ai_prefix: str, ...):
 | 現象 | 檢查點 |
 |---|---|
 | AI 說沒有某個工具可用 | `config.json` 的 `permission` 是否高於該玩家等級（`perm` 更高的工具根本不會發給模型） |
+| 工具在 hub 上的玩家能用，別的實例上的玩家用不了 | 它是 `execute_in_hub=False` 且只有 hub 有：標成 `true`，或把同樣的程式碼裝到那台實例上（見上面「叢集作用域」） |
 | 自訂工具全部失效 | MCDR 日誌裡搜 `[tools_interpreter]`：載入失敗會印出例外原因；被拒絕的函式會列在 `REJECTED` 後面 |
 | 工具被呼叫但什麼都沒發生 | 函式內部的等級檢查回傳了「權限不足」字串——模型會看到這句話，但不會執行任何操作 |
 | 改完 `tools.py` 沒生效 | 執行 `!!gamesai reload`，或讓 AI 呼叫 `reload_plugin` |
-| 想知道某個工具到底傳了什麼給模型 | 開 `!!gamesai debug`，工具呼叫與回傳值都會進日誌；工具本身的定義可用 `read_custom_tools` 查看 |
+| 想知道某個工具到底傳了什麼給模型 | 開 `!!gamesai debug`，每次工具呼叫都會記錄工具名與結果長度（不記錄參數與結果正文）。定義在 `tools.py` 裡的工具可用 `read_custom_tools` 查看 |

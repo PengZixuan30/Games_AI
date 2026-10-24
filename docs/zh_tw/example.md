@@ -64,14 +64,19 @@
         }
     },
     "default_ai": "kuai_penguin",
+    "websocket": {
+
+        "uri": "ws://127.0.0.1:6666",
+
+        "force_server": false,
+
+        "allow_app_id": []
+
+    },
+
     "mineflayer_bot": {
         "enabled": false,
         "cycle_interval": 15.0,
-        "websocket": {
-            "url": "ws://127.0.0.1:6666",
-            "reconnect_interval": 10,
-            "timeout": 60
-        },
         "bot": {
             "username": "GatherPenguin",
             "password": "<机器人账号密码>",
@@ -83,7 +88,7 @@
 
 逐项说明（只讲这份配置里值得注意的地方）：
 
-- **`permission: 4`** —— 决定所有"配置权限"级工具的可见门槛。配合各工具函数内部的等级检查，形成两道门：低于 4 级的玩家，其请求里根本不会出现 `execute_mcdr_command`、`pip_install_pkg` 这类工具。
+- **`permission: 4`** —— 决定所有"配置权限"级工具的可见门槛。配合各工具自身的 `perm`，形成两道门：低于 4 级的玩家看不到 `pip_install_pkg` 这类工具，而低于 3 级的玩家看不到 `execute_mcdr_command`。
 - **两个 AI 共用同一模型、不同人设** —— `ai_name` 里的 `§b§l` 是 Minecraft 格式化代码，让昵称在聊天栏里显示为青色加粗。`prompt` 用 `> kuai_penguin.md` 指向 `config/games_ai/prompt/kuai_penguin.md`，把长提示词放在独立文件里，改人设不必动 JSON。
 - **`extra_body` 开启思考** —— DeepSeek 的 `{"thinking": {"type": "enabled"}}`。开启后推理会增加输入开销，但复杂任务（读技能、串多步工具调用）成功率明显更好。
 - **历史长度不在这里配置** —— 它由[上下文自动管理](ai-request-pipeline.md#上下文自動管理)按模型的上下文窗口自动决定。旧版本配置里可能出现的历史长度键（如 `max_history`）现在会被直接忽略，删掉或保留都不影响运行。
@@ -134,7 +139,7 @@
 
 **资料型（说明"这是什么"，供查询）**
 
-- `full_items_dazong` —— 一份"全物品大宗分类清单"。它不是流程而是**数据**，所以描述只需说明它是什么。注意这个条目的 `file` **没有 `.md` 扩展名**，技能文件名与磁盘上的实际文件名必须逐字一致。
+- `full_items_dazong` —— 一份"全物品大宗分类清单"。它不是流程而是**数据**，所以描述只需说明它是什么。注意这个条目的 `file` **没有 `.md` 扩展名**：索引里可以省略，因为 `read_skills` 会自动补上 `.md`，但磁盘上的文件必须叫 `full_items_dazong.md`。
 
 ### 一份技能正文长什么样
 
@@ -295,11 +300,11 @@ PROTECTED_PATH_PREFIXES = ("config/games_ai/", "plugins/")
 !!ask 帮我拿一组圆石台阶，送到我这儿
 ```
 
-AI 看到技能索引里有 `bot_pickup.md`，且描述正对应"让假人取物品（石头/圆石台阶/…）并送到玩家身边"，于是调用 `read_skills("bot_pickup.md")` 读取规程，再按规程调用 `bot_call_action` 让假人取货并送达（`bot_call_action` 是 0 级工具，任何玩家都能通过 AI 使用）。
+AI 看到技能索引里有 `bot_pickup.md`，且描述正对应"让假人取物品（石头/圆石台阶/…）并送到玩家身边"，于是用 `read_skills` 读取规程（把文件名放进 `skills` 参数：`skills: "bot_pickup.md"`），再按规程调用 `bot_call_action` 让假人取货并送达（`bot_call_action` 是 0 级工具，任何玩家都能通过 AI 使用）。
 
 若假人当时不在线，AI 就需要 `run_mineflayer_bot` 把它拉起来——该工具要求 4 级，而提问者是 0 级，**它根本不在这个玩家的可调用列表里**。于是 AI 只能告诉玩家"假人不在线，需要管理员先启动"。这正是 `permission: 4` 想要的效果：能力不是被拒绝，而是压根不可见。
 
-**② 询问坐标**
+**② 询问贴士**
 
 ```
 !!ask 望海小贴士里有没有关于刷沙机的说明？
@@ -336,7 +341,7 @@ AI 先读 `skills_management.md`（内置技能强制流程），再用 `write_s
 !!ask context --all
 ```
 
-按模型汇总全服用量与自插件加载以来的累计消耗。
+按設定的 AI 彙總全服用量（行名是該條目的 `ai_name`，懸停顯示 `all_ai` id 與上游模型），以及自這些對話建立以來累計的消耗。
 
 **⑥ 手动瘦身**
 

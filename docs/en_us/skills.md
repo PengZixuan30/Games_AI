@@ -29,7 +29,7 @@ The plugin ships three skill files that the AI reads automatically before the ma
 |---|---|
 | `skills_management.md` | How to read, write, modify and delete skill files |
 | `custom_tools_management.md` | How to safely read, edit and append custom tool code. It contains a mandatory step: confirm the requirement, parameters, permission level and expected return value with the user **before** writing any code |
-| `mineflayer_bot_guide.md` | How to drive the Mineflayer bot (it only appears in the index while the bot is running) |
+| `mineflayer_bot_guide.md` | How to drive the Mineflayer bot. It is always listed in the system prompt's available-skills block; the `!!ask /mineflayer_bot_guide` shorthand only accepts it while the bot is running |
 
 These three are read-only references you normally never need to change.
 
@@ -108,7 +108,7 @@ The AI first reads `skills_management.md` to learn the procedure, then writes th
 A plugin can inject skills programmatically at load time, without touching disk:
 
 ```python
-from games_ai.external_skills_loader import register_skills
+from games_ai.ai.external_skills_loader import register_skills
 
 def on_load(server, old):
     register_skills(
@@ -123,11 +123,13 @@ This skill tells the AI how to ...
     )
 ```
 
+A plugin written before the subpackages existed may keep `from games_ai.external_skills_loader import register_skills`: that flat path is a compatibility re-export of the same function and the same list, so an existing plugin needs no edit. New code uses the path above.
+
 - **`file_name`** — the skill name the AI uses when calling `read_skills`;
 - **`description`** — same role as the field of the same name in `skills.json`;
 - **`content`** — the full text.
 
-Skills registered this way are **exactly equivalent** to those in `skills.json`: they appear in the available-skills list of the system prompt and can be read with `read_skills`. The only difference is that they live **in memory**, so they must be registered again after a plugin reload.
+Skills registered this way are equivalent for the model: they appear in the available-skills list of the system prompt and can be read with `read_skills`. They differ in having no file behind them -- they must be registered again after a plugin reload, `modify_skills` and `delete_skills` cannot edit or delete them, and `read_skills` prefers the registered copy over a file of the same name.
 
 > [!IMPORTANT]
 > If your plugin registers skills but no tools, it will not follow GamesAI's hot reload automatically; use `register_self()` for that — see [Hot Reload](hot-reload.md#hot-reload).
@@ -151,4 +153,4 @@ In practice the two always come in pairs: **a tool for the ability, a skill for 
 | The AI never reads a skill | Does the `description` in `skills.json` state the trigger? Does the file name match the `.md` on disk exactly, including case? |
 | Selecting a skill with `/skillname` says "skill file not found" | The comparison uses the `file` value from the index; check the `.md` extension and the spelling |
 | The skill body was edited but behaviour did not change | Bodies are loaded **at read time**, so edits apply immediately; if you changed the `skills.json` index instead, run `!!gamesai reload` |
-| Suspecting the skill never entered context | Turn on `!!gamesai debug`: the `read_skills` call and its result are logged; `!!ask context` also shows the context growing |
+| Suspecting the skill never entered context | Turn on `!!gamesai debug`: the `read_skills` call is logged with the length of its result (not the file text); `!!ask context` also shows the context growing |

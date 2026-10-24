@@ -29,7 +29,7 @@
 |---|---|
 | `skills_management.md` | 技能文件的读取、写入、修改、删除流程 |
 | `custom_tools_management.md` | 安全地读取、编辑、追加自定义工具代码的流程。其中包含一条强制步骤：**在动手写代码之前**先向用户确认需求、参数、权限等级与期望返回值 |
-| `mineflayer_bot_guide.md` | 操控 Mineflayer 假人的流程（仅在假人运行时才出现在索引里） |
+| `mineflayer_bot_guide.md` | 操控 Mineflayer 假人的流程。它始终出现在系统提示的可用技能列表中；`!!ask /mineflayer_bot_guide` 简写只在假人运行时才接受它 |
 
 这三个文件是只读参考，通常不需要你改动。
 
@@ -107,7 +107,7 @@ AI 会先读 `skills_management.md` 了解流程，用 `write_skills` 写入文�
 插件可以在加载时以编程方式注入技能，无需读写磁盘文件：
 
 ```python
-from games_ai.external_skills_loader import register_skills
+from games_ai.ai.external_skills_loader import register_skills
 
 def on_load(server, old):
     register_skills(
@@ -122,11 +122,13 @@ def on_load(server, old):
     )
 ```
 
+子包出现之前写的插件可以继续用 `from games_ai.external_skills_loader import register_skills`：该扁平路径是兼容转发，转发的是同一个函数与同一份列表，因此已有插件无需改动。新代码使用上面的路径。
+
 - **`file_name`** —— 技能名，AI 用这个名字调用 `read_skills`；
 - **`description`** —— 与 `skills.json` 中的同名字段作用一致；
 - **`content`** —— 技能全文。
 
-以这种方式注册的技能与 `skills.json` 里的技能**完全等价**：同样出现在系统提示的可用技能列表中，同样可用 `read_skills` 读取。区别只有一个——它们**只存在于内存中**，插件重载后需要重新注册。
+以这种方式注册的技能对模型是等价的：同样出现在系统提示的可用技能列表中，同样可用 `read_skills` 读取。区别在于它们背后没有文件——插件重载后需要重新注册，`modify_skills` 与 `delete_skills` 无法编辑或删除它们，且存在同名文件时 `read_skills` 优先返回注册的那一份。
 
 > [!IMPORTANT]
 > 若你的插件只注册技能（不注册任何工具），在 GamesAI 执行 `!!gamesai reload` 时它不会自动跟随重载，请使用 `register_self()`；详见[热重载](hot-reload.md#热重载)。
@@ -150,4 +152,4 @@ def on_load(server, old):
 | AI 从不读某个技能 | `skills.json` 里的 `description` 是否写清了触发时机；文件名是否与磁盘上的 `.md` 完全一致（含大小写） |
 | 玩家用 `/技能名` 选择技能时提示"未找到技能文件" | 比较时用的是索引里的 `file` 值；确认扩展名 `.md` 与文件名拼写 |
 | 改了技能正文但 AI 行为没变 | 技能正文是**每次读取时**才载入的，改完直接生效；若改的是 `skills.json` 索引，需要 `!!gamesai reload` |
-| 怀疑技能没被读进上下文 | 开 `!!gamesai debug`，`read_skills` 的调用与结果都会在日志里；`!!ask context` 也能看到上下文随之增长 |
+| 怀疑技能没被读进上下文 | 开 `!!gamesai debug`，`read_skills` 调用会记录其结果长度（不是文件正文）；`!!ask context` 也能看到上下文随之增长 |
