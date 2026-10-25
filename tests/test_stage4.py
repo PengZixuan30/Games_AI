@@ -11,11 +11,11 @@ from _helpers.pkg import package_text
 
 LANGS = ("zh_cn", "zh_tw", "en_us")
 README_NOTES = {
-    "README.md": ("0.8.0", "docs/en_us/cross-server.md"),
-    "README.zh-CN.md": ("0.8.0", "docs/zh_cn/cross-server.md"),
-    "README.zh-TW.md": ("0.8.0", "docs/zh_tw/cross-server.md"),
+    "README.md": ("0.8.1", "docs/en_us/cross-server.md"),
+    "README.zh-CN.md": ("0.8.1", "docs/zh_cn/cross-server.md"),
+    "README.zh-TW.md": ("0.8.1", "docs/zh_tw/cross-server.md"),
 }
-STALE_VERSIONS = ("0.8.0", "0.8.0-SNAPSHOT-9", "0.7.3", "0.7.x", "0.7.0", "SNAPSHOT")
+STALE_VERSIONS = ("0.8.1", "0.8.0", "0.8.0-SNAPSHOT-9", "0.7.3", "0.7.x", "0.7.0", "SNAPSHOT")
 EXPECTED_PAGES = {"ai-request-pipeline.md", "architecture.md", "changelog.md", "configuration.md",
                   "cross-server.md", "example.md", "hot-reload.md", "mineflayer-bot.md", "pim.md",
                   "skills.md", "testing.md", "tools.md", "troubleshooting.md"}
@@ -94,24 +94,24 @@ def pim():
     return {lang: _read(_docs_path(lang, "pim.md")) for lang in LANGS}
 
 
-def test_plugin_json_is_0_8_0(manifest):
-    assert manifest["version"].startswith("0.8.0"), \
-        f"plugin.json is 0.8.0 (any snapshot suffix allowed): {manifest['version']}"
+def test_plugin_json_is_0_8_1(manifest):
+    assert manifest["version"].startswith("0.8.1"), \
+        f"plugin.json is 0.8.1 (any snapshot suffix allowed): {manifest['version']}"
 
 
-def test_plugin_metadata_is_0_8_0():
+def test_plugin_metadata_is_0_8_1():
     init_src = _read(os.path.join(REPO_ROOT, "games_ai", "__init__.py"))
 
-    assert '"version": "0.8.0' in init_src, "PLUGIN_METADATA is 0.8.0"
+    assert '"version": "0.8.1' in init_src, "PLUGIN_METADATA is 0.8.1"
 
 
-def test_mcdr_parses_the_metadata_as_0_8_0(manifest):
+def test_mcdr_parses_the_metadata_as_0_8_1(manifest):
     from mcdreforged.plugin.meta.metadata import Metadata
 
     metadata = Metadata(manifest)
 
-    assert str(metadata.version).startswith("0.8.0"), \
-        f"MCDR parses the metadata as 0.8.0: {metadata.version}"
+    assert str(metadata.version).startswith("0.8.1"), \
+        f"MCDR parses the metadata as 0.8.1: {metadata.version}"
 
 
 @pytest.mark.parametrize("lang", LANGS)
@@ -167,10 +167,19 @@ def test_the_code_uses_the_translated_key():
 
 
 @pytest.mark.parametrize("lang", LANGS)
-def test_the_0_8_0_changelog_section_comes_first(changelogs, lang):
+def test_the_current_changelog_section_comes_first(changelogs, lang):
     versions = re.findall(r"^## Version ([\d.]+)", changelogs[lang], re.M)
 
-    assert versions and versions[0] == "0.8.0", f"{lang}: 0.8.0 section is first: {versions[:3]}"
+    assert versions[:2] == ["0.8.1", "0.8.0"], \
+        f"{lang}: the 0.8.1 fix section is first, the 0.8.0 notes after it: {versions[:3]}"
+
+
+@pytest.mark.parametrize("lang", LANGS)
+def test_the_0_8_1_section_requires_the_manual_install(changelogs, lang):
+    section = _version_section(changelogs[lang], "0.8.1", "0.8.0")
+
+    assert "!!MCDR plugin install" in section and "0.8.0" in section, \
+        f"{lang}: the 0.8.1 notes say 0.8.0 has to be installed by hand once: {section[:200]}"
 
 
 @pytest.mark.parametrize("lang", LANGS)
@@ -217,7 +226,8 @@ def test_the_internal_structure_notes_quote_the_entry_module(changelogs, module_
 def test_readme_line_17_mentions_the_release(readme_lines, name):
     line = readme_lines[name][16]
 
-    assert README_NOTES[name][0] in line, f"{name} line 17 mentions 0.8.0: {line[:60]}"
+    assert README_NOTES[name][0] in line, \
+        f"{name} line 17 mentions {README_NOTES[name][0]}: {line[:60]}"
 
 
 @pytest.mark.parametrize("name", list(README_NOTES))

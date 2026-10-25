@@ -40,9 +40,11 @@ This page is the overview; the details of each failure message stay where they b
   unloads the plugin -- which drops its handle on the archive -- the old file is deleted with
   retries (Windows may still report "used by another process"), the verified file is moved onto
   the **same path** (so MCDR keeps exactly one file for this plugin id) and the plugin is loaded
-  again; the version MCDR reports is checked, and the previous file is restored and loaded if the
-  new one does not come up. Every failure after the unload ends with a load, so the server never
-  keeps running without GamesAI.
+  again -- asking MCDR for the path it enumerated itself for that file, because its default
+  plugin directories are relative and a plain absolute path would be ignored; the version MCDR
+  reports is checked, and the previous file is restored and loaded if the new one does not come
+  up. Every failure after the unload ends with a load, so the server never keeps running without
+  GamesAI, and a restore only counts when MCDR really loaded the previous version again.
 - **When it runs**: the 24 hour update check (armed at load), `!!gamesai check` on demand, and -- in
   a cluster -- the coordinated round. The **hub** decides and orders the nodes first: it waits
   until every node is staged *and* has reconnected announcing the new version, and only then

@@ -152,7 +152,7 @@ def test_the_welcome_note_keeps_its_version_and_link(readmes, lang):
     lines = readmes[lang].splitlines()
     note = lines[16] if len(lines) > 16 else ""
     problems = []
-    if "0.8.0" not in note:
+    if "0.8.1" not in note:
         problems.append(f"{README[lang]}: line 17 lost its version note")
     if f"docs/{lang}/cross-server.md" not in note:
         problems.append(f"{README[lang]}: line 17 lost its cross-server link")
@@ -166,7 +166,7 @@ def test_the_release_version_stays_in_the_welcome_note(readmes, lang):
     # describes the current code without naming a version (dependency versions stay allowed).
     lines = readmes[lang].splitlines()
     body = "\n".join(lines[:16] + lines[17:])
-    stale = [needle for needle in ("0.8.0", "0.8.0-SNAPSHOT-9", "0.7.3", "0.7.x", "0.7.0", "SNAPSHOT")
+    stale = [needle for needle in ("0.8.1", "0.8.0", "0.8.0-SNAPSHOT-9", "0.7.3", "0.7.x", "0.7.0", "SNAPSHOT")
              if needle in body]
 
     assert not stale, f"{README[lang]}: release version outside the welcome note: {stale}"

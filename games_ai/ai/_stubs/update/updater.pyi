@@ -105,12 +105,30 @@ def _download_once(client: requests, url: str, part: Path, release: ReleaseInfo,
     """One complete attempt: stream to ``part``, checking size and hash as it goes."""
 def verify_archive(path: Path, release: ReleaseInfo) -> None:
     """Make sure the file is the announced plugin archive before it replaces anything."""
+def _mcdr_plugin_path(server, target: Path) -> str | None:
+    """The path spelling MCDR itself uses for ``target`` among its plugin files.
+
+    ``ServerInterface.load_plugin`` (MCDR 2.16) does not normalise its argument: the plugin
+    manager compares it, with plain ``Path`` equality, against the files it enumerated from
+    ``plugin_directories``. Those stay relative when the configuration does (the default is
+    ``plugins``), so an absolute path matches nothing -- the call then performs no plugin
+    operation at all and answers ``False``. Feeding back one of the entries of
+    ``get_unloaded_plugin_list()`` keeps whatever spelling this MCDR actually enumerates.
+    """
+def _loaded_version(server) -> str | None:
+    """The version MCDR currently reports for this plugin, or None when it is not loaded."""
+def _archive_version(path: Path) -> str | None:
+    """The plugin version recorded inside an archive, or None when it cannot be read."""
 def apply_archive(server, staged: Path, target: Path, release: ReleaseInfo, *, log=None) -> None:
     """Replace the live archive with ``staged``: unload, delete, move, load.
 
     ``server`` is the ``PluginServerInterface`` of the *old* instance; MCDR's plugin
     operations stay usable after the unload, which is what lets this thread finish the swap.
     Every failure after the unload ends with a load attempt of whichever file is on disk.
+
+    The load is done with the path spelling MCDR enumerated (:func:`_mcdr_plugin_path`) and
+    both the new build and every rollback are checked against the version MCDR reports: an
+    operation that loaded nothing must never be reported as a swap or a restored archive.
     """
 def prepare(server, release: ReleaseInfo, *, session=None, log=None) -> tuple[Path, Path]:
     """Everything that can fail while the plugin is still running: preflight, fetch, verify.
@@ -131,8 +149,20 @@ def _remove_with_retries(path: Path) -> None:
     the garbage collector runs.
     """
 def _replace_with_retries(source: Path, target: Path) -> None: ...
-def _load_quietly(server, target: Path, log) -> None:
-    """Load what is on disk (used when the old file was never touched)."""
+def _load_quietly(server, target: Path, log) -> bool:
+    '''Load whichever archive is on disk now, through the spelling MCDR enumerated for it.
+
+    :return: True when MCDR reported the load as successful. The caller still checks the
+             version MCDR reports (:func:`_loaded_version`), because the boolean alone cannot
+             tell "loaded the right build" from "loaded the wrong one".
+    '''
+def _restore_verified(server, backup: Path, target: Path, log) -> bool:
+    """Load the restored archive and confirm MCDR runs the version it holds.
+
+    A file that is back on disk but not loaded is not a recovery, and the caller's message
+    would be a lie. The expected version is read from the backup itself, so this needs nothing
+    from the release that is being rolled back.
+    """
 def _files_identical(left: Path, right: Path) -> bool:
     """Byte-for-byte comparison of two files (size first, then SHA-256)."""
 def _restore_backup(server, backup: Path, target: Path, log, *, unload_first: bool = False) -> bool:
@@ -147,8 +177,9 @@ def _restore_backup(server, backup: Path, target: Path, log, *, unload_first: bo
     file whose path is already registered, so without the unload the rollback would silently do
     nothing while reporting success.
 
-    Returns True only when the previous archive really is back on disk **and is the previous
-    archive** (size + SHA-256 checked against the backup). A rollback that replaced the file but
-    could not verify it must not be reported as a recovery (the caller's message would lie).
+    Returns True only when the previous archive really is back on disk, **is the previous
+    archive** (size + SHA-256 checked against the backup) and MCDR loaded that version again.
+    A rollback that replaced the file but could not verify it must not be reported as a
+    recovery (the caller's message would lie).
     """
 def _remove_quietly(path: Path) -> None: ...

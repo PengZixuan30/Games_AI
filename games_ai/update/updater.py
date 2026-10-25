@@ -21,7 +21,9 @@ The sequence, with the reason for each step:
    this plugin id -- a second file with the same id would be dropped with an error and stay
    on disk;
 5. ``server.load_plugin`` and check the version MCDR reports, restoring the previous file if
-   that fails.
+   that fails. The path handed to MCDR is the spelling MCDR itself enumerated for the file
+   (:func:`_mcdr_plugin_path`): its default ``plugin_directories`` is relative, and
+   ``load_plugin`` compares paths verbatim, so an absolute path silently loads nothing.
 
 Every failure path after step 2 ends with a ``load_plugin`` call: a plugin that unloaded
 itself and then gave up would leave the server running without GamesAI.
@@ -325,12 +327,70 @@ def verify_archive(path: Path, release: ReleaseInfo) -> None:
                           f"expected {release.version!r}")
 
 
+def _mcdr_plugin_path(server, target: Path) -> str | None:
+    """The path spelling MCDR itself uses for ``target`` among its plugin files.
+
+    ``ServerInterface.load_plugin`` (MCDR 2.16) does not normalise its argument: the plugin
+    manager compares it, with plain ``Path`` equality, against the files it enumerated from
+    ``plugin_directories``. Those stay relative when the configuration does (the default is
+    ``plugins``), so an absolute path matches nothing -- the call then performs no plugin
+    operation at all and answers ``False``. Feeding back one of the entries of
+    ``get_unloaded_plugin_list()`` keeps whatever spelling this MCDR actually enumerates.
+    """
+    lister = getattr(server, "get_unloaded_plugin_list", None)
+    if not callable(lister):
+        return None
+    try:
+        entries = [str(entry) for entry in lister()]
+    except Exception:                                     # noqa: BLE001 - the caller reports it
+        return None
+    wanted = os.path.normcase(os.path.abspath(str(target)))
+    for entry in entries:
+        try:
+            if os.path.normcase(os.path.abspath(entry)) == wanted:
+                return entry
+        except (OSError, ValueError):
+            continue
+    for entry in entries:            # a symlinked/junctioned plugin folder spells it differently
+        try:
+            if os.path.samefile(entry, str(target)):
+                return entry
+        except OSError:
+            continue
+    return None
+
+
+def _loaded_version(server) -> str | None:
+    """The version MCDR currently reports for this plugin, or None when it is not loaded."""
+    try:
+        metadata = server.get_plugin_metadata(PLUGIN_ID)
+    except Exception:                                     # noqa: BLE001 - "not loaded" is enough
+        return None
+    if metadata is None:
+        return None
+    return str(getattr(metadata, "version", "") or "")
+
+
+def _archive_version(path: Path) -> str | None:
+    """The plugin version recorded inside an archive, or None when it cannot be read."""
+    try:
+        with zipfile.ZipFile(path) as archive:
+            metadata = json.loads(archive.read(META_FILE).decode("utf-8"))
+    except (OSError, zipfile.BadZipFile, KeyError, UnicodeDecodeError, ValueError):
+        return None
+    return str(metadata.get("version") or "")
+
+
 def apply_archive(server, staged: Path, target: Path, release: ReleaseInfo, *, log=None) -> None:
     """Replace the live archive with ``staged``: unload, delete, move, load.
 
     ``server`` is the ``PluginServerInterface`` of the *old* instance; MCDR's plugin
     operations stay usable after the unload, which is what lets this thread finish the swap.
     Every failure after the unload ends with a load attempt of whichever file is on disk.
+
+    The load is done with the path spelling MCDR enumerated (:func:`_mcdr_plugin_path`) and
+    both the new build and every rollback are checked against the version MCDR reports: an
+    operation that loaded nothing must never be reported as a swap or a restored archive.
     """
     staged, target = Path(staged), Path(target)
     backup = target.with_name(target.name + ".bak")
@@ -349,8 +409,10 @@ def apply_archive(server, staged: Path, target: Path, release: ReleaseInfo, *, l
     try:
         _remove_with_retries(target)
     except ReplaceError as error:
-        _load_quietly(server, target, log)
-        raise ReplaceError(f"{error.detail}; the previous file was loaded again") from None
+        if _load_quietly(server, target, log):
+            raise ReplaceError(f"{error.detail}; the previous file was loaded again") from None
+        raise ReplaceError(f"{error.detail}; the previous file is still on disk, but MCDR did "
+                           f"not load it again (see the log)") from None
 
     try:
         _replace_with_retries(staged, target)
@@ -360,21 +422,27 @@ def apply_archive(server, staged: Path, target: Path, release: ReleaseInfo, *, l
                            + ("the previous file was restored" if restored else
                               "the previous file could not be restored (see the log)")) from None
 
-    try:
-        loaded = bool(server.load_plugin(str(target)))
-    except Exception as error:                       # MCDR itself failing to load the file
-        loaded = False
-        if log is not None:
-            log(f"MCDR raised while loading {target.name}: {error}")
-    if not loaded:
-        restored = _restore_backup(server, backup, target, log)
-        raise LoadError("MCDR refused to load the new file; "
-                        + ("the previous version was restored" if restored else
-                           "the previous archive could not be restored (see the log)"))
+    load_path = _mcdr_plugin_path(server, target)
+    loaded = False
+    if load_path is not None:
+        try:
+            loaded = bool(server.load_plugin(load_path))
+        except Exception as error:                       # MCDR itself failing to load the file
+            loaded = False
+            if log is not None:
+                log(f"MCDR raised while loading {load_path!r}: {error}")
+    elif log is not None:
+        log(f"MCDR does not list {target} among its unloaded plugin files; an absolute path it "
+            f"did not enumerate would only be ignored, so the load is not attempted")
 
-    metadata = server.get_plugin_metadata(PLUGIN_ID)
-    version = str(getattr(metadata, "version", "") or "")
-    if version != release.version:
+    version = _loaded_version(server)
+    if version == release.version:
+        _remove_quietly(backup)
+        if log is not None:
+            log(f"{target.name} is now version {release.version}")
+        return
+
+    if version:
         # The wrong build is loaded right now, so the restore has to unload it first: MCDR skips
         # a plugin file it already has registered, which would make the rollback a silent no-op
         # while claiming the previous version was restored.
@@ -383,9 +451,16 @@ def apply_archive(server, staged: Path, target: Path, release: ReleaseInfo, *, l
                         f"expected {release.version!r}; "
                         + ("the previous version was restored" if restored else
                            "the previous archive could not be restored (see the log)"))
-    _remove_quietly(backup)
-    if log is not None:
-        log(f"{target.name} is now version {release.version}")
+
+    restored = _restore_backup(server, backup, target, log)
+    if load_path is None:
+        reason = (f"MCDR does not list {target.name} among the plugin files it enumerated, "
+                  f"so the new build was never loaded")
+    else:
+        reason = f"MCDR refused to load the new file (load_plugin returned {loaded!r})"
+    raise LoadError(reason + "; "
+                    + ("the previous version was restored" if restored else
+                       "the previous archive could not be restored (see the log)"))
 
 
 def prepare(server, release: ReleaseInfo, *, session=None, log=None) -> tuple[Path, Path]:
@@ -455,13 +530,43 @@ def _replace_with_retries(source: Path, target: Path) -> None:
     raise ReplaceError(f"cannot move {source.name} into place: {last}")
 
 
-def _load_quietly(server, target: Path, log) -> None:
-    """Load what is on disk (used when the old file was never touched)."""
+def _load_quietly(server, target: Path, log) -> bool:
+    """Load whichever archive is on disk now, through the spelling MCDR enumerated for it.
+
+    :return: True when MCDR reported the load as successful. The caller still checks the
+             version MCDR reports (:func:`_loaded_version`), because the boolean alone cannot
+             tell "loaded the right build" from "loaded the wrong one".
+    """
+    path = _mcdr_plugin_path(server, target)
+    if path is None:
+        if log is not None:
+            log(f"MCDR does not list {target} among its unloaded plugin files; it cannot be "
+                f"loaded by an absolute path it did not enumerate")
+        return False
     try:
-        server.load_plugin(str(target))
+        return bool(server.load_plugin(path))
     except Exception as error:
         if log is not None:
-            log(f"failed to load {target.name} again: {error}")
+            log(f"failed to load {path!r} again: {error}")
+        return False
+
+
+def _restore_verified(server, backup: Path, target: Path, log) -> bool:
+    """Load the restored archive and confirm MCDR runs the version it holds.
+
+    A file that is back on disk but not loaded is not a recovery, and the caller's message
+    would be a lie. The expected version is read from the backup itself, so this needs nothing
+    from the release that is being rolled back.
+    """
+    expected = _archive_version(backup)
+    loaded = _load_quietly(server, target, log)
+    actual = _loaded_version(server)
+    if actual is not None and (expected is None or actual == expected):
+        return True
+    if log is not None:
+        log(f"the previous archive is back on disk, but MCDR reports {actual!r} loaded "
+            f"(expected {expected!r}, load_plugin returned {loaded!r}); it has to be loaded by hand")
+    return False
 
 
 def _files_identical(left: Path, right: Path) -> bool:
@@ -488,9 +593,10 @@ def _restore_backup(server, backup: Path, target: Path, log, *,
     file whose path is already registered, so without the unload the rollback would silently do
     nothing while reporting success.
 
-    Returns True only when the previous archive really is back on disk **and is the previous
-    archive** (size + SHA-256 checked against the backup). A rollback that replaced the file but
-    could not verify it must not be reported as a recovery (the caller's message would lie).
+    Returns True only when the previous archive really is back on disk, **is the previous
+    archive** (size + SHA-256 checked against the backup) and MCDR loaded that version again.
+    A rollback that replaced the file but could not verify it must not be reported as a
+    recovery (the caller's message would lie).
     """
     restore = target.with_name(target.name + ".restore")
     _remove_quietly(restore)
@@ -516,8 +622,7 @@ def _restore_backup(server, backup: Path, target: Path, log, *,
         if Path(target).exists() and _files_identical(target, backup):
             # The failure was after the copy really landed (e.g. the restore file was already
             # the new archive): the target is the old build again, so loading it is correct.
-            _load_quietly(server, target, log)
-            return True
+            return _restore_verified(server, backup, target, log)
         # The old bytes are in `restore` (a copy, wrong suffix for MCDR): try once more to move
         # them into place, and if even that fails name the file instead of claiming a recovery.
         try:
@@ -525,8 +630,7 @@ def _restore_backup(server, backup: Path, target: Path, log, *,
         except OSError:
             pass
         if Path(target).exists() and _files_identical(target, backup):
-            _load_quietly(server, target, log)
-            return True
+            return _restore_verified(server, backup, target, log)
         if log is not None:
             log(f"the previous archive is at {restore}; move it onto {target} by hand")
         return False
@@ -537,8 +641,7 @@ def _restore_backup(server, backup: Path, target: Path, log, *,
             log(f"the file at {target} is not the previous archive after the rollback; "
                 f"the old bytes are at {restore}")
         return False
-    _load_quietly(server, target, log)
-    return True
+    return _restore_verified(server, backup, target, log)
 
 
 def _remove_quietly(path: Path) -> None:

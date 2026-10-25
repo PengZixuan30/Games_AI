@@ -731,3 +731,26 @@ def test_a_node_that_did_not_announce_a_version_is_ordered_not_compared(monkeypa
 
     assert state["node"]["stage"] == "unsupported", \
         "an empty version is treated as a candidate, then reported as unsupported: {}".format(state["node"])
+
+
+def test_a_failed_update_is_readable_while_the_plugin_is_unloaded():
+    """After a failed rollback the plugin is gone, so its language resources are gone too."""
+    class UnloadedServer(FakeServer):
+        def get_plugin_list(self):
+            return []
+
+    class LoadedServer(FakeServer):
+        def get_plugin_list(self):
+            return [updater.PLUGIN_ID]
+
+    unloaded = UnloadedServer()
+    update_round._say_update_failure(unloaded, "games_ai.update.load_failed", "MCDR does not list it")
+    assert unloaded.said[-1].endswith("Update aborted: MCDR does not list it"), \
+        f"the English detail is shown instead of the raw key: {unloaded.said}"
+    assert "games_ai.update.load_failed" not in unloaded.said[-1], \
+        f"...so no untranslated key reaches the players: {unloaded.said}"
+
+    loaded = LoadedServer()
+    update_round._say_update_failure(loaded, "games_ai.update.load_failed", "MCDR does not list it")
+    assert "games_ai.update.load_failed" in loaded.said[-1] and "detail=" in loaded.said[-1], \
+        f"a loaded plugin still shows the localized line: {loaded.said}"

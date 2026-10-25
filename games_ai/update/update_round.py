@@ -230,6 +230,24 @@ def update(server: PluginServerInterface, force_table: bool = False, notify=None
         server.logger.warning(f"{plugin_config.prefix}{server.rtr("games_ai.update.no_metadata")}")
         return
 
+def _say_update_failure(server: PluginServerInterface, key: str, detail: str) -> None:
+    """Show one failed-update line, in this plugin's language while it is loaded.
+
+    A failure after the unload can leave the plugin unloaded (when the rollback could not load
+    the previous archive back). MCDR then holds no translation resources for it, and
+    ``server.rtr`` would answer with the raw key plus an "Error translate text" line; the
+    English detail is shown instead, so the operator still gets a readable sentence.
+    """
+    try:
+        loaded = updater.PLUGIN_ID in server.get_plugin_list()
+    except Exception:                                     # noqa: BLE001 - fall back to the detail
+        loaded = False
+    if loaded:
+        server.say(f"{plugin_config.prefix}{server.rtr(key, detail=detail)}")
+    else:
+        server.say(f"{plugin_config.prefix}Update aborted: {detail}")
+
+
 def self_update(server: PluginServerInterface, release_entry: dict, new_version: str):
     """Hand the release the checker resolved over to :mod:`games_ai.update.updater`.
 
@@ -277,11 +295,11 @@ def self_update(server: PluginServerInterface, release_entry: dict, new_version:
         server.logger.info(f"{plugin_config.prefix} GamesAI {release.version} is loaded")
     except updater.UpdaterError as e:
         _unload_status_code = 0
-        server.say(f"{plugin_config.prefix}{server.rtr(e.key,detail = e.detail)}")
+        _say_update_failure(server, e.key, e.detail)
         server.logger.error(f"{plugin_config.prefix} Update aborted: {e.detail}")
     except Exception as e:
         _unload_status_code = 0
-        server.say(f"{plugin_config.prefix}{server.rtr("games_ai.update.failed",detail = str(e))}")
+        _say_update_failure(server, "games_ai.update.failed", str(e))
         server.logger.exception(f"{plugin_config.prefix} Update failed: {e}")
     finally:
         updater.update_lock.release()

@@ -68,7 +68,7 @@ _DEP_INSTALL_STARTED = False
 
 PLUGIN_METADATA = {
     "id": "games_ai",
-    "version": "0.8.0",
+    "version": "0.8.1",
     "name": "GamesAI",
     "description": {
         "zh_cn": "此插件可以让你在游戏中使用AI",

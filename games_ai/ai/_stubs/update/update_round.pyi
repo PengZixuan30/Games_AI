@@ -70,6 +70,14 @@ def update(server: PluginServerInterface, force_table: bool = False, notify=None
     is a check that fails: those two need an operator\'s attention. A typed ``!!gamesai check``
     keeps every line, because somebody is waiting for the answer.
     '''
+def _say_update_failure(server: PluginServerInterface, key: str, detail: str) -> None:
+    '''Show one failed-update line, in this plugin\'s language while it is loaded.
+
+    A failure after the unload can leave the plugin unloaded (when the rollback could not load
+    the previous archive back). MCDR then holds no translation resources for it, and
+    ``server.rtr`` would answer with the raw key plus an "Error translate text" line; the
+    English detail is shown instead, so the operator still gets a readable sentence.
+    '''
 def self_update(server: PluginServerInterface, release_entry: dict, new_version: str):
     """Hand the release the checker resolved over to :mod:`games_ai.update.updater`.
 

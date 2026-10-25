@@ -10,6 +10,9 @@ really pinning down:
 * everything that can fail happens before the plugin is unloaded;
 * after the unload every failure path ends with a `load_plugin` call, so the server is never
   left without GamesAI;
+* the path handed to `load_plugin` is the one MCDR enumerated: its default plugin directories
+  are relative, so the archive's absolute path is a silent no-op (the 0.8.0 regression);
+* a rollback only claims success after MCDR really loaded the previous version again;
 * `!!MCDR plugin install` is not used anywhere -- not as a fallback, not as a comment.
 """
 import hashlib
@@ -44,6 +47,12 @@ def make_archive(path, *, plugin_id="games_ai", version="9.9.9", extra=b"", trun
         raw[offset] ^= 0xFF
         path.write_bytes(bytes(raw))
     return path
+
+
+def archive_version(path):
+    """The version recorded inside a packed plugin (what a real MCDR would load from it)."""
+    with zipfile.ZipFile(path) as archive:
+        return json.loads(archive.read("mcdreforged.plugin.json").decode("utf-8"))["version"]
 
 
 def release_for(path, version="9.9.9", url=None):
@@ -103,29 +112,67 @@ class FakeMetadata:
 
 
 class FakeServer:
-    """Just enough PluginServerInterface for the swap: records the call order."""
+    """Just enough PluginServerInterface for the swap: records the call order and mimics MCDR.
 
-    def __init__(self, *, load_results=(True,), version_after_load=None, unload_result=True):
+    ``folder`` is the plugin directory MCDR enumerates. With ``relative=True`` its entries are
+    reported the way the default configuration does (``plugin_directories: [plugins]``), so
+    ``load_plugin`` accepts exactly that spelling and treats anything else as the no-op the
+    real MCDR 2.16 performs: no operation, no exception, just ``False``.
+    """
+
+    def __init__(self, folder=None, *, relative=False, load_results=(True,), version_after_load=None,
+                 unload_result=True, plugin_list=None):
         self.calls = []
+        self.folder = Path(folder) if folder is not None else None
+        self.relative = relative
         self.load_results = list(load_results)
         self.version_after_load = version_after_load
         self.unload_result = unload_result
+        self.plugin_list = plugin_list
         self.said = []
+        self.loaded_version = "8.8.8"          # the live archive a fresh folder starts with
+        self.load_attempts = 0
+
+    def _spelling(self, name):
+        return name if self.relative else os.path.join(str(self.folder), name)
+
+    def get_unloaded_plugin_list(self):
+        if self.plugin_list is not None:
+            return list(self.plugin_list)
+        if self.folder is None or not Path(self.folder).is_dir():
+            return []
+        return [self._spelling(path.name) for path in sorted(Path(self.folder).iterdir())
+                if path.suffix == ".mcdr"]
 
     def unload_plugin(self, plugin_id):
         self.calls.append(("unload", plugin_id))
-        return self.unload_result
+        if not self.unload_result:
+            return False
+        self.loaded_version = None
+        return True
 
     def load_plugin(self, path):
-        self.calls.append(("load", os.path.basename(str(path))))
-        result = self.load_results.pop(0) if self.load_results else False
-        return result
+        self.calls.append(("load", str(path)))
+        allowed = {Path(entry) for entry in self.get_unloaded_plugin_list()}
+        if Path(str(path)) not in allowed:
+            self.calls.append(("load_ignored", str(path)))
+            return False
+        self.load_attempts += 1
+        result = self.load_results.pop(0) if self.load_results else True
+        if not result:
+            self.loaded_version = None
+            return False
+        if self.load_attempts == 1 and self.version_after_load is not None:
+            self.loaded_version = self.version_after_load
+        else:
+            self.loaded_version = archive_version(path)
+        return True
 
     def get_plugin_metadata(self, plugin_id):
         self.calls.append(("metadata", plugin_id))
-        if not self.load_results and self.version_after_load is None:
-            return FakeMetadata("old")
-        return FakeMetadata(self.version_after_load or "9.9.9")
+        if self.loaded_version is None:
+            return None
+        return FakeMetadata(self.loaded_version)
 
     def say(self, text):
         self.said.append(text)
@@ -373,7 +420,7 @@ def test_preflight_happens_before_anything_is_destroyed(artifact):
 def test_the_swap_unloads_deletes_replaces_and_loads(tmp_path, artifact):
     """Section 6: the swap -- unload -> delete -> replace -> load."""
     live, staged = fresh_plugin_dir(tmp_path / "swap_ok", artifact.path)
-    server = FakeServer(version_after_load="9.9.9")
+    server = FakeServer(live.parent)
 
     updater.apply_archive(server, staged, live, artifact.release)
 
@@ -386,9 +433,45 @@ def test_the_swap_unloads_deletes_replaces_and_loads(tmp_path, artifact):
         f"the backup is cleaned up after a good load: {sorted(os.listdir(live.parent))}"
 
 
+def test_the_load_uses_the_path_spelling_mcdr_enumerated(tmp_path, artifact, monkeypatch):
+    """The 0.8.0 regression: MCDR compares raw paths, and its default plugin directory is relative."""
+    live, staged = fresh_plugin_dir(tmp_path / "swap_relative", artifact.path)
+    server = FakeServer(live.parent, relative=True)
+    monkeypatch.chdir(live.parent)
+
+    updater.apply_archive(server, staged, live, artifact.release)
+
+    loads = [call for call in server.calls if call[0] == "load"]
+    assert loads == [("load", live.name)], \
+        f"the enumerated spelling is fed back to load_plugin: {server.calls}"
+    assert not any(call[0] == "load_ignored" for call in server.calls), \
+        f"the absolute path is never handed over: {server.calls}"
+    assert updater.verify_archive(live, artifact.release) is None, \
+        "the new archive was loaded and the update finished"
+
+
+def test_a_file_mcdr_does_not_list_is_never_loaded_by_absolute_path(tmp_path, artifact):
+    """When MCDR does not enumerate the file at all, do not fall back to the absolute path."""
+    live, staged = fresh_plugin_dir(tmp_path / "swap_unlisted", artifact.path)
+    server = FakeServer(live.parent, plugin_list=[])
+
+    detail = ""
+    try:
+        updater.apply_archive(server, staged, live, artifact.release)
+    except updater.LoadError as error:
+        detail = error.detail
+
+    assert "does not list" in detail, \
+        f"the operator learns MCDR did not see the file: {detail}"
+    assert not any(call[0] == "load" for call in server.calls), \
+        f"an absolute path the enumeration never mentioned is not handed over: {server.calls}"
+    assert zipfile.ZipFile(live).read("mcdreforged.plugin.json").find(b"8.8.8") > 0, \
+        "the previous archive is back on disk"
+
+
 def test_a_failed_unload_stops_before_touching_the_file(tmp_path, artifact):
     live, staged = fresh_plugin_dir(tmp_path / "swap_unload_fails", artifact.path)
-    server = FakeServer(unload_result=False)
+    server = FakeServer(live.parent, unload_result=False)
 
     detail = ""
     try:
@@ -406,7 +489,7 @@ def test_a_failed_unload_stops_before_touching_the_file(tmp_path, artifact):
 
 def test_a_file_windows_still_locks_ends_the_update(tmp_path, artifact, monkeypatch):
     live, staged = fresh_plugin_dir(tmp_path / "swap_delete_locked", artifact.path)
-    server = FakeServer(version_after_load="9.9.9")
+    server = FakeServer(live.parent)
 
     def locked_delete(path):
         raise updater.ReplaceError("cannot delete {}: [WinError 32]".format(path))
@@ -429,7 +512,7 @@ def test_a_file_windows_still_locks_ends_the_update(tmp_path, artifact, monkeypa
 
 def test_a_failed_move_restores_the_previous_file(tmp_path, artifact, monkeypatch):
     live, staged = fresh_plugin_dir(tmp_path / "swap_move_fails", artifact.path)
-    server = FakeServer(version_after_load="9.9.9")
+    server = FakeServer(live.parent)
 
     def failing_move(source, target):
         raise updater.ReplaceError("cannot move: [WinError 5]")
@@ -444,13 +527,13 @@ def test_a_failed_move_restores_the_previous_file(tmp_path, artifact, monkeypatc
 
     assert "previous file was restored" in detail, \
         f"a failed move restores the previous file: {detail}"
-    assert live.exists() and [call[0] for call in server.calls] == ["unload", "load"], \
+    assert live.exists() and [call[0] for call in server.calls] == ["unload", "load", "metadata"], \
         f"the old archive is back on disk and loaded: {server.calls}"
 
 
 def test_a_refused_load_rolls_back(tmp_path, artifact):
     live, staged = fresh_plugin_dir(tmp_path / "swap_load_fails", artifact.path)
-    server = FakeServer(load_results=[False], version_after_load="8.8.8")
+    server = FakeServer(live.parent, load_results=[False])
 
     detail = ""
     try:
@@ -459,15 +542,33 @@ def test_a_refused_load_rolls_back(tmp_path, artifact):
         detail = error.detail
 
     assert "previous version was restored" in detail, f"a refused load rolls back: {detail}"
-    assert [call[0] for call in server.calls] == ["unload", "load", "load"], \
-        f"the rollback loaded the old file again: {server.calls}"
+    assert [call[0] for call in server.calls] == \
+        ["unload", "load", "metadata", "load", "metadata"], \
+        f"the rollback loaded the old file again and checked it: {server.calls}"
     assert zipfile.ZipFile(live).read("mcdreforged.plugin.json").find(b"8.8.8") > 0, \
         f"the file on disk is the old version again: {zipfile.ZipFile(live).read('mcdreforged.plugin.json')}"
 
 
+def test_a_rollback_that_could_not_load_anything_is_not_reported_as_restored(tmp_path, artifact):
+    """The message may only promise a recovery when MCDR really loaded the old version again."""
+    live, staged = fresh_plugin_dir(tmp_path / "swap_restore_load_fails", artifact.path)
+    server = FakeServer(live.parent, load_results=[False, False])
+
+    detail = ""
+    try:
+        updater.apply_archive(server, staged, live, artifact.release)
+    except updater.LoadError as error:
+        detail = error.detail
+
+    assert "previous version was restored" not in detail, \
+        f"a rollback that loaded nothing must not claim a recovery: {detail}"
+    assert "could not be restored" in detail, \
+        f"...it says what happened instead: {detail}"
+
+
 def test_a_loaded_version_that_is_not_the_target_rolls_back(tmp_path, artifact):
     live, staged = fresh_plugin_dir(tmp_path / "swap_wrong_version", artifact.path)
-    server = FakeServer(version_after_load="0.0.1")
+    server = FakeServer(live.parent, version_after_load="0.0.1")
 
     detail = ""
     try:
@@ -477,7 +578,8 @@ def test_a_loaded_version_that_is_not_the_target_rolls_back(tmp_path, artifact):
 
     assert "expected '9.9.9'" in detail, \
         f"a loaded version that is not the target rolls back: {detail}"
-    assert [call[0] for call in server.calls] == ["unload", "load", "metadata", "unload", "load"], \
+    assert [call[0] for call in server.calls] == \
+        ["unload", "load", "metadata", "unload", "load", "metadata"], \
         f"the rollback unloads the wrong build before restoring and loading the old one: {server.calls}"
     assert zipfile.ZipFile(live).read("mcdreforged.plugin.json").find(b"8.8.8") > 0, \
         ("the file on disk is the old version after that rollback: "
@@ -486,7 +588,7 @@ def test_a_loaded_version_that_is_not_the_target_rolls_back(tmp_path, artifact):
 
 def test_a_rollback_that_cannot_prepare_its_copy_says_so(tmp_path, artifact, monkeypatch):
     live, staged = fresh_plugin_dir(tmp_path / "swap_restore_copy_fails", artifact.path)
-    server = FakeServer(load_results=[False], version_after_load="8.8.8")
+    server = FakeServer(live.parent, load_results=[False])
     # The real copy2 is kept aside: the rollback still has to back up the file, only the
     # `.restore` copy is made to fail. monkeypatch puts shutil.copy2 back by itself.
     real_copy = shutil.copy2
@@ -519,7 +621,7 @@ def test_the_whole_update_runs(tmp_path, artifact, monkeypatch):
     live = folder / "GamesAI-v8.8.8.mcdr"
     make_archive(live, version="8.8.8")
     monkeypatch.setattr(updater, "__file__", str(live / "games_ai" / "update/updater.py"))
-    server = FakeServer(version_after_load="9.9.9")
+    server = FakeServer(folder)
     session = FakeSession([FakeResponse(artifact.body)])
 
     failure = ""
@@ -569,7 +671,7 @@ def test_the_updater_never_hands_the_work_back_to_pim():
 def test_a_rollback_that_cannot_verify_the_old_bytes_says_so(tmp_path, artifact, monkeypatch):
     """A "restored" message is only allowed when the old archive is really back on disk."""
     live, staged = fresh_plugin_dir(tmp_path / "swap_restore_unverified", artifact.path)
-    server = FakeServer(version_after_load="8.8.8")
+    server = FakeServer(live.parent)
     logs = []
 
     def failing_move(source, target):

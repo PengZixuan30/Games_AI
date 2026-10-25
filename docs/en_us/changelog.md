@@ -8,7 +8,16 @@ English  |  [简体中文](../zh_cn/changelog.md)  |  [繁體中文](../zh_tw/ch
 
 </div>
 
+## Version 0.8.1
+
+A fix release for the self-updater. **An instance running 0.8.0 or 0.8.0-SNAPSHOT has to install 0.8.1 by hand once** (`!!MCDR plugin install -U -y games_ai`), because the broken self-loader is the very code that would have to perform a self-update; after that one manual install, self-updates work again.
+
+- **The self-updater loads the plugin MCDR enumerated**: the swap passed the archive's absolute path to `ServerInterface.load_plugin`, but MCDR compares that path verbatim with the files it enumerated from `plugin_directories` -- and the default `plugins` is relative, so nothing ever matched: MCDR performed no load at all (it logged only "Loading plugin from ...") and answered `False`, so the update was reported as refused and rolled back -- while the rollback loaded nothing either, leaving the plugin unloaded. The updater now hands back the exact path spelling MCDR enumerated for the file (a file-identity comparison covers a symlinked folder), and both the new version and every rollback are confirmed through the version MCDR reports, so a swap that loaded nothing can no longer be reported as a success or as a restored archive.
+- **A failed update stays readable after the unload**: a rollback that cannot load the old archive back leaves the plugin unloaded, and MCDR then has no translation resources for it; the failure line now falls back to a plain English sentence instead of an untranslated key.
+
 ## Version 0.8.0
+
+> **Known issue in this release**: when `plugin_directories` is relative (the default), its self-updater could not load the downloaded archive, so an instance on 0.8.0 has to install 0.8.1 by hand once (see the 0.8.1 notes above).
 
 - **Errors are readable without debug mode**: a failed request now logs one WARNING line with the status code, its localized meaning and the provider's request ID (it used to be a DEBUG line), and the player's reply spells the meaning out for a provider status other than a wrong key or a rate limit (for example `HTTP 402 (Insufficient API Key balance)`); 401 and 429 keep their own sentences, which name the cause.
 - **Conversations are stored**: every `ChatParam` is written into a `chat_history` table of `config/games_ai/database/public_database.db` after every finished round and restored on every plugin load, so a reload, an update, a restart or removing the plugin no longer loses anybody's conversation. It is the same database file as `!!data` (a separate table), and in a cluster the store belongs to the hub; deleting that file deletes both. The numbers `!!ask context` shows are stored with the conversation too -- the last request's usage, this round's counters and the last compression -- so they are back after a reload; only the held-context estimate is recomputed from the restored history at load, because the tool schemas belong to the next request.
